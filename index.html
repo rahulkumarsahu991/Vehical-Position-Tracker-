@@ -128,10 +128,28 @@
           <svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
           <input id="pq" type="search" placeholder="Search vehicle / location" autocomplete="off">
         </label>
+        <label class="select-wrap ploc-wrap" title="Location">
+          <span>Location</span>
+          <select id="ploc"><option value="">All locations</option></select>
+        </label>
       </div>
       <p class="hint" id="progHint"></p>
       <div id="progList" class="prog-list"></div>
     </section>
+
+    <!-- one program for several selected vehicles -->
+    <div class="bulk-bar" id="bulkBar" hidden>
+      <div class="bb-top">
+        <b id="bulkCount">0 selected</b>
+        <span class="muted" id="bulkWhere"></span>
+        <button type="button" class="btn link sm" id="bulkClear">Clear</button>
+      </div>
+      <div class="bb-row">
+        <label class="field"><span class="pg-lbl">Program</span><input id="bulkProg" list="locList" autocomplete="off"></label>
+        <label class="field"><span class="pg-lbl">Broker / Party</span><input id="bulkBroker" autocomplete="off"></label>
+        <button type="button" class="btn primary" id="bulkGive">Give program</button>
+      </div>
+    </div>
 
     <!-- ============ PRINT ============ -->
     <section id="view-print" class="view" hidden>

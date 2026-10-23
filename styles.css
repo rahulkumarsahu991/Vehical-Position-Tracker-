@@ -641,6 +641,23 @@ table.vt td.rem { min-width: 180px; color: var(--ink-2); }
   .print-area [data-edit]:hover { background: #fff4d6 !important; outline: 2px dashed var(--orange); outline-offset: -2px; }
 }
 
+/* Programs: tick several vehicles → one program for all */
+.pick { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; margin: -5px -2px -5px -6px; cursor: pointer; }
+.pick input { width: 20px; height: 20px; accent-color: var(--orange); cursor: pointer; }
+.pcard.picked { box-shadow: 0 0 0 2px var(--orange), var(--shadow); background: #fffaf2; }
+.prog-sec .pick-all { margin-left: auto; text-transform: none; letter-spacing: 0; font: 600 13px var(--font); }
+.ploc-wrap select { max-width: 220px; }
+.bulk-bar {
+  position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 45;
+  width: min(760px, calc(100% - 24px)); display: grid; gap: 8px;
+  background: var(--card); border: 1px solid var(--line); border-top: 4px solid var(--orange);
+  border-radius: 14px; box-shadow: var(--shadow-lg); padding: 10px 12px;
+}
+.bulk-bar .bb-top { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.bulk-bar .bb-top .btn { margin-left: auto; }
+.bulk-bar .bb-row { display: grid; grid-template-columns: 1.4fr 1fr auto; gap: 8px; align-items: end; }
+body.has-bulk main { padding-bottom: 180px; }
+
 /* "Install the app" strip */
 .install-bar {
   max-width: 1400px; margin: 10px auto 0; display: flex; align-items: center; gap: 10px;
@@ -799,6 +816,26 @@ table.pf .ok { color: #15803d; font-weight: 700; }
   .sh-head { border-radius: 18px 18px 0 0; }
   .who-list { grid-template-columns: 1fr 1fr; }
   .drv b { max-width: 150px; }
+}
+
+/* ---------------- iPhone: keep clear of the camera / Dynamic Island and the home bar ---------------- */
+.top { padding-top: env(safe-area-inset-top); }
+.top-in { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+.toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
+.sh-body { padding-bottom: calc(30px + env(safe-area-inset-bottom)); }
+@media (max-width: 760px) {
+  .top-in { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+  main { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+  .sheet { height: 94vh; height: 94dvh; }
+  .bulk-bar { bottom: 0; width: 100%; border-radius: 14px 14px 0 0; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+  .bulk-bar .bb-row { grid-template-columns: 1fr 1fr; }
+  .bulk-bar .bb-row .btn { grid-column: 1 / -1; }
+  .ploc-wrap { flex: 1 1 100%; }
+  .ploc-wrap select { max-width: none; flex: 1; }
+}
+/* iPhone zooms the whole page when a box with text under 16px is tapped — keep boxes at 16px there */
+@supports (-webkit-touch-callout: none) {
+  input, select, textarea { font-size: 16px !important; }
 }
 
 /* ---------------- printing ---------------- */

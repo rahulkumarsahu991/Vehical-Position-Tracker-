@@ -72,7 +72,7 @@
     group: store.get(K.group, 'status'),
     closed: new Set(store.get(K.closed, [])),
     sort: { key: 'cat', dir: 1 },
-    pseg: 'noprog', pq: '',
+    pseg: 'noprog', pq: '', ploc: '', sel: new Set(),
     drafts: {}, editing: {},
     print: Object.assign({ rep: 'caller', caller: '', orient: 'auto', cols: 'auto' }, store.get(K.print, {})),
     detail: null, pending: false,
@@ -809,24 +809,49 @@
     Object.keys(b).forEach(k => b[k].sort((x, y) => ord(x) - ord(y) || placeSort(x, y)));
     return b;
   }
+  /** where the program is for: unloading → where it is unloading; others → where it is now */
+  const progPlace = v => (v.cat === 'unloading' ? (v.to || v.cur) : (v.cur || v.where)) || 'Location not written';
+
   function renderPrograms() {
-    const key = [S.ver, S.pseg, S.pq, S.f.caller, JSON.stringify(S.editing), S.vehicles.length, S.user].join('|');
-    if (key === S.progKey) return;
+    const key = [S.ver, S.pseg, S.pq, S.ploc, S.f.caller, JSON.stringify(S.editing), [...S.sel].join(), S.vehicles.length, S.user].join('|');
+    if (key === S.progKey) { renderBulkBar(); return; }
     S.progKey = key;
     const b = progBuckets();
     $('#progSeg').innerHTML = PSEGS.map(s => '<button type="button" role="tab" data-pseg="' + s.k + '" class="' + (S.pseg === s.k ? 'on' : '') + '">' + s.t + ' <span class="n">' + b[s.k].length + '</span></button>').join('');
     const seg = PSEGS.find(s => s.k === S.pseg) || PSEGS[0];
-    $('#progHint').textContent = seg.hint;
+    const picking = seg.k === 'noprog' || seg.k === 'unloading';
+    $('#progHint').textContent = seg.hint + (picking ? ' Tick several vehicles (or “Select all” of a location) to give them one program together.' : '');
     const list = $('#progList');
     if (!S.vehicles.length) { list.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div>'; return; }
     let vs = b[seg.k];
+    // location dropdown: locations of this tab, with how many vehicles each
+    const locCount = {};
+    vs.forEach(v => { const l = progPlace(v); locCount[l] = (locCount[l] || 0) + 1; });
+    if (S.ploc && !locCount[S.ploc]) S.ploc = '';
+    $('#ploc').innerHTML = '<option value="">All locations (' + vs.length + ')</option>' + Object.keys(locCount).sort()
+      .map(l => '<option value="' + esc(l) + '"' + (l === S.ploc ? ' selected' : '') + '>' + esc(l) + ' (' + locCount[l] + ')</option>').join('');
+    if (S.ploc) vs = vs.filter(v => progPlace(v) === S.ploc);
     if (S.pq) { const q = norm(S.pq); vs = vs.filter(v => (v.search + ' ' + norm((S.active[v.vno] || {}).program)).includes(q)); }
+    // ticked vehicles that are no longer in this list are dropped
+    if (!picking) S.sel.clear();
+    else [...S.sel].forEach(vno => { if (!vs.some(v => v.vno === vno)) S.sel.delete(vno); });
+    renderBulkBar();
     if (!vs.length) {
       const msg = { noprog: 'Every No Program vehicle has a program 👍', unloading: 'Every Unloading vehicle has a next load 👍', call: 'No driver is waiting to be called.', done: 'No driver informed yet.', all: 'No vehicle here.' }[seg.k];
       list.innerHTML = '<div class="empty"><b>' + msg + '</b>' + (S.f.caller ? 'Caller: ' + esc(S.f.caller) : 'All callers') + '</div>';
       return;
     }
-    if (seg.k === 'noprog' || seg.k === 'unloading') { list.innerHTML = vs.map(pcardHtml).join(''); return; }
+    if (picking) { // grouped by location, each with "Select all"
+      const by = {};
+      vs.forEach(v => { (by[progPlace(v)] = by[progPlace(v)] || []).push(v); });
+      list.innerHTML = Object.keys(by).sort((a, z) => by[z].length - by[a].length || a.localeCompare(z)).map(l => {
+        const all = by[l].every(v => S.sel.has(v.vno));
+        return '<h3 class="prog-sec" style="--c:' + CAT[seg.k].color + '"><span class="sw"></span>' + esc(l) + ' <span class="n">' + by[l].length + '</span>' +
+          (by[l].length > 1 ? '<button type="button" class="btn link sm pick-all" data-pickall="' + esc(l) + '">' + (all ? 'Unselect all' : 'Select all ' + by[l].length) + '</button>' : '') + '</h3>' +
+          by[l].map(v => pcardHtml(v, true)).join('');
+      }).join('');
+      return;
+    }
     // mixed lists: No Program and Unloading shown in their own sections
     const groups = [['noprog', 'No Program'], ['unloading', 'Unloading'], ['', 'Other status']];
     list.innerHTML = groups.map(g => {
@@ -836,10 +861,12 @@
         part.map(pcardHtml).join('');
     }).join('');
   }
-  function pcardHtml(v) {
-    const c = CAT[v.cat];
-    return '<article class="pcard' + flashCls(v) + '" data-card="' + esc(v.vno) + '" style="--c:' + c.color + '">' +
-      '<div class="pc-top">' + plate(v.vno) + catBadge(v) + flagBadges(v) + '<span class="tag-caller">' + esc(v.callerName) + '</span></div>' +
+  function pcardHtml(v, pickable) {
+    const c = CAT[v.cat], on = pickable && S.sel.has(v.vno);
+    return '<article class="pcard' + flashCls(v) + (on ? ' picked' : '') + '" data-card="' + esc(v.vno) + '" style="--c:' + c.color + '">' +
+      '<div class="pc-top">' +
+      (pickable ? '<label class="pick" title="Select for one program together"><input type="checkbox" data-pick="' + esc(v.vno) + '"' + (on ? ' checked' : '') + '></label>' : '') +
+      plate(v.vno) + catBadge(v) + flagBadges(v) + '<span class="tag-caller">' + esc(v.callerName) + '</span></div>' +
       '<div class="pc-where">' + doingHtml(v) + '</div>' +
       '<div class="pc-line">' + driverHtml(v) + '</div>' +
       (v.remarks ? '<div class="pc-remark">“' + esc(v.remarks) + '”</div>' : '') +
@@ -912,8 +939,32 @@
       flushOutbox();
     }
     computeActive();
-    toast(okMsg || 'Saved');
+    if (okMsg !== false) toast(okMsg || 'Saved'); // false = quiet (one note for many vehicles)
     return true;
+  }
+  /** bottom bar while vehicles are ticked in Programs */
+  function renderBulkBar() {
+    const n = S.sel.size, bar = $('#bulkBar');
+    bar.hidden = !n || S.view !== 'programs';
+    document.body.classList.toggle('has-bulk', !bar.hidden);
+    if (bar.hidden) return;
+    $('#bulkCount').textContent = n + ' vehicle' + (n > 1 ? 's' : '') + ' selected';
+    const places = [...new Set([...S.sel].map(vno => (S.byVno[vno] ? progPlace(S.byVno[vno]) : '')))].filter(Boolean);
+    $('#bulkWhere').textContent = places.length === 1 ? '· ' + places[0] : '· ' + places.length + ' locations';
+    $('#bulkGive').textContent = 'Give to ' + n;
+  }
+  /** one program (and broker) for every ticked vehicle — saved at once, sent to the sheet in the background */
+  async function bulkGive() {
+    const program = $('#bulkProg').value.trim(), broker = $('#bulkBroker').value.trim();
+    if (!S.sel.size) return;
+    if (!program) { toast('Write the program first (where to go / load from)', true); $('#bulkProg').focus(); return; }
+    if (!S.user) { const u = await askWho(); if (!u) return; }
+    const vnos = [...S.sel];
+    for (const vno of vnos) await saveProgram(vno, { program: program, broker: broker }, false);
+    S.sel.clear();
+    $('#bulkProg').value = ''; $('#bulkBroker').value = '';
+    toast('Program given to ' + vnos.length + ' vehicle' + (vnos.length > 1 ? 's' : '') + ' — now call the drivers');
+    renderAll();
   }
   function upsertProgram(rec) {
     const i = S.programs.findIndex(p => p.id === rec.id);
@@ -1579,6 +1630,7 @@
     $$('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view));
     if (!noHash && location.hash !== '#' + view) { try { history.replaceState(history.state, '', '#' + view); } catch (e) { location.hash = view; } }
     renderAll();
+    renderBulkBar();
     window.scrollTo(0, 0);
   }
 
@@ -1677,7 +1729,26 @@
     });
 
     // programs view
-    $('#progSeg').addEventListener('click', e => { const b = e.target.closest('[data-pseg]'); if (b) { S.pseg = b.dataset.pseg; renderPrograms(); } });
+    $('#progSeg').addEventListener('click', e => { const b = e.target.closest('[data-pseg]'); if (b) { S.pseg = b.dataset.pseg; S.sel.clear(); renderPrograms(); } });
+    // pick several vehicles → one program for all of them
+    $('#ploc').addEventListener('change', e => { S.ploc = e.target.value; renderPrograms(); });
+    $('#progList').addEventListener('change', e => {
+      const c = e.target.closest('[data-pick]');
+      if (!c) return;
+      if (c.checked) S.sel.add(c.dataset.pick); else S.sel.delete(c.dataset.pick);
+      renderPrograms();
+    });
+    $('#progList').addEventListener('click', e => {
+      const b = e.target.closest('[data-pickall]');
+      if (!b) return;
+      const vnos = $$('#progList .pcard').map(c => c.dataset.card).filter(vno => S.byVno[vno] && progPlace(S.byVno[vno]) === b.dataset.pickall);
+      const all = vnos.every(x => S.sel.has(x));
+      vnos.forEach(x => { if (all) S.sel.delete(x); else S.sel.add(x); });
+      renderPrograms();
+    });
+    $('#bulkClear').addEventListener('click', () => { S.sel.clear(); renderPrograms(); });
+    $('#bulkGive').addEventListener('click', bulkGive);
+    $('#bulkProg').addEventListener('keydown', e => { if (e.key === 'Enter') bulkGive(); });
     $('#progList').addEventListener('click', e => {
       if (e.target.closest('a, button, input, label')) return;
       const card = e.target.closest('[data-card]'); if (card) openDetail(card.dataset.card);
