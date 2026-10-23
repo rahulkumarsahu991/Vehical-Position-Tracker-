@@ -150,6 +150,9 @@ table.calls-table .pend {
 }
 table.calls-table .ok { color: var(--green); }
 table.calls-table tfoot td { background: var(--line-2); font-weight: 800; }
+table.calls-table th.now { background: var(--orange); }
+table.calls-table .pend { white-space: nowrap; }
+.calls-err { margin: 8px 2px 0; font-size: 12.5px; }
 
 .save-state {
   font-size: 12px; font-weight: 600; white-space: nowrap; border-radius: 999px; padding: 4px 10px;

@@ -1105,23 +1105,38 @@
    *  Pending calls — caller-wise, from the Dashboard tab of the Fleet sheet
    * ===================================================================== */
   const CALLS_MS = Math.max(20, Number(CFG.CALLS_REFRESH_SECONDS) || 60) * 1000;
-  async function loadCalls() {
+  /** The big Fleet sheet is sometimes slow or briefly refuses: the last result is kept (shown at once on
+   *  the next open) and a failed check is tried again after 5 s and 15 s instead of waiting a minute. */
+  const K_CALLS = 'vpt_calls_cache_v1';
+  async function loadCalls(attempt) {
     if (!CFG.CALLS_SHEET_ID || S.callsLoading) return;
     S.callsLoading = true;
+    if (!$('#callsOverlay').hidden) renderCalls();
+    let failed = false;
     try {
       const url = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(CFG.CALLS_SHEET_ID) + '/export?format=csv&gid=' + encodeURIComponent(CFG.CALLS_GID);
-      const r = await fetchWithTimeout(url, { cache: 'no-store' }, 30000);
-      const text = await r.text();
-      if (!r.ok || /^\s*</.test(text)) throw new Error('Dashboard sheet is not shared (Anyone with the link: Viewer)');
+      let r, text;
+      try {
+        r = await fetchWithTimeout(url, { cache: 'no-store' }, 20000);
+        text = await r.text();
+      } catch (e) { throw new Error('The Dashboard sheet did not answer — trying again'); }
+      if (!r.ok || /^\s*</.test(text)) throw new Error(r.ok ? 'Dashboard sheet is not shared (Anyone with the link: Viewer)' : 'Google is busy (' + r.status + ') — trying again');
       S.calls = parseCalls(parseCsv(text)); S.callsAt = Date.now(); S.callsError = '';
+      store.set(K_CALLS, { at: S.callsAt, calls: S.calls });
     } catch (e) {
       S.callsError = e.message || 'Could not load the Dashboard';
+      failed = true;
     } finally {
       S.callsLoading = false;
       renderCallsBtn();
       if (!$('#callsOverlay').hidden) renderCalls();
     }
+    const n = attempt || 0;
+    if (failed && n < 2) setTimeout(() => loadCalls(n + 1), n ? 15000 : 5000);
   }
+  /** Morning calls until 3 PM, evening calls from 3 PM (same split as the sheet's printf tab) */
+  const callSession = () => (new Date().getHours() < 15 ? 'morning' : 'evening');
+  const sessionLeft = c => Math.max(0, (c.total || 0) - (callSession() === 'morning' ? c.morning : c.evening));
   /** caller → done / pending (table "CALLER-WISE") + vehicles / morning / evening (table "CALLING SHEET REPORT SUMMARY") */
   function parseCalls(grid) {
     const byName = {}, order = [];
@@ -1149,9 +1164,12 @@
     const callers = all.filter(c => !/^total$/i.test(c.name) && (c.total || c.done || c.pending || c.morning || c.evening)); // leave out inactive callers
     return { callers: callers, total: total };
   }
+  /** calls still to make: the Dashboard's "Calls Pending", or this session's morning / evening calls not yet made */
   function pendingTotal() {
     if (!S.calls) return null;
-    return S.calls.total ? S.calls.total.pending : S.calls.callers.reduce((n, c) => n + c.pending, 0);
+    const dash = S.calls.total ? S.calls.total.pending : S.calls.callers.reduce((n, c) => n + c.pending, 0);
+    const left = S.calls.callers.reduce((n, c) => n + sessionLeft(c), 0);
+    return Math.max(dash, left);
   }
   function renderCallsBtn() {
     const b = $('#callsBtn');
@@ -1164,17 +1182,29 @@
     b.title = n == null ? (S.callsError || 'Loading calls…') : n + ' call' + (n === 1 ? '' : 's') + ' pending — tap for caller-wise';
   }
   function renderCalls() {
-    const body = $('#callsBody');
-    $('#callsSub').textContent = S.callsAt ? 'From the Dashboard sheet · updated ' + clock(new Date(S.callsAt)) + ' · checks every ' + Math.round(CALLS_MS / 1000) + ' s' : 'Loading…';
+    const body = $('#callsBody'), ses = callSession();
+    $('#callsSub').textContent = (S.callsLoading ? 'Updating… · ' : '') +
+      (S.callsAt ? 'From the Dashboard sheet · updated ' + clock(new Date(S.callsAt)) : 'Loading…') +
+      ' · now: ' + (ses === 'morning' ? 'morning calls (till 3 PM)' : 'evening calls (from 3 PM)');
     if (!S.calls) { body.innerHTML = '<div class="empty">' + esc(S.callsError || 'Loading…') + '</div>'; return; }
     const cell = (v, cls) => '<td class="' + (cls || '') + '">' + v + '</td>';
-    const line = (c, isTotal) => '<tr class="' + (isTotal ? 'tot' : '') + (c.name === S.user ? ' me' : '') + (c.pending ? ' has-pend' : '') + '">' +
-      '<td class="nm">' + esc(c.name) + '</td>' + cell(c.total) + cell(c.done) +
-      cell(c.pending ? '<span class="pend blink">' + c.pending + '</span>' : '<span class="ok">0 ✓</span>') +
-      cell(c.morning) + cell(c.evening) + '</tr>';
-    body.innerHTML = '<div class="calls-wrap"><table class="calls-table"><thead><tr><th>Caller</th><th>Vehicles</th><th>Calls done</th><th>Pending</th><th>Morning</th><th>Evening</th></tr></thead><tbody>' +
+    // this session's column: red + blinking while calls are left, e.g. "30 / 46"
+    const sessCell = (c, which) => {
+      const done = c[which], left = ses === which ? Math.max(0, (c.total || 0) - done) : 0;
+      return cell(left ? '<span class="pend blink" title="' + left + ' call' + (left > 1 ? 's' : '') + ' pending">' + done + ' / ' + c.total + '</span>'
+        : (ses === which && c.total ? '<span class="ok">' + done + ' ✓</span>' : String(done)));
+    };
+    const line = (c, isTotal) => {
+      const pend = Math.max(c.pending, sessionLeft(c));
+      return '<tr class="' + (isTotal ? 'tot' : '') + (c.name === S.user ? ' me' : '') + (pend ? ' has-pend' : '') + '">' +
+        '<td class="nm">' + esc(c.name) + '</td>' + cell(c.total) + cell(c.done) +
+        cell(c.pending ? '<span class="pend blink">' + c.pending + '</span>' : '<span class="ok">0 ✓</span>') +
+        sessCell(c, 'morning') + sessCell(c, 'evening') + '</tr>';
+    };
+    body.innerHTML = '<div class="calls-wrap"><table class="calls-table"><thead><tr><th>Caller</th><th>Vehicles</th><th>Calls done</th><th>Pending</th>' +
+      '<th class="' + (ses === 'morning' ? 'now' : '') + '">Morning</th><th class="' + (ses === 'evening' ? 'now' : '') + '">Evening</th></tr></thead><tbody>' +
       S.calls.callers.map(c => line(c)).join('') + '</tbody>' + (S.calls.total ? '<tfoot>' + line(S.calls.total, true) + '</tfoot>' : '') + '</table></div>' +
-      (S.callsError ? '<p class="muted">Last update failed: ' + esc(S.callsError) + '</p>' : '');
+      (S.callsError ? '<p class="muted calls-err">' + esc(S.callsError) + (S.callsAt ? ' · showing the ' + clock(new Date(S.callsAt)) + ' figures' : '') + '</p>' : '');
   }
   function openCalls() {
     renderCalls();
@@ -1910,6 +1940,8 @@
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
       navigator.serviceWorker.register('sw.js').catch(() => {}); // offline copy: opens at once on slow networks
     }
+    const cc = store.get(K_CALLS, null); // last calls figures: shown at once, refreshed right after
+    if (cc && cc.calls) { S.calls = cc.calls; S.callsAt = cc.at; }
     renderCallsBtn();
     loadCalls();
     setStickyTop();
