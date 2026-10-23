@@ -1754,6 +1754,47 @@
     window.addEventListener('beforeunload', e => { if (S.outbox.length) { e.preventDefault(); e.returnValue = ''; } });
   }
 
+  /* ---------------- install as an app ----------------
+   * Chrome / Edge / Android hand over an install prompt → our Install button shows it.
+   * iPhone Safari has no prompt → the strip says how: Share → Add to Home Screen. */
+  let installEvt = null;
+  const IS_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const K_INSTALL = 'vpt_install_hidden_until';
+  const isInstalled = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+  function showInstallBar(how) {
+    if (isInstalled() || Date.now() < (store.get(K_INSTALL, 0) || 0)) return;
+    if (how) $('#installHow').textContent = how;
+    $('#installBar').hidden = false;
+  }
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    installEvt = e;
+    $('#installBtn').hidden = false;
+    showInstallBar();
+  });
+  window.addEventListener('appinstalled', () => {
+    installEvt = null;
+    $('#installBar').hidden = true;
+    toast('App installed ✓ — open it from your home screen');
+  });
+  function bindInstall() {
+    $('#installBtn').addEventListener('click', async () => {
+      if (!installEvt) return;
+      installEvt.prompt();
+      const choice = await installEvt.userChoice.catch(() => null);
+      installEvt = null;
+      if (choice && choice.outcome === 'accepted') $('#installBar').hidden = true;
+    });
+    $('#installClose').addEventListener('click', () => {
+      $('#installBar').hidden = true;
+      store.set(K_INSTALL, Date.now() + 3 * 86400000); // ask again after 3 days
+    });
+    if (IS_IOS && !isInstalled()) {
+      $('#installBtn').hidden = true;
+      showInstallBar('iPhone: tap Share ⬆ then “Add to Home Screen”');
+    }
+  }
+
   /* ---------------- start ---------------- */
   function start() {
     bind();
@@ -1772,6 +1813,7 @@
     showBanner();
     setSaveState();
     flushOutbox(); // saves left over from last time
+    bindInstall();
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
       navigator.serviceWorker.register('sw.js').catch(() => {}); // offline copy: opens at once on slow networks
     }

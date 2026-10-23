@@ -5,8 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#1b1e4f">
   <title>Vehicle Position · Daman Group</title>
-  <link rel="icon" href="logo.webp" type="image/webp">
-  <link rel="apple-touch-icon" href="logo.webp">
+  <link rel="icon" href="icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Vehicle Tracker">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet" crossorigin="anonymous">
@@ -45,6 +50,14 @@
   </header>
 
   <div id="banner" class="banner" hidden></div>
+
+  <!-- "install as an app" strip — shown only when the browser allows installing -->
+  <div id="installBar" class="install-bar" hidden>
+    <img src="icon-192.png" alt="">
+    <span class="ib-txt"><b>Install the app</b><small id="installHow">Opens like an app from your home screen</small></span>
+    <button type="button" class="btn primary sm" id="installBtn">Install</button>
+    <button type="button" class="ib-x" id="installClose" aria-label="Not now">×</button>
+  </div>
 
   <main>
     <!-- ============ BOARD ============ -->
