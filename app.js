@@ -1010,6 +1010,7 @@
   }
   function closeDetail(fromPop) {
     if (!S.detail) return;
+    if (S.editing[S.detail]) { delete S.editing[S.detail]; delete S.drafts[S.detail]; } // closed without saving
     S.detail = null;
     const ov = $('#sheetOverlay');
     ov.classList.remove('show');
@@ -1219,7 +1220,7 @@
     // drop columns that are empty for every vehicle — except Next Load / Broker, kept blank for writing by hand
     const keep = head.map((t, j) => t === 'Next Load' || t === 'Broker' || data.some(cs => String(cs[j]).trim()));
     const body = rows.map((v, i) => '<tr><td class="sr">' + (i + 1) + '.</td><td class="vn">' + esc(v.vno) + '</td>' +
-      data[i].map((x, j) => keep[j] ? '<td' + (head[j] === 'Next Load' ? ' class="prog"' : '') + '>' + x + '</td>' : '').join('') + '</tr>').join('');
+      data[i].map((x, j) => keep[j] ? '<td' + (head[j] === 'Next Load' ? ' class="prog" data-edit="' + esc(v.vno) + '"' : head[j] === 'Broker' ? ' data-edit="' + esc(v.vno) + '"' : '') + '>' + x + '</td>' : '').join('') + '</tr>').join('');
     return '<div class="pblock" style="--c:' + c.color + '"><table><caption>' + esc(c.label) + ' <span class="n">' + rows.length + '</span></caption>' +
       '<thead><tr><th>#</th><th>Vehicle</th>' + head.map((x, j) => keep[j] ? '<th>' + x + '</th>' : '').join('') + '</tr></thead><tbody>' + body + '</tbody></table></div>';
   }
@@ -1311,9 +1312,9 @@
     vs.forEach(v => { (by[v.cat] = by[v.cat] || []).push(v); });
     const list = k => (by[k] || []).slice().sort((a, b) => (placeKey(a) || '~').localeCompare(placeKey(b) || '~') || a.vno.localeCompare(b.vno));
     const L = [], R = [];
-    const add = (side, label, fill, heads, rows) => { if (rows.length) side.push({ label: label, fill: fill, heads: heads, rows: rows }); };
+    const add = (side, label, fill, heads, rows, edit) => { if (rows.length) side.push({ label: label, fill: fill, heads: heads, rows: rows, edit: !!edit }); };
     add(L, 'LOADING', 'orange', ['FROM LOCATION', ''], list('loading').map(v => [v.vno, esc(v.from), ''])); // 3rd column left blank (user asked)
-    add(L, 'UNLOADING', 'orange', ['TO LOCATION (ITEM)', 'NEXT LOAD'], list('unloading').map(v => [v.vno, esc(v.to + (v.item ? ' (' + v.item + ')' : '')), progCell(v)]));
+    add(L, 'UNLOADING', 'orange', ['TO LOCATION (ITEM)', 'NEXT LOAD'], list('unloading').map(v => [v.vno, esc(v.to + (v.item ? ' (' + v.item + ')' : '')), progCell(v)]), true);
     add(L, 'REPAIR', 'yellow', ['LOCATION', 'REASON'], list('repair').map(v => {
       const r = S.repairInfo[v.vno] || {};
       const d = String(r.date || '').match(/^(\d{4})-(\d\d)-(\d\d)/);
@@ -1324,7 +1325,7 @@
     add(R, 'RUNNING', 'yellow', ['ROUTE', 'CURRENT LOCATION'], list('running').map(v => [v.vno, esc((v.from || '') + ' - ' + (v.to || '')), esc(v.cur)]));
     add(R, 'EMPTY RUNNING', 'yellow', ['CURRENT LOCATION', 'FROM LOCATION'], list('empty').map(v => [v.vno, esc(v.cur), esc(v.from)]));
     add(R, 'NO DRIVER', 'orange', ['LOCATION', ''], list('loadnd').concat(list('halted')).map(v => [v.vno, esc(v.cur), '']));
-    add(R, 'NO PROGRAM', 'yellow', ['CURRENT LOCATION', 'PROGRAM'], list('noprog').map(v => [v.vno, esc(v.cur), progCell(v)]));
+    add(R, 'NO PROGRAM', 'yellow', ['CURRENT LOCATION', 'PROGRAM'], list('noprog').map(v => [v.vno, esc(v.cur), progCell(v)]), true);
     return { L: L, R: R };
   }
   /** one side of the sheet as rows of 3 cells */
@@ -1334,7 +1335,7 @@
     blocks.forEach((b, i) => {
       if (i) rows.push({ cells: ['', '', ''] });
       rows.push({ head: b.fill, cells: [esc(b.label) + '<br>' + b.rows.length, esc(b.heads[0]), esc(b.heads[1])] });
-      b.rows.forEach(r => rows.push({ cells: [esc(r[0]), r[1], r[2]] }));
+      b.rows.forEach(r => rows.push({ cells: [esc(r[0]), r[1], r[2]], edit: b.edit ? r[0] : '' }));
     });
     return rows;
   }
@@ -1347,6 +1348,7 @@
     const right = printfSide(b.R, '-- No Active Running / Transit --');
     const cell = (r, j) => {
       if (!r) return '<td></td>';
+      if (r.edit && j === 2) return '<td class="pf-prog" data-edit="' + esc(r.edit) + '">' + r.cells[2] + '</td>';
       if (r.head) return j === 0 ? '<td class="pf-cat" style="background:' + PF_FILL[r.head] + (r.head === 'navy' ? ';color:#fff' : '') + '">' + r.cells[0] + '</td>' : '<td class="pf-hd">' + r.cells[j] + '</td>';
       return '<td' + (r.none && j === 0 ? ' class="pf-none"' : '') + '>' + r.cells[j] + '</td>';
     };
@@ -1696,6 +1698,15 @@
 
     // print
     const savePrint = () => store.set(K.print, S.print);
+    // tap a Next Load / Program / Broker cell in the print preview → change that vehicle's program
+    $('#printArea').addEventListener('click', e => {
+      const c = e.target.closest('[data-edit]');
+      if (!c) return;
+      const vno = c.dataset.edit;
+      if (S.active[vno] && S.active[vno].program) S.editing[vno] = true;
+      openDetail(vno);
+      setTimeout(() => { const i = $('#sheet .pg [data-f="program"]'); if (i) i.focus(); }, 250);
+    });
     $('#repSeg').addEventListener('click', e => { const b = e.target.closest('[data-rep]'); if (b) { S.print.rep = b.dataset.rep; savePrint(); renderPrint(); } });
     $('#repCaller').addEventListener('change', e => { S.print.caller = e.target.value; savePrint(); renderPrint(); });
     $('#repOrient').addEventListener('change', e => { S.print.orient = e.target.value; savePrint(); renderPrint(); });

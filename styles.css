@@ -635,6 +635,12 @@ table.vt td.rem { min-width: 180px; color: var(--ink-2); }
 .pblock td.prog { min-width: 22mm; font-weight: 600; }
 .pblock td.prog .ok { color: #15803d; font-weight: 700; }
 .pblock .none td { color: #777; text-align: center; font-style: italic; }
+/* program cells in the print preview can be tapped to change the program (screen only) */
+@media screen {
+  .print-area [data-edit] { cursor: pointer; }
+  .print-area [data-edit]:hover { background: #fff4d6 !important; outline: 2px dashed var(--orange); outline-offset: -2px; }
+}
+
 /* Print · PDF · JPG buttons */
 .pc-opts .out-btns { margin-left: auto; display: flex; gap: 8px; }
 .pc-opts .out-btns .btn { margin-left: 0; padding: 10px 18px; font-size: 15px; }
