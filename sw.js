@@ -6,7 +6,7 @@
  * the network answers quickly, and the saved copy is refreshed every time.
  * Google Sheet / Apps Script data is never cached here — always live.
  * ===================================================================== */
-const CACHE = 'vpt-v1';
+const CACHE = 'vpt-v2';
 const FILES = ['./', './index.html', './styles.css', './app.js', './config.js', './logo.webp'];
 const FAST_MS = 1500; // wait this long for the network before using the saved copy
 

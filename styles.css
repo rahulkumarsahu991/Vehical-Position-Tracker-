@@ -612,14 +612,14 @@ table.vt td.rem { min-width: 180px; color: var(--ink-2); }
 .pbody { column-gap: 4mm; column-fill: balance; }
 .pblock { margin: 0 0 2.2mm; break-inside: auto; }
 .pblock table { width: 100%; border-collapse: collapse; table-layout: auto; }
-.pblock caption {
-  caption-side: top; text-align: left;
+/* block heading is a plain block (not a table caption) so JPG / PDF pictures place it exactly */
+.pblock .pb-title {
+  display: flex; justify-content: space-between; text-align: left;
   font: 700 calc(var(--fs) * 1.12) var(--cond); letter-spacing: .4px; text-transform: uppercase;
   background: color-mix(in srgb, var(--c) 16%, #fff); border-left: 2mm solid var(--c);
-  padding: .6mm 2mm; break-after: avoid;
+  padding: .6mm 2mm; break-after: avoid; break-inside: avoid;
   -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
-.pblock caption .n { float: right; }
 .pblock th {
   text-align: center; font-weight: 700; font-size: calc(var(--fs) * .92); background: #f1f1f4;
   border: .25mm solid #b5b5bd; padding: .2mm .9mm; white-space: nowrap;

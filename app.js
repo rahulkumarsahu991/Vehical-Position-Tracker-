@@ -1221,7 +1221,7 @@
     const keep = head.map((t, j) => t === 'Next Load' || t === 'Broker' || data.some(cs => String(cs[j]).trim()));
     const body = rows.map((v, i) => '<tr><td class="sr">' + (i + 1) + '.</td><td class="vn">' + esc(v.vno) + '</td>' +
       data[i].map((x, j) => keep[j] ? '<td' + (head[j] === 'Next Load' ? ' class="prog" data-edit="' + esc(v.vno) + '"' : head[j] === 'Broker' ? ' data-edit="' + esc(v.vno) + '"' : '') + '>' + x + '</td>' : '').join('') + '</tr>').join('');
-    return '<div class="pblock" style="--c:' + c.color + '"><table><caption>' + esc(c.label) + ' <span class="n">' + rows.length + '</span></caption>' +
+    return '<div class="pblock" style="--c:' + c.color + '"><div class="pb-title"><span>' + esc(c.label) + '</span><span class="n">' + rows.length + '</span></div><table>' +
       '<thead><tr><th>#</th><th>Vehicle</th>' + head.map((x, j) => keep[j] ? '<th>' + x + '</th>' : '').join('') + '</tr></thead><tbody>' + body + '</tbody></table></div>';
   }
 
@@ -1405,26 +1405,45 @@
       document.head.appendChild(s);
     }));
   }
-  /** fonts copied into the picture — Latin letters only (much smaller than every language) */
-  async function fontCss(node) {
-    const n = document.styleSheets.length;
-    if (S.fontCss && S.fontCssSheets === n) return S.fontCss;
-    const css = await window.htmlToImage.getFontEmbedCSS(node);
-    S.fontCss = css.split(/(?=@font-face)/).filter(b => !/unicode-range/i.test(b) || /U\+0000-00FF/i.test(b)).join('');
-    S.fontCssSheets = n;
+  /** The page's fonts, fetched by the site itself and put inside the picture (Latin letters only).
+   *  Without them the picture falls back to a wider font and the text runs into each other. */
+  const FONT_CSS_URLS = [
+    'https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap',
+    'https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap'
+  ];
+  function toBase64(buf) {
+    const bytes = new Uint8Array(buf);
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+  async function fontCss() {
+    if (S.fontCss) return S.fontCss;
+    const sheets = await Promise.all(FONT_CSS_URLS.map(u => fetch(u).then(r => { if (!r.ok) throw new Error('font'); return r.text(); })));
+    const blocks = [];
+    sheets.forEach(css => css.split(/(?=@font-face)/).forEach(b => {
+      if (b.includes('@font-face') && (!/unicode-range/i.test(b) || /U\+0000-00FF/i.test(b))) blocks.push(b.replace(/\/\*[^*]*\*\//g, ''));
+    }));
+    const done = await Promise.all(blocks.map(async b => {
+      const m = b.match(/url\((['"]?)(https:[^)'"]+)\1\)/);
+      if (!m) return b;
+      const buf = await (await fetch(m[2])).arrayBuffer();
+      return b.replace(m[0], 'url(data:font/woff2;base64,' + toBase64(buf) + ')');
+    }));
+    S.fontCss = done.join('\n');
     return S.fontCss;
   }
   /** every print page as a JPEG, one after another (keeps memory low on phones) */
   async function pageImages(onEach) {
-    await loadLib(LIBS.img);
+    const [, fonts] = await Promise.all([loadLib(LIBS.img), fontCss()]);
     if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    renderPrint(); // lay the pages out again now that every font has loaded
     const pagesEl = $('#printArea .pages');
     const pages = pagesEl ? $$('.page', pagesEl) : [];
     if (!pages.length) throw new Error('Nothing to download');
     const zoom = pagesEl.style.zoom;
     pagesEl.style.zoom = '';
     try {
-      const fonts = await fontCss(pages[0]);
       const out = [];
       for (let i = 0; i < pages.length; i++) {
         if (onEach) onEach(i + 1, pages.length);
@@ -1443,7 +1462,7 @@
     const btn = $(kind === 'pdf' ? '#pdfBtn' : '#jpgBtn'), label = $('span', btn), was = label.textContent;
     $$('.out-btns .btn').forEach(b => { b.disabled = true; });
     try {
-      renderPrint();
+      loadPrintFont();
       const rep = { caller: 'Caller-wise', un: 'U-N', lr: 'L-R', rh: 'R-H' }[S.print.rep] || 'Print';
       const d = S.dataDate || todayKey(), date = d.slice(8, 10) + '-' + d.slice(5, 7) + '-' + d.slice(0, 4);
       const imgs = await pageImages((i, n) => { label.textContent = n > 1 ? i + '/' + n : '…'; });
@@ -1698,6 +1717,10 @@
 
     // print
     const savePrint = () => store.set(K.print, S.print);
+    // a font that arrives late changes text widths → fit the print pages again
+    if (document.fonts && document.fonts.addEventListener) {
+      document.fonts.addEventListener('loadingdone', () => { if (S.view === 'print') fitPages(); });
+    }
     // tap a Next Load / Program / Broker cell in the print preview → change that vehicle's program
     $('#printArea').addEventListener('click', e => {
       const c = e.target.closest('[data-edit]');
