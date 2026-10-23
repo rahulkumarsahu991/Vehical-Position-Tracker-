@@ -1114,21 +1114,36 @@
   const CALLS_MS = Math.max(20, Number(CFG.CALLS_REFRESH_SECONDS) || 60) * 1000;
   /** The big Fleet sheet is sometimes slow or briefly refuses: the last result is kept (shown at once on
    *  the next open) and a failed check is tried again after 5 s and 15 s instead of waiting a minute. */
-  const K_CALLS = 'vpt_calls_cache_v1';
+  const K_CALLS = 'vpt_calls_cache_v1', K_CALLS_COLS = 'vpt_calls_cols_v1';
+  function getCallsCsv(url, ms) {
+    return fetchWithTimeout(url, { cache: 'no-store' }, ms)
+      .then(r => r.text().then(text => ({ r: r, text: text })),
+        () => { throw new Error('The Dashboard sheet did not answer — trying again'); })
+      .then(({ r, text }) => {
+        if (!r.ok) throw new Error('Google is busy (' + r.status + ') — trying again');
+        if (/^\s*</.test(text)) throw new Error('Dashboard sheet is not shared (Anyone with the link: Viewer)');
+        return text;
+      });
+  }
+  /** Two ways to read the Dashboard: the CSV export (exact column headings) and gviz (the same Google
+   *  server the vehicles come from). Some laptops block or hold up the export — it arrives as a file
+   *  download, which antivirus / office networks stop — so gviz takes over, and stays first after that. */
   async function loadCalls(attempt) {
     if (!CFG.CALLS_SHEET_ID || S.callsLoading) return;
     S.callsLoading = true;
     if (!$('#callsOverlay').hidden) renderCalls();
     let failed = false;
     try {
-      const url = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(CFG.CALLS_SHEET_ID) + '/export?format=csv&gid=' + encodeURIComponent(CFG.CALLS_GID);
-      let r, text;
-      try {
-        r = await fetchWithTimeout(url, { cache: 'no-store' }, 20000);
-        text = await r.text();
-      } catch (e) { throw new Error('The Dashboard sheet did not answer — trying again'); }
-      if (!r.ok || /^\s*</.test(text)) throw new Error(r.ok ? 'Dashboard sheet is not shared (Anyone with the link: Viewer)' : 'Google is busy (' + r.status + ') — trying again');
-      S.calls = parseCalls(parseCsv(text)); S.callsAt = Date.now(); S.callsError = '';
+      const base = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(CFG.CALLS_SHEET_ID), gid = encodeURIComponent(CFG.CALLS_GID);
+      const viaExport = () => getCallsCsv(base + '/export?format=csv&gid=' + gid, 10000).then(t => parseCalls(parseCsv(t)));
+      const viaGviz = () => getCallsCsv(base + '/gviz/tq?tqx=out:csv&headers=0&gid=' + gid, 20000).then(t => parseCalls(parseCsv(t), true));
+      let calls;
+      if (S.callsViaGviz) {
+        try { calls = await viaGviz(); } catch (e) { calls = await viaExport(); S.callsViaGviz = false; }
+      } else {
+        try { calls = await viaExport(); } catch (e) { calls = await viaGviz(); S.callsViaGviz = true; }
+      }
+      S.calls = calls; S.callsAt = Date.now(); S.callsError = '';
       store.set(K_CALLS, { at: S.callsAt, calls: S.calls });
     } catch (e) {
       S.callsError = e.message || 'Could not load the Dashboard';
@@ -1144,28 +1159,43 @@
   /** Morning calls until 3 PM, evening calls from 3 PM (same split as the sheet's printf tab) */
   const callSession = () => (new Date().getHours() < 15 ? 'morning' : 'evening');
   const sessionLeft = c => Math.max(0, (c.total || 0) - (callSession() === 'morning' ? c.morning : c.evening));
-  /** caller → done / pending (table "CALLER-WISE") + vehicles / morning / evening (table "CALLING SHEET REPORT SUMMARY") */
-  function parseCalls(grid) {
+  /** caller → done / pending (table "CALLER-WISE") + vehicles / morning / evening (table "CALLING SHEET REPORT SUMMARY").
+   *  gviz leaves the heading text of number columns empty, so then each table is found by its title and read from
+   *  the columns the export last showed (kept in localStorage; the Dashboard's present layout as default). */
+  const CALLS_COLS = { a: { 'calls done': 1, 'calls pending': 2 }, b: { 'total vehicle': 1, 'morning calls': 2, 'evening calls': 3 } };
+  function parseCalls(grid, gviz) {
     const byName = {}, order = [];
     const num = s => { const n = parseFloat(String(s == null ? '' : s).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
     const row = name => { if (!byName[name]) { byName[name] = { name: name, total: 0, done: 0, pending: 0, morning: 0, evening: 0 }; order.push(name); } return byName[name]; };
-    const table = has => {
-      const h = grid.findIndex(r => normHead(r[0]) === 'caller' && has.every(x => r.map(normHead).includes(x)));
-      if (h < 0) return null;
-      const head = grid[h].map(normHead), rows = [];
+    const learnt = gviz ? store.get(K_CALLS_COLS, null) || CALLS_COLS : {};
+    const table = (key, title, has) => {
+      let h = grid.findIndex(r => normHead(r[0]) === 'caller' && has.every(x => r.map(normHead).includes(x))), col;
+      if (h >= 0) {
+        const head = grid[h].map(normHead);
+        col = k => head.indexOf(k);
+        learnt[key] = {}; has.concat(Object.keys(CALLS_COLS[key])).forEach(k => { learnt[key][k] = head.indexOf(k); });
+      } else if (gviz) {
+        const t = grid.findIndex((r, i) => normHead(r[0]) === title && grid[i + 1] && normHead(grid[i + 1][0]) === 'caller');
+        if (t < 0) return null;
+        h = t + 1;
+        const at = learnt[key] || CALLS_COLS[key];
+        col = k => (k in at ? at[k] : -1);
+      } else return null;
+      const rows = [];
       for (let i = h + 1; i < grid.length; i++) {
         const name = cleanCell(grid[i][0]);
         if (!name) break;
         rows.push(grid[i]);
         if (/^total$/i.test(name)) break;
       }
-      return { col: k => head.indexOf(k), rows: rows };
+      return { col: col, rows: rows };
     };
-    const a = table(['calls done', 'calls pending']);
+    const a = table('a', 'caller wise', ['calls done', 'calls pending']);
     if (a) a.rows.forEach(r => { const c = row(cleanCell(r[0])); c.done = num(r[a.col('calls done')]); c.pending = num(r[a.col('calls pending')]); });
-    const b = table(['morning calls', 'evening calls']);
+    const b = table('b', 'calling sheet report summary', ['morning calls', 'evening calls']);
     if (b) b.rows.forEach(r => { const c = row(cleanCell(r[0])); c.total = num(r[b.col('total vehicle')]); c.morning = num(r[b.col('morning calls')]); c.evening = num(r[b.col('evening calls')]); });
     if (!a && !b) throw new Error('Caller-wise calls not found in the Dashboard tab');
+    if (!gviz && a && b) store.set(K_CALLS_COLS, learnt);
     const all = order.map(n => byName[n]);
     const total = all.find(c => /^total$/i.test(c.name)) || null;
     const callers = all.filter(c => !/^total$/i.test(c.name) && (c.total || c.done || c.pending || c.morning || c.evening)); // leave out inactive callers
