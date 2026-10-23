@@ -1328,6 +1328,10 @@
     else sets = [{ caller: P.caller, vs: P.caller ? all.filter(v => v.callerName === P.caller) : all }];
     if (!sets.length) { area.innerHTML = '<div class="empty"><b>No vehicles</b>Nothing to print for this caller.</div>'; return; }
     $('#repCols').disabled = !!rep.printf;
+    // "Remove programs": every program shown in this print (U&N / Caller wise)
+    const withProg = printedPrograms();
+    $('#clearProgBtn').hidden = !withProg.length;
+    $('#clearProgBtn span').textContent = 'Remove programs (' + withProg.length + ')';
     if (rep.printf) {
       loadRepairInfo();
       const o = P.orient === 'auto' ? rep.orient : P.orient;
@@ -1544,6 +1548,23 @@
       $$('.out-btns .btn').forEach(b => { b.disabled = false; });
       S.exporting = false;
     }
+  }
+
+  /** vehicles whose program shows in the current print (only U&N and Caller wise have program columns) */
+  function printedPrograms() {
+    if (S.print.rep !== 'un' && S.print.rep !== 'caller') return [];
+    return S.vehicles.filter(v => NEEDS_PROGRAM[v.cat] && (!S.print.caller || v.callerName === S.print.caller) &&
+      S.active[v.vno] && (S.active[v.vno].program || S.active[v.vno].broker)).map(v => v.vno);
+  }
+  async function clearPrintedPrograms() {
+    const vnos = printedPrograms();
+    if (!vnos.length) return;
+    const who = S.print.caller ? 'caller ' + S.print.caller : 'all callers';
+    if (!confirm('Remove the program of ' + vnos.length + ' vehicle' + (vnos.length > 1 ? 's' : '') + ' (' + who + ')?\nThey go back to “Need program”.')) return;
+    if (!S.user) { const u = await askWho(); if (!u) return; }
+    for (const vno of vnos) await saveProgram(vno, { program: '', broker: '' }, false);
+    toast('Programs removed from ' + vnos.length + ' vehicle' + (vnos.length > 1 ? 's' : ''));
+    renderAll();
   }
 
   /** "Auto" page / columns: try each layout on the fullest page and keep the one with the biggest text
@@ -1807,6 +1828,7 @@
     $('#repCols').addEventListener('change', e => { S.print.cols = e.target.value; savePrint(); renderPrint(); });
     $('#printBtn').addEventListener('click', () => { renderPrint(); setTimeout(() => window.print(), 60); });
     $('#pdfBtn').addEventListener('click', () => downloadOut('pdf'));
+    $('#clearProgBtn').addEventListener('click', clearPrintedPrograms);
     $('#jpgBtn').addEventListener('click', () => downloadOut('jpg'));
     window.addEventListener('beforeprint', () => { if (S.view !== 'print') setView('print'); });
     let rt = null;
