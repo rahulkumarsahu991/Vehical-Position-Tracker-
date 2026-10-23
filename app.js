@@ -1297,7 +1297,7 @@
     const names = S.auth.users.length ? S.auth.users : (CFG.EXTRA_USERS || ['Director']).concat(S.callers);
     showAuth(authHead('Login', 'Choose your name') +
       '<div class="who-list">' + names.map(n => '<button type="button" data-login="' + esc(n) + '">' + esc(n) +
-        '<small>' + (S.callers.includes(n) ? 'Caller' : 'Office') + '</small></button>').join('') + '</div>', true);
+        '<small>' + (S.callers.includes(n) ? 'Caller' : 'Management') + '</small></button>').join('') + '</div>', true);
     if (!S.auth.users.length) {
       try { S.auth.users = (await api('users')).users || []; } catch (e) { /* keep the local list */ }
       if (S.auth.users.length && !$('#authOverlay').hidden && $('#authBox [data-login]')) openLogin();
@@ -1400,7 +1400,7 @@
   function openWho() {
     const names = (CFG.EXTRA_USERS || ['Director']).concat(S.callers);
     $('#whoList').innerHTML = names.map(n => '<button type="button" data-who="' + esc(n) + '" class="' + (S.user === n ? 'on' : '') + '">' + esc(n) +
-      '<small>' + (S.callers.includes(n) ? 'Caller' : 'Office') + '</small></button>').join('');
+      '<small>' + (S.callers.includes(n) ? 'Caller' : 'Management') + '</small></button>').join('');
     $('#whoInput').value = names.includes(S.user) ? '' : S.user;
     const ov = $('#whoOverlay');
     ov.hidden = false;

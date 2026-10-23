@@ -32,5 +32,5 @@ window.VPT_CONFIG = {
   PROGRAM_DAYS: 3,      // programs older than this are not shown
 
   // Names shown in "Who are you?" besides the callers found in the sheet
-  EXTRA_USERS: ["Director", "Office"]
+  EXTRA_USERS: ["Director", "Manager"]
 };
