@@ -312,7 +312,7 @@
     } finally { if (t) clearTimeout(t); }
     let res;
     try { res = JSON.parse(text); } catch (e) { throw new Error('Invalid reply from Apps Script — check the deployment (Who has access: Anyone)'); }
-    if (!res || !res.ok) throw new Error((res && res.error) || 'Something went wrong');
+    if (!res || !res.ok) { const er = new Error((res && res.error) || 'Something went wrong'); er.code = (res && res.code) || ''; throw er; }
     return res;
   }
 
@@ -445,7 +445,7 @@
     if (manual && !S.sheetError && !S.progError) toast(changed ? 'Updated from Google Sheet' : 'Already up to date');
     else if (manual) toast(S.sheetError || S.progError, true);
     if (changed) { computeActive(); showBanner(); renderAll(); }
-    if (!S.user && S.callers.length && !S.askedWho) { S.askedWho = true; openWho(); }
+    if (!S.auth.on && !S.user && S.callers.length && !S.askedWho) { S.askedWho = true; openWho(); }
   }
 
   /** Takes a programs list from the server. Programs given / told by another user are highlighted
@@ -918,7 +918,7 @@
   /** Saves at once on screen (and in prints); the Google Sheet is written in the background
    *  (outbox kept in this browser, retried until it goes through). */
   async function saveProgram(vno, patch, okMsg) {
-    if (!S.user) { const u = await askWho(); if (!u) return false; }
+    if (!(await ensureUser())) return false;
     const v = S.byVno[vno];
     const body = Object.assign({
       vno: vno, caller: v ? v.caller : '', cat: v ? CAT[v.cat].label : '', loc: v ? v.where : '', user: S.user
@@ -958,7 +958,7 @@
     const program = $('#bulkProg').value.trim(), broker = $('#bulkBroker').value.trim();
     if (!S.sel.size) return;
     if (!program) { toast('Write the program first (where to go / load from)', true); $('#bulkProg').focus(); return; }
-    if (!S.user) { const u = await askWho(); if (!u) return; }
+    if (!(await ensureUser())) return;
     const vnos = [...S.sel];
     for (const vno of vnos) await saveProgram(vno, { program: program, broker: broker }, false);
     S.sel.clear();
@@ -982,8 +982,15 @@
         const id = a && !/^tmp-/.test(a.id) ? a.id : ''; // server also reuses today's row of the vehicle
         let srv;
         try {
-          srv = (await api('saveProgram', Object.assign({}, job.body, { id: id }))).program;
+          srv = (await api('saveProgram', Object.assign({}, job.body, { id: id, token: S.auth.token || '' }))).program;
         } catch (e) {
+          if (e.code === 'auth') { // login ended → ask for the PIN, then the waiting saves go on
+            S.outboxError = 'Log in to save';
+            setSaveState();
+            logoutLocal();
+            openLogin();
+            return;
+          }
           S.outboxError = e.message || 'Could not save';
           setSaveState();
           clearTimeout(S.retryTimer);
@@ -1220,6 +1227,175 @@
     setTimeout(() => { ov.hidden = true; }, 180);
   }
 
+  /* =====================================================================
+   *  Login with a PIN (checked by Code.gs; switched on as soon as the
+   *  deployed script supports it — until then "Who are you?" is used)
+   * ===================================================================== */
+  const K_AUTH = { on: 'vpt_auth_on', token: 'vpt_token', admin: 'vpt_admin' };
+  S.auth = { on: !LOCAL && !!store.get(K_AUTH.on, false), token: store.get(K_AUTH.token, ''), admin: !!store.get(K_AUTH.admin, false), users: [] };
+
+  /** true when somebody is known to save as (logged in, or picked in "Who are you?") */
+  async function ensureUser() {
+    if (S.auth.on) { if (S.auth.token) return true; openLogin(); return false; }
+    if (S.user) return true;
+    return !!(await askWho());
+  }
+  function logoutLocal() {
+    S.auth.token = ''; S.auth.admin = false;
+    store.set(K_AUTH.token, ''); store.set(K_AUTH.admin, false);
+  }
+  function setLoggedIn(res) {
+    S.auth.token = res.token; S.auth.admin = !!res.admin;
+    store.set(K_AUTH.token, res.token); store.set(K_AUTH.admin, !!res.admin);
+    S.user = res.user; store.set(K.user, res.user);
+    if (S.callers.includes(res.user)) { S.f.caller = res.user; store.set(K.caller, res.user); }
+  }
+  /** at start: does the deployed script have login? is the saved login still valid? */
+  async function checkAuth() {
+    if (LOCAL) return;
+    try {
+      const ping = await api('ping');
+      S.auth.on = !!ping.auth;
+      store.set(K_AUTH.on, S.auth.on);
+    } catch (e) { return; } // offline: keep what we knew
+    if (!S.auth.on) { closeAuth(); return; }
+    if (!S.auth.token) { openLogin(); return; }
+    try {
+      const me = await api('me', { token: S.auth.token });
+      S.user = me.user; S.auth.admin = !!me.admin; store.set(K.user, me.user); store.set(K_AUTH.admin, S.auth.admin);
+      renderUser();
+      flushOutbox();
+    } catch (e) {
+      if (e.code === 'auth') { logoutLocal(); openLogin(); }
+    }
+  }
+
+  function showAuth(html, locked) {
+    const ov = $('#authOverlay');
+    $('#authBox').innerHTML = html;
+    ov.dataset.locked = locked ? '1' : '';
+    if (ov.hidden) {
+      ov.hidden = false;
+      requestAnimationFrame(() => requestAnimationFrame(() => ov.classList.add('show')));
+      setTimeout(() => ov.classList.add('show'), 60);
+    }
+    setTimeout(() => { const i = $('#authBox input'); if (i) i.focus(); }, 120);
+  }
+  function closeAuth() {
+    const ov = $('#authOverlay');
+    if (ov.hidden) return;
+    ov.classList.remove('show');
+    setTimeout(() => { ov.hidden = true; }, 180);
+  }
+  const authHead = (title, sub) => '<img src="logo.webp" alt="" class="modal-logo"><h2>' + esc(title) + '</h2>' + (sub ? '<p class="muted">' + esc(sub) + '</p>' : '');
+  const authErr = '<p class="auth-err" id="authErr" role="alert"></p>';
+  function setAuthErr(msg) { const e = $('#authErr'); if (e) e.textContent = msg || ''; }
+  function setAuthBusy(on) { $$('#authBox button, #authBox input').forEach(x => { x.disabled = on; }); }
+
+  async function openLogin() {
+    if (!S.auth.on) return openWho();
+    const names = S.auth.users.length ? S.auth.users : (CFG.EXTRA_USERS || ['Director']).concat(S.callers);
+    showAuth(authHead('Login', 'Choose your name') +
+      '<div class="who-list">' + names.map(n => '<button type="button" data-login="' + esc(n) + '">' + esc(n) +
+        '<small>' + (S.callers.includes(n) ? 'Caller' : 'Office') + '</small></button>').join('') + '</div>', true);
+    if (!S.auth.users.length) {
+      try { S.auth.users = (await api('users')).users || []; } catch (e) { /* keep the local list */ }
+      if (S.auth.users.length && !$('#authOverlay').hidden && $('#authBox [data-login]')) openLogin();
+    }
+  }
+  function openPin(name) {
+    showAuth(authHead(name, 'Enter your PIN') +
+      '<form class="pin-form" data-pinform="' + esc(name) + '">' +
+      '<input type="password" inputmode="numeric" autocomplete="current-password" maxlength="8" id="pinIn" aria-label="PIN">' +
+      authErr + '<button type="submit" class="btn primary">Login</button>' +
+      '<button type="button" class="btn link" data-auth="back">← Other name</button></form>', true);
+  }
+  async function doLogin(name, pin) {
+    if (!pin) { setAuthErr('Enter your PIN'); return; }
+    setAuthBusy(true); setAuthErr('');
+    try {
+      const res = await api('login', { name: name, pin: pin });
+      setLoggedIn(res);
+      if (res.mustChange) openSetPin(true);
+      else { closeAuth(); toast('Welcome ' + res.user); }
+      renderAll(); renderUser(); flushOutbox();
+    } catch (e) {
+      setAuthBusy(false); setAuthErr(e.message || 'Could not log in');
+      const i = $('#pinIn'); if (i) { i.value = ''; i.focus(); }
+    }
+  }
+  function openSetPin(first) {
+    showAuth(authHead(first ? 'Set your own PIN' : 'Change my PIN', first ? 'First login: choose a new PIN (4–8 digits) that only you know' : 'New PIN, 4–8 digits') +
+      '<form class="pin-form" data-setpin="1">' +
+      '<input type="password" inputmode="numeric" autocomplete="new-password" maxlength="8" id="newPin1" aria-label="New PIN" placeholder="New PIN">' +
+      '<input type="password" inputmode="numeric" autocomplete="new-password" maxlength="8" id="newPin2" aria-label="New PIN again" placeholder="New PIN again">' +
+      authErr + '<button type="submit" class="btn primary">Save PIN</button>' +
+      (first ? '' : '<button type="button" class="btn link" data-auth="close">Cancel</button>') + '</form>', first);
+  }
+  async function doSetPin(name, p1, p2, after) {
+    if (!/^\d{4,8}$/.test(p1)) { setAuthErr('PIN must be 4 to 8 digits'); return; }
+    if (p2 != null && p1 !== p2) { setAuthErr('The two PINs are not the same'); return; }
+    setAuthBusy(true); setAuthErr('');
+    try {
+      await api('setPin', Object.assign({ token: S.auth.token, pin: p1 }, name ? { name: name } : {}));
+      toast(name ? 'PIN set for ' + name : 'Your new PIN is saved');
+      if (after) after(); else closeAuth();
+    } catch (e) {
+      setAuthBusy(false);
+      if (e.code === 'auth') { logoutLocal(); openLogin(); return; }
+      setAuthErr(e.message || 'Could not save the PIN');
+    }
+  }
+  function openUserMenu() {
+    showAuth(authHead(S.user || 'Not logged in', S.auth.admin ? 'Director — can manage everybody\'s PIN' : 'Logged in on this phone') +
+      '<div class="menu-list">' +
+      '<button type="button" class="btn" data-auth="mypin">Change my PIN</button>' +
+      (S.auth.admin ? '<button type="button" class="btn" data-auth="manage">Manage PINs</button>' : '') +
+      '<button type="button" class="btn danger" data-auth="logout">Log out</button>' +
+      '<button type="button" class="btn link" data-auth="close">Close</button></div>', false);
+  }
+  async function openManagePins() {
+    showAuth(authHead('Manage PINs', 'Set a new PIN for anybody (4–8 digits)') + '<div class="pin-rows"><div class="skeleton"></div></div>' + authErr +
+      '<button type="button" class="btn link" data-auth="close">Close</button>', false);
+    let users = S.auth.users;
+    try { users = S.auth.users = (await api('users')).users || users; } catch (e) { /* use what we have */ }
+    const box = $('#authBox .pin-rows');
+    if (!box) return;
+    box.innerHTML = users.map(n => '<form class="pin-row" data-adminpin="' + esc(n) + '"><b>' + esc(n) + '</b>' +
+      '<input type="password" inputmode="numeric" maxlength="8" aria-label="New PIN for ' + esc(n) + '" placeholder="New PIN">' +
+      '<button type="submit" class="btn sm navy">Set</button></form>').join('');
+  }
+  function bindAuth() {
+    const ov = $('#authOverlay');
+    ov.addEventListener('click', e => {
+      if (e.target === ov && !ov.dataset.locked) { closeAuth(); return; }
+      const n = e.target.closest('[data-login]');
+      if (n) { openPin(n.dataset.login); return; }
+      const a = e.target.closest('[data-auth]');
+      if (!a) return;
+      const act = a.dataset.auth;
+      if (act === 'back') openLogin();
+      else if (act === 'close') closeAuth();
+      else if (act === 'mypin') openSetPin(false);
+      else if (act === 'manage') openManagePins();
+      else if (act === 'logout') {
+        const t = S.auth.token;
+        if (t) api('logout', { token: t }).catch(() => {});
+        logoutLocal(); S.user = ''; renderUser(); openLogin();
+      }
+    });
+    ov.addEventListener('submit', e => {
+      e.preventDefault();
+      const f = e.target;
+      if (f.dataset.pinform) doLogin(f.dataset.pinform, $('#pinIn').value.trim());
+      else if (f.dataset.setpin) doSetPin('', $('#newPin1').value.trim(), $('#newPin2').value.trim());
+      else if (f.dataset.adminpin) {
+        const i = $('input', f);
+        doSetPin(f.dataset.adminpin, i.value.trim(), null, () => { i.value = ''; setAuthBusy(false); setAuthErr(''); });
+      }
+    });
+  }
+
   let whoResolve = null;
   function openWho() {
     const names = (CFG.EXTRA_USERS || ['Director']).concat(S.callers);
@@ -1274,7 +1450,11 @@
     const p = S.active[v.vno];
     if (!p) return '';
     let s = '';
-    if (p.program) s += esc(p.program) + (p.informed === 'Yes' ? ' <span class="ok">✓</span>' : '');
+    if (p.program) {
+      s += esc(p.program) +
+        (/^director$/i.test(String(p.givenBy || '').trim()) ? ' <b class="by-d" title="Given by the Director">(D)</b>' : '') +
+        (p.informed === 'Yes' ? ' <span class="ok">✓</span>' : '');
+    }
     return s;
   }
   function blockHtml(cat, list, rep, caller) {
@@ -1591,7 +1771,7 @@
     if (!vnos.length) return;
     const who = S.print.caller ? 'caller ' + S.print.caller : 'all callers';
     if (!confirm('Remove the program of ' + vnos.length + ' vehicle' + (vnos.length > 1 ? 's' : '') + ' (' + who + ')?\nThey go back to “Need program”.')) return;
-    if (!S.user) { const u = await askWho(); if (!u) return; }
+    if (!(await ensureUser())) return;
     for (const vno of vnos) await saveProgram(vno, { program: '', broker: '' }, false);
     toast('Programs removed from ' + vnos.length + ' vehicle' + (vnos.length > 1 ? 's' : ''));
     renderAll();
@@ -1711,7 +1891,7 @@
     window.addEventListener('popstate', () => { if (S.detail) closeDetail(true); });
 
     $('#syncBtn').addEventListener('click', () => refresh(true));
-    $('#userBtn').addEventListener('click', openWho);
+    $('#userBtn').addEventListener('click', () => { if (S.auth.on) openUserMenu(); else openWho(); });
     $('#callsBtn').addEventListener('click', openCalls);
     $('#callsOverlay').addEventListener('click', e => { if (e.target.id === 'callsOverlay' || e.target.closest('[data-close-calls]')) closeCalls(); });
 
@@ -1937,6 +2117,9 @@
     setSaveState();
     flushOutbox(); // saves left over from last time
     bindInstall();
+    bindAuth();
+    if (S.auth.on && !S.auth.token) openLogin(); // login known to be on and nobody logged in on this phone
+    checkAuth();
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
       navigator.serviceWorker.register('sw.js').catch(() => {}); // offline copy: opens at once on slow networks
     }

@@ -661,6 +661,24 @@ table.vt td.rem { min-width: 180px; color: var(--ink-2); }
 .bulk-bar .bb-row { display: grid; grid-template-columns: 1.4fr 1fr auto; gap: 8px; align-items: end; }
 body.has-bulk main { padding-bottom: 180px; }
 
+/* login / PIN screens */
+.auth-modal .pin-form { display: grid; gap: 10px; margin-top: 6px; }
+.auth-modal .pin-form input {
+  text-align: center; font: 700 24px/1 var(--cond); letter-spacing: 8px;
+  border: 1.5px solid var(--line); border-radius: 12px; padding: 12px; outline: 0;
+}
+.auth-modal .pin-form input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(242,138,28,.18); }
+.auth-modal .pin-form input::placeholder { font: 500 15px var(--font); letter-spacing: 0; color: var(--muted); }
+.auth-modal .pin-form .btn.primary { padding: 12px; font-size: 16px; }
+.auth-err { min-height: 18px; margin: 0; color: var(--red); font-size: 13.5px; font-weight: 600; }
+.auth-err:empty { min-height: 0; }
+.menu-list { display: grid; gap: 8px; margin-top: 6px; }
+.menu-list .btn { padding: 11px; font-size: 15px; }
+.pin-rows { display: grid; gap: 6px; margin: 8px 0; text-align: left; max-height: 55vh; overflow-y: auto; }
+.pin-row { display: grid; grid-template-columns: 1fr 110px auto; gap: 8px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--line-2); }
+.pin-row input { border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; text-align: center; letter-spacing: 3px; outline: 0; min-width: 0; }
+.pblock td.prog .by-d, table.pf .by-d { color: #1b1e4f; font-weight: 800; }
+
 /* "Install the app" strip */
 .install-bar {
   max-width: 1400px; margin: 10px auto 0; display: flex; align-items: center; gap: 10px;

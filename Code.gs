@@ -31,6 +31,9 @@
  *      "linkPrintSheets" → ▶ Run (once). The "Next Load" and "Broker" columns
  *      of U&N then fill in by themselves. (Undo: run "unlinkPrintSheets".)
  *
+ *   7. Login: everybody first logs in with PIN 1234 and must then choose their own PIN.
+ *      The Director can set / reset anybody's PIN on the website (tap your name → Manage PINs).
+ *
  *  AFTER EDITING THIS FILE LATER
  *   Deploy → Manage deployments → ✏ Edit → Version: "New version" → Deploy.
  *   (The /exec URL stays the same, so config.js does not change.)
@@ -43,7 +46,13 @@ const CONFIG = {
   CALLING_TAB: 'Calling Sheet',
   PROGRAM_TAB: 'Programs',
   DAYS: 3,              // programs sent to the website (today + earlier days)
-  TZ: 'Asia/Kolkata'
+  TZ: 'Asia/Kolkata',
+
+  // ---- login (PINs are kept in this script's properties — not in the sheet, not in the website) ----
+  DEFAULT_PIN: '1234',                  // first PIN for everybody; each person must set their own at first login
+  ADMINS: ['Director'],                 // can set / reset anybody's PIN from the website
+  EXTRA_USERS: ['Director', 'Office'],  // who can log in besides the callers named in the Calling Sheet
+  TOKEN_DAYS: 60                        // a phone stays logged in this long
 };
 
 const FIELDS = [
@@ -54,10 +63,15 @@ const FIELDS = [
 ];
 
 const ACTIONS = {
-  ping: () => ({ app: 'Daman Vehicle Position Tracker', time: now_() }),
+  ping: () => ({ app: 'Daman Vehicle Position Tracker', time: now_(), auth: true }),
   calling: () => ({ grid: callingGrid_() }),
   programs: b => ({ programs: listPrograms_(b.days), today: today_() }),
-  saveProgram: saveProgram_
+  saveProgram: saveProgram_,
+  users: () => ({ users: knownUsers_() }),
+  login: login_,
+  me: b => { const u = who_(b.token); return { user: u, admin: isAdmin_(u) }; },
+  setPin: setPin_,
+  logout: b => { if (b.token) PropertiesService.getScriptProperties().deleteProperty('tok_' + b.token); return {}; }
 };
 
 function doGet(e) {
@@ -83,8 +97,87 @@ function run_(action, b) {
     if (!fn) throw new Error('Unknown action: ' + action);
     return json_(Object.assign({ ok: true }, fn(b || {})));
   } catch (err) {
-    return json_({ ok: false, error: String((err && err.message) || err) });
+    return json_({ ok: false, error: String((err && err.message) || err), code: (err && err.code) || '' });
   }
+}
+
+function err_(msg, code) { const e = new Error(msg); e.code = code || ''; return e; }
+
+/* ------------------------------------------------------------------ */
+/*  Login with a PIN                                                   */
+/* ------------------------------------------------------------------ */
+
+/** Director / Office + every caller named in the Calling Sheet ("Caller Assigned") */
+function knownUsers_() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('users');
+  if (hit) return JSON.parse(hit);
+  const out = [], seen = {};
+  const add = n => { n = String(n || '').trim(); if (n && !seen[n.toLowerCase()]) { seen[n.toLowerCase()] = 1; out.push(n); } };
+  CONFIG.EXTRA_USERS.forEach(add);
+  try {
+    const grid = callingGrid_();
+    const h = grid.findIndex(r => r.some(c => /caller\s*assigned/i.test(c)));
+    const col = h >= 0 ? grid[h].findIndex(c => /caller\s*assigned/i.test(c)) : -1;
+    if (col >= 0) for (let i = h + 1; i < grid.length; i++) add(grid[i][col]);
+  } catch (e) { /* the extra users can still log in */ }
+  cache.put('users', JSON.stringify(out), 600);
+  return out;
+}
+function canon_(name) {
+  const n = String(name || '').trim().toLowerCase();
+  return knownUsers_().find(u => u.toLowerCase() === n) || '';
+}
+function isAdmin_(name) { return CONFIG.ADMINS.some(a => a.toLowerCase() === String(name || '').toLowerCase()); }
+function hash_(name, pin) {
+  const raw = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, 'vpt|' + name.toLowerCase() + '|' + pin, Utilities.Charset.UTF_8);
+  return Utilities.base64Encode(raw);
+}
+
+function login_(b) {
+  const name = canon_(b.name);
+  if (!name) throw err_('This name cannot log in');
+  const cache = CacheService.getScriptCache(), failKey = 'fail_' + name.toLowerCase();
+  const fails = Number(cache.get(failKey) || 0);
+  if (fails >= 5) throw err_('Too many wrong PINs — try again after 5 minutes');
+  const pin = String(b.pin || '').trim();
+  const props = PropertiesService.getScriptProperties();
+  const stored = props.getProperty('pin_' + name.toLowerCase());
+  const ok = stored ? stored === hash_(name, pin) : pin === CONFIG.DEFAULT_PIN;
+  if (!ok) { cache.put(failKey, String(fails + 1), 300); throw err_('Wrong PIN'); }
+  cache.remove(failKey);
+  pruneTokens_(props);
+  const token = Utilities.getUuid().replace(/-/g, '');
+  props.setProperty('tok_' + token, JSON.stringify({ n: name, e: Date.now() + CONFIG.TOKEN_DAYS * 86400000 }));
+  return { token: token, user: name, admin: isAdmin_(name), mustChange: !stored };
+}
+
+/** the logged-in name for a token, or an 'auth' error (the website then shows the login again) */
+function who_(token) {
+  const raw = token ? PropertiesService.getScriptProperties().getProperty('tok_' + token) : null;
+  const t = raw ? JSON.parse(raw) : null;
+  if (!t || t.e < Date.now()) throw err_('Please log in again', 'auth');
+  return t.n;
+}
+
+function setPin_(b) {
+  const me = who_(b.token);
+  const target = b.name ? canon_(b.name) : me;
+  if (!target) throw err_('Unknown name');
+  if (target !== me && !isAdmin_(me)) throw err_('Only the Director can change somebody else\'s PIN');
+  const pin = String(b.pin || '').trim();
+  if (!/^\d{4,8}$/.test(pin)) throw err_('PIN must be 4 to 8 digits');
+  if (pin === CONFIG.DEFAULT_PIN) throw err_('Choose a PIN other than ' + CONFIG.DEFAULT_PIN);
+  PropertiesService.getScriptProperties().setProperty('pin_' + target.toLowerCase(), hash_(target, pin));
+  return { user: target };
+}
+
+function pruneTokens_(props) {
+  const all = props.getProperties(), now = Date.now();
+  Object.keys(all).forEach(k => {
+    if (k.indexOf('tok_') !== 0) return;
+    try { if (JSON.parse(all[k]).e < now) props.deleteProperty(k); } catch (e) { props.deleteProperty(k); }
+  });
 }
 
 /** Run once from the editor: creates the "Programs" tab and asks for permissions. */
@@ -145,6 +238,7 @@ function listPrograms_(days) {
 }
 
 function saveProgram_(b) {
+  b.user = who_(b.token); // the logged-in name is what goes into "Given By" / "Informed By"
   const vno = String(b.vno || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (!vno) throw new Error('Vehicle number missing');
   const lock = LockService.getScriptLock();
