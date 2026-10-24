@@ -28,6 +28,7 @@
         <button type="button" data-view="board" class="active">Board</button>
         <button type="button" data-view="programs">Programs <span class="tab-badge" data-badge hidden></span></button>
         <button type="button" data-view="print">Print</button>
+        <button type="button" data-view="route">Route</button>
       </nav>
       <div class="top-right">
         <span id="saveState" class="save-state" hidden></span>
@@ -204,6 +205,20 @@
         <p class="hint" id="repHint" hidden></p>
       </div>
       <div id="printArea" class="print-area"></div>
+    </section>
+
+    <!-- ============ ROUTE ============ -->
+    <section id="view-route" class="view" hidden>
+      <div class="callers" id="callerChips3" aria-label="Caller"></div>
+      <div class="route-head">
+        <label class="search small">
+          <svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="rq" type="search" placeholder="Search route / vehicle / place" autocomplete="off">
+        </label>
+        <div class="route-legend" id="routeLegend"></div>
+      </div>
+      <p class="hint">Each line is one route (From → To). Every dot is a vehicle: at the loading point, on the way (grouped by where it is now) or at the unloading point. Tap a status to show only it; tap a vehicle for details.</p>
+      <div id="routeList" class="route-list"></div>
     </section>
   </main>
 

@@ -727,6 +727,64 @@ body.has-bulk main { padding-bottom: 180px; }
 .pin-pad button:disabled { opacity: .55; }
 @media (hover: hover) { .pin-pad button:hover { border-color: var(--orange); } }
 
+/* ---------------- route view: each From → To as a road, vehicles as coloured dots ---------------- */
+.route-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+.route-head .search { flex: 1 1 260px; max-width: 420px; }
+.route-legend { display: flex; flex-wrap: wrap; gap: 6px; }
+.route-legend .chip b { margin-left: 3px; }
+.route-list { display: grid; gap: 10px; }
+.route { background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 10px 12px 4px; min-width: 0; }
+.r-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.r-name { font: 700 18px/1.2 var(--cond); letter-spacing: .4px; color: var(--ink); }
+.r-name .arrow { color: var(--orange); margin: 0 2px; }
+.r-count { background: var(--navy); color: #fff; border-radius: 999px; padding: 1px 9px; font-size: 12px; font-weight: 700; }
+.r-items { font-size: 12px; color: var(--muted); font-weight: 600; }
+.r-stats { display: flex; flex-wrap: wrap; gap: 3px 12px; font-size: 12px; color: var(--ink-2); width: 100%; }
+.r-stats span { display: inline-flex; align-items: center; gap: 5px; }
+.r-stats i, .rdot i { width: 10px; height: 10px; border-radius: 50%; background: var(--c); flex: none; }
+.r-track-wrap { overflow-x: auto; margin: 0 -12px; padding: 0 12px; scrollbar-width: thin; }
+/* as wide as its vehicles need (scrolls sideways on a phone), at least the card's width */
+.r-track { position: relative; display: flex; align-items: flex-end; gap: 4px; padding: 12px 0 46px; min-height: 104px; width: max-content; min-width: 100%; }
+/* the road: dark strip with a dashed white centre line */
+.r-track::before, .r-track::after { content: ""; position: absolute; left: 30px; right: 30px; }
+.r-track::before { bottom: 38px; height: 8px; border-radius: 4px; background: #4a5070; }
+.r-track::after { bottom: 41px; height: 2px; background: repeating-linear-gradient(90deg, rgba(255,255,255,.85) 0 9px, transparent 9px 17px); }
+.r-end { position: relative; flex: none; width: 60px; align-self: stretch; }
+/* the bottom of every column is the top edge of the road, so things on / under the road sit below 100% */
+.r-end .node { position: absolute; bottom: -14px; left: 50%; width: 20px; height: 20px; margin-left: -10px; border-radius: 50%; background: #fff; border: 5px solid var(--orange); z-index: 1; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+.r-to .node { border-color: var(--navy); }
+.r-end b, .r-end small { position: absolute; left: 0; width: 120px; font-size: 11.5px; line-height: 1.15; }
+.r-end b { top: calc(100% + 13px); font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.r-end small { top: calc(100% + 27px); font-size: 10.5px; color: var(--muted); }
+.r-to b, .r-to small { left: auto; right: 0; text-align: right; }
+.rz { display: flex; align-items: flex-end; justify-content: space-evenly; gap: 8px; flex: 1 1 0; } /* never narrower than its groups: no overlap */
+.rz-way { flex-grow: 2.6; }
+.rz-start { justify-content: flex-start; }  /* at the loading point: right by the start */
+.rz-end { justify-content: flex-end; }      /* at the unloading point: right by the end */
+.rc { position: relative; display: flex; flex-direction: column; align-items: center; padding-bottom: 14px; min-width: 70px; }
+.rc::after { /* where the group stands on the road */
+  content: ""; position: absolute; bottom: -10px; left: 50%; width: 12px; height: 12px; margin-left: -6px;
+  border-radius: 50%; background: #fff; border: 3px solid #f5b041; z-index: 1;
+}
+.rc-dots { display: grid; grid-auto-flow: column; grid-template-rows: repeat(var(--rows, 1), auto); gap: 3px; align-items: end; }
+.rc-place { position: absolute; top: calc(100% + 13px); left: 0; right: 0; text-align: center; overflow-wrap: anywhere;
+  font-size: 11px; font-weight: 600; color: var(--ink-2); line-height: 1.15; }  /* as wide as its group: names never run into each other */
+.rc-place b { color: var(--muted); }
+.rdot {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px 2px 4px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: #fff; background: color-mix(in srgb, var(--c) 10%, #fff);
+  font: 700 11.5px/1.35 var(--font); color: var(--ink); white-space: nowrap;
+}
+.rdot:hover { border-color: var(--c); }
+.rdot.dim { opacity: .22; }
+@media (max-width: 760px) {
+  .route { padding: 9px 10px 3px; }
+  .r-name { font-size: 16px; }
+  .route-head .search { max-width: none; }
+  .route-legend { flex-wrap: nowrap; overflow-x: auto; margin: 0 -12px; padding: 0 12px 2px; scrollbar-width: none; width: calc(100% + 24px); }
+  .route-legend .chip { flex: none; }
+}
+
 /* ---------------- inbox (Director → Manager → caller) ---------------- */
 .inbox-btn .ico { width: 16px; height: 16px; }
 .inbox-btn.none .cnt { display: none; }
@@ -851,7 +909,7 @@ table.pf .ok { color: #15803d; font-weight: 700; }
   .user-chip .ico, #userName { display: none; }
   .user-chip .initial { display: block; font: 700 16px/1 var(--cond); color: var(--orange); }
   .tabs {
-    grid-area: tabs; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0;
+    grid-area: tabs; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
     margin: 8px -12px 0; border-top: 1px solid rgba(255,255,255,.08);
   }
   .tabs button {

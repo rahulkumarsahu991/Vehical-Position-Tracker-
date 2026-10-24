@@ -79,6 +79,7 @@
     closed: new Set(store.get(K.closed, [])),
     sort: { key: 'cat', dir: 1 },
     pseg: 'noprog', pq: '', ploc: '', sel: new Set(),
+    rq: '', rcat: '', // route view: search, one status only
     drafts: {}, editing: {},
     print: Object.assign({ rep: 'caller', caller: '', orient: 'auto', cols: 'auto' }, store.get(K.print, {})),
     detail: null, pending: false,
@@ -758,12 +759,14 @@
     const chips = callerChipsHtml();
     $('#callerChips').innerHTML = chips;
     $('#callerChips2').innerHTML = chips;
+    $('#callerChips3').innerHTML = chips;
     renderBadges();
     renderUser();
     renderInboxBtn();
     if (S.view === 'board') renderBoard();
     else if (S.view === 'programs') renderPrograms();
     else if (S.view === 'print') renderPrint();
+    else if (S.view === 'route') renderRoutes();
     if (S.detail) renderDetail();
   }
 
@@ -2362,7 +2365,7 @@
    *  Views, toast, events
    * ===================================================================== */
   function setView(view, noHash) {
-    if (!['board', 'programs', 'print'].includes(view)) view = 'board';
+    if (!['board', 'programs', 'print', 'route'].includes(view)) view = 'board';
     S.view = view;
     $$('.view').forEach(s => { s.hidden = s.id !== 'view-' + view; });
     $$('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view));
@@ -2370,6 +2373,81 @@
     renderAll();
     renderBulkBar();
     window.scrollTo(0, 0);
+  }
+
+  /* =====================================================================
+   *  Route — every From → To as a road, its vehicles as dots: at the loading point, on the way
+   *  (grouped by where they are now) or at the unloading point. The sheet has no distances / GPS,
+   *  so the place on the road comes from the status and the current location.
+   * ===================================================================== */
+  function routeZone(v) {
+    if (v.cur && v.from && v.cur === v.from) return 'start';
+    if (v.cur && v.to && v.cur === v.to) return 'end';
+    if (v.cat === 'loading') return 'start';
+    if (v.cat === 'unloading') return 'end';
+    return 'way';
+  }
+  function routeGroups() {
+    const by = {};
+    let noRoute = 0;
+    S.vehicles.forEach(v => {
+      if (v.cat === 'sold' || (S.f.caller && v.callerName !== S.f.caller)) return;
+      if (!v.from && !v.to) { noRoute++; return; }
+      const key = v.from + '→' + v.to;
+      (by[key] = by[key] || { from: v.from, to: v.to, vs: [] }).vs.push(v);
+    });
+    const q = norm(S.rq);
+    let routes = Object.keys(by).map(k => by[k]);
+    if (q) routes = routes.filter(r => norm(r.from + ' ' + r.to).includes(q) || r.vs.some(v => v.search.includes(q)));
+    if (S.rcat) routes = routes.filter(r => r.vs.some(v => v.cat === S.rcat));
+    routes.sort((a, b) => b.vs.length - a.vs.length || a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
+    return { routes: routes, noRoute: noRoute };
+  }
+  function routeCard(r) {
+    const zones = { start: [], way: [], end: [] }, counts = {};
+    r.vs.forEach(v => { zones[routeZone(v)].push(v); counts[v.cat] = (counts[v.cat] || 0) + 1; });
+    // vehicles at the same place stand together; on the way, one group per current location
+    const clusters = z => {
+      const m = {}, order = [];
+      zones[z].sort((a, b) => CAT[a.cat].i - CAT[b.cat].i).forEach(v => {
+        const k = z === 'way' ? v.cur || '—' : z;
+        if (!m[k]) { m[k] = []; order.push(k); }
+        m[k].push(v);
+      });
+      return order.map(k => ({ place: k, vs: m[k] }));
+    };
+    const cl = { start: clusters('start'), way: clusters('way'), end: clusters('end') };
+    const dot = v => '<button type="button" class="rdot' + (S.rcat && v.cat !== S.rcat ? ' dim' : '') + '" data-v="' + esc(v.vno) + '" style="--c:' + CAT[v.cat].color + '" title="' +
+      esc(v.vno + ' · ' + CAT[v.cat].label + (v.cur ? ' · now at ' + v.cur : '') + (v.driver ? ' · ' + v.driver : '') + ' · caller ' + v.callerName) + '"><i></i>' + esc(v.vno.slice(-4)) + '</button>';
+    const zone = z => '<div class="rz rz-' + z + '">' + cl[z].map(c =>
+      '<div class="rc"><div class="rc-dots" style="--rows:' + Math.min(c.vs.length, 5) + '">' + c.vs.map(dot).join('') + '</div>' +
+      (z === 'way' ? '<div class="rc-place">' + esc(c.place) + (c.vs.length > 1 ? ' <b>×' + c.vs.length + '</b>' : '') + '</div>' : '') + '</div>').join('') + '</div>';
+    const items = [...new Set(r.vs.map(v => v.item).filter(Boolean))];
+    return '<article class="route">' +
+      '<div class="r-head"><div class="r-name">' + esc(r.from || 'Start not set') + ' <span class="arrow">→</span> ' + esc(r.to || 'Not set yet') + '</div>' +
+      '<span class="r-count">' + r.vs.length + ' vehicle' + (r.vs.length > 1 ? 's' : '') + '</span>' +
+      (items.length ? '<span class="r-items">' + esc(items.join(', ')) + '</span>' : '') +
+      '<div class="r-stats">' + CATS.filter(c => counts[c.key]).map(c => '<span style="--c:' + c.color + '"><i></i>' + counts[c.key] + ' ' + esc(c.label) + '</span>').join('') + '</div></div>' +
+      '<div class="r-track-wrap"><div class="r-track">' +
+      '<div class="r-end r-from"><span class="node"></span><b>' + esc(r.from || '?') + '</b><small>Loading point</small></div>' +
+      zone('start') + zone('way') + zone('end') +
+      '<div class="r-end r-to"><span class="node"></span><b>' + esc(r.to || '?') + '</b><small>Unloading point</small></div>' +
+      '</div></div></article>';
+  }
+  function renderRoutes() {
+    const key = [S.ver, S.f.caller, S.rq, S.rcat, S.vehicles.length].join('|');
+    if (key === S.routeKey) return;
+    S.routeKey = key;
+    const list = $('#routeList');
+    if (!S.vehicles.length) { list.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div>'; return; }
+    const g = routeGroups(), counts = {};
+    g.routes.forEach(r => r.vs.forEach(v => { counts[v.cat] = (counts[v.cat] || 0) + 1; }));
+    $('#routeLegend').innerHTML = CATS.filter(c => counts[c.key] || S.rcat === c.key).map(c =>
+      '<button type="button" class="chip' + (S.rcat === c.key ? ' on' : '') + '" data-rcat="' + c.key + '" style="--c:' + c.color + '"><span class="sw"></span>' +
+      esc(c.label) + ' <b>' + (counts[c.key] || 0) + '</b></button>').join('');
+    list.innerHTML = (g.routes.length ? g.routes.map(routeCard).join('')
+      : '<div class="empty"><b>No route found</b>' + (S.rq || S.rcat ? 'Clear the search / status to see all routes.' : '') + '</div>') +
+      (g.noRoute ? '<p class="hint">' + g.noRoute + ' vehicle' + (g.noRoute > 1 ? 's have' : ' has') + ' no From / To in the Calling Sheet, so ' + (g.noRoute > 1 ? 'they are' : 'it is') + ' not on a route.</p>' : '');
   }
 
   /** sticky group headings sit right under the header (two rows high on phones) */
@@ -2405,9 +2483,14 @@
     $('#inboxOverlay').addEventListener('click', onInboxClick);
 
     // caller chips (board + programs)
-    ['#callerChips', '#callerChips2'].forEach(sel => $(sel).addEventListener('click', e => {
+    ['#callerChips', '#callerChips2', '#callerChips3'].forEach(sel => $(sel).addEventListener('click', e => {
       const b = e.target.closest('[data-caller]'); if (b) setCaller(b.dataset.caller);
     }));
+    // route view: search, status filter, tap a vehicle
+    let rqt = null;
+    $('#rq').addEventListener('input', e => { clearTimeout(rqt); rqt = setTimeout(() => { S.rq = e.target.value.trim(); renderRoutes(); }, IS_PHONE ? 220 : 120); });
+    $('#routeLegend').addEventListener('click', e => { const b = e.target.closest('[data-rcat]'); if (b) { S.rcat = S.rcat === b.dataset.rcat ? '' : b.dataset.rcat; renderRoutes(); } });
+    $('#routeList').addEventListener('click', e => { const d = e.target.closest('.rdot'); if (d) openDetail(d.dataset.v); });
 
     // search
     let qt = null;
