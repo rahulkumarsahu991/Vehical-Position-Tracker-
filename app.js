@@ -64,7 +64,9 @@
     x: '<svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
     chev: '<svg class="ico chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
     check: '<svg class="ico" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>',
-    clock: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'
+    clock: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+    pin: '<svg class="ico pin" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
+    road: '<svg class="ico" viewBox="0 0 24 24"><path d="M9 3 5 21M15 3l4 18M12 4v3M12 10.5v3M12 17v3"/></svg>'
   };
 
   /* ---------------- state ---------------- */
@@ -2417,22 +2419,69 @@
       return order.map(k => ({ place: k, vs: m[k] }));
     };
     const cl = { start: clusters('start'), way: clusters('way'), end: clusters('end') };
-    const dot = v => '<button type="button" class="rdot' + (S.rcat && v.cat !== S.rcat ? ' dim' : '') + '" data-v="' + esc(v.vno) + '" style="--c:' + CAT[v.cat].color + '" title="' +
-      esc(v.vno + ' · ' + CAT[v.cat].label + (v.cur ? ' · now at ' + v.cur : '') + (v.driver ? ' · ' + v.driver : '') + ' · caller ' + v.callerName) + '"><i></i>' + esc(v.vno.slice(-4)) + '</button>';
+    let n = 0; // dots pop in one after another
+    const dot = v => '<button type="button" class="rdot rd-' + v.cat + (S.rcat && v.cat !== S.rcat ? ' dim' : '') + '" data-v="' + esc(v.vno) + '" style="--c:' + CAT[v.cat].color + ';--i:' + (n++) + '"' +
+      ' aria-label="' + esc(v.vno + ', ' + CAT[v.cat].label + (v.cur ? ', now at ' + v.cur : '')) + '">' + esc(v.vno.slice(-4)) + '</button>';
     const zone = z => '<div class="rz rz-' + z + '">' + cl[z].map(c =>
-      '<div class="rc"><div class="rc-dots" style="--rows:' + Math.min(c.vs.length, 5) + '">' + c.vs.map(dot).join('') + '</div>' +
-      (z === 'way' ? '<div class="rc-place">' + esc(c.place) + (c.vs.length > 1 ? ' <b>×' + c.vs.length + '</b>' : '') + '</div>' : '') + '</div>').join('') + '</div>';
+      '<div class="rc"><div class="rc-dots" style="--rows:' + Math.min(c.vs.length, 4) + '">' + c.vs.map(dot).join('') + '</div>' +
+      (z === 'way' ? '<div class="rc-place">' + ICO.pin + esc(c.place) + (c.vs.length > 1 ? ' <b>×' + c.vs.length + '</b>' : '') + '</div>' : '') + '</div>').join('') + '</div>';
     const items = [...new Set(r.vs.map(v => v.item).filter(Boolean))];
-    return '<article class="route">' +
-      '<div class="r-head"><div class="r-name">' + esc(r.from || 'Start not set') + ' <span class="arrow">→</span> ' + esc(r.to || 'Not set yet') + '</div>' +
+    return '<article class="route" style="--k:' + Math.min(r.k || 0, 12) + '">' +
+      '<div class="r-head"><span class="r-ico">' + ICO.road + '</span><div class="r-name">' + esc(r.from || 'Start not set') + ' <span class="arrow">⟶</span> ' + esc(r.to || 'Not set yet') + '</div>' +
       '<span class="r-count">' + r.vs.length + ' vehicle' + (r.vs.length > 1 ? 's' : '') + '</span>' +
-      (items.length ? '<span class="r-items">' + esc(items.join(', ')) + '</span>' : '') +
-      '<div class="r-stats">' + CATS.filter(c => counts[c.key]).map(c => '<span style="--c:' + c.color + '"><i></i>' + counts[c.key] + ' ' + esc(c.label) + '</span>').join('') + '</div></div>' +
-      '<div class="r-track-wrap"><div class="r-track">' +
-      '<div class="r-end r-from"><span class="node"></span><b>' + esc(r.from || '?') + '</b><small>Loading point</small></div>' +
+      (items.length ? '<span class="r-items">' + esc(items.join(' · ')) + '</span>' : '') + '</div>' +
+      '<div class="r-track-wrap"><div class="r-track"><div class="r-road"></div>' +
+      '<div class="r-end r-from"><span class="node">A</span><b>' + esc(r.from || '?') + '</b><small>Loading point</small></div>' +
       zone('start') + zone('way') + zone('end') +
-      '<div class="r-end r-to"><span class="node"></span><b>' + esc(r.to || '?') + '</b><small>Unloading point</small></div>' +
-      '</div></div></article>';
+      '<div class="r-end r-to"><span class="node">B</span><b>' + esc(r.to || '?') + '</b><small>Unloading point</small></div>' +
+      '</div></div>' +
+      // colour guide: every status, how many of this route's vehicles have it
+      '<div class="r-legend"><span class="rl-t">Colour guide</span>' + CATS.map(c =>
+        '<span class="rl' + (counts[c.key] ? '' : ' zero') + '" style="--c:' + c.color + '"><i></i>' + esc(c.label) + ' <b>' + (counts[c.key] || 0) + '</b></span>').join('') +
+      '<span class="rl-key"><span class="node-mini">A</span> loading point · <span class="node-mini b">B</span> unloading point · ' + ICO.pin + ' where it is now</span></div>' +
+      '</article>';
+  }
+
+  /* ---- the small window over a vehicle dot (hover on a computer, tap on a phone) ---- */
+  let popTimer = null;
+  function routePopHtml(v) {
+    const p = S.active[v.vno], c = CAT[v.cat];
+    const row = (ico, html) => html ? '<div class="rp-row"><span class="rp-i">' + ico + '</span><div>' + html + '</div></div>' : '';
+    return '<div class="rp-head" style="--c:' + c.color + '">' + plate(v.vno) + '<span class="badge" style="--c:' + c.color + '">' + esc(c.label) + '</span>' +
+      (v.late ? '<span class="badge late">Late</span>' : '') + '</div>' +
+      row('📍', 'Now at <b>' + esc(v.cur || '—') + '</b>') +
+      row('🛣️', v.from || v.to ? esc(v.from || '?') + ' → ' + esc(v.to || 'not set') + (v.item ? ' · ' + esc(v.item) : '') : '') +
+      row('👤', v.driver ? '<b>' + esc(v.driver) + '</b>' + (v.driverId ? ' <span class="muted">' + esc(v.driverId) + '</span>' : '') + (v.phoneDigits ? '<br>' + esc(v.phoneDigits) : '') : '<span class="muted">No driver details</span>') +
+      row('☎️', 'Caller <b>' + esc(v.callerName) + '</b>' + (v.callTime ? ' · called ' + esc(v.callTime) : '')) +
+      row('📋', p && p.program ? 'Program <b>' + esc(p.program) + '</b>' + (p.informed === 'Yes' ? ' · <span class="m-ok">driver told ✓</span>' : '') : '') +
+      row('💬', v.remarks ? '<i>“' + esc(v.remarks) + '”</i>' : '') +
+      '<div class="rp-act">' +
+      (v.phoneDigits ? '<a class="btn sm call-btn" href="tel:+91' + v.phoneDigits + '">' + ICO.phone + 'Call</a>' +
+        '<a class="btn sm wa-btn" href="' + esc(waLink(v)) + '" target="_blank" rel="noopener">' + ICO.wa + 'WhatsApp</a>' : '') +
+      '<button type="button" class="btn sm navy" data-rp-open="' + esc(v.vno) + '">Full details</button></div>';
+  }
+  function showRoutePop(dot) {
+    const v = S.byVno[dot.dataset.v];
+    if (!v) return;
+    clearTimeout(popTimer);
+    const pop = $('#rpop');
+    if (pop.dataset.v !== v.vno || pop.hidden) { pop.innerHTML = routePopHtml(v); pop.dataset.v = v.vno; }
+    pop.hidden = false;
+    $$('.rdot.on').forEach(d => d.classList.remove('on'));
+    dot.classList.add('on');
+    // above the dot when there is room, else below; always inside the screen
+    const r = dot.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight, m = 8;
+    const left = Math.max(m, Math.min(window.innerWidth - w - m, r.left + r.width / 2 - w / 2));
+    const above = r.top - h - 10 >= m;
+    pop.style.left = left + 'px';
+    pop.style.top = (above ? r.top - h - 10 : Math.min(window.innerHeight - h - m, r.bottom + 10)) + 'px';
+    pop.style.setProperty('--ax', Math.max(14, Math.min(w - 14, r.left + r.width / 2 - left)) + 'px');
+    pop.classList.toggle('below', !above);
+  }
+  function hideRoutePop(soon) {
+    clearTimeout(popTimer);
+    const go = () => { $('#rpop').hidden = true; $$('.rdot.on').forEach(d => d.classList.remove('on')); };
+    if (soon) popTimer = setTimeout(go, 220); else go();
   }
   function renderRoutes() {
     const key = [S.ver, S.f.caller, S.rq, S.rcat, S.vehicles.length].join('|');
@@ -2445,7 +2494,8 @@
     $('#routeLegend').innerHTML = CATS.filter(c => counts[c.key] || S.rcat === c.key).map(c =>
       '<button type="button" class="chip' + (S.rcat === c.key ? ' on' : '') + '" data-rcat="' + c.key + '" style="--c:' + c.color + '"><span class="sw"></span>' +
       esc(c.label) + ' <b>' + (counts[c.key] || 0) + '</b></button>').join('');
-    list.innerHTML = (g.routes.length ? g.routes.map(routeCard).join('')
+    hideRoutePop();
+    list.innerHTML = (g.routes.length ? g.routes.map((r, i) => { r.k = i; return routeCard(r); }).join('')
       : '<div class="empty"><b>No route found</b>' + (S.rq || S.rcat ? 'Clear the search / status to see all routes.' : '') + '</div>') +
       (g.noRoute ? '<p class="hint">' + g.noRoute + ' vehicle' + (g.noRoute > 1 ? 's have' : ' has') + ' no From / To in the Calling Sheet, so ' + (g.noRoute > 1 ? 'they are' : 'it is') + ' not on a route.</p>' : '');
   }
@@ -2490,7 +2540,27 @@
     let rqt = null;
     $('#rq').addEventListener('input', e => { clearTimeout(rqt); rqt = setTimeout(() => { S.rq = e.target.value.trim(); renderRoutes(); }, IS_PHONE ? 220 : 120); });
     $('#routeLegend').addEventListener('click', e => { const b = e.target.closest('[data-rcat]'); if (b) { S.rcat = S.rcat === b.dataset.rcat ? '' : b.dataset.rcat; renderRoutes(); } });
-    $('#routeList').addEventListener('click', e => { const d = e.target.closest('.rdot'); if (d) openDetail(d.dataset.v); });
+    // a vehicle dot: hover (computer) or tap (phone) opens a small window about it; "Full details" opens everything
+    const hoverable = !!(window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)').matches);
+    const rl = $('#routeList'), pop = $('#rpop');
+    rl.addEventListener('mouseover', e => { const d = hoverable && e.target.closest('.rdot'); if (d) showRoutePop(d); });
+    rl.addEventListener('mouseout', e => {
+      if (!hoverable || !e.target.closest('.rdot')) return;
+      const to = e.relatedTarget;
+      if (!(to && to.closest && (to.closest('#rpop') || to.closest('.rdot')))) hideRoutePop(true);
+    });
+    rl.addEventListener('focusin', e => { const d = e.target.closest('.rdot'); if (d) showRoutePop(d); });
+    rl.addEventListener('click', e => {
+      const d = e.target.closest('.rdot');
+      if (!d) return;
+      if (hoverable) { hideRoutePop(); openDetail(d.dataset.v); } else showRoutePop(d);
+    });
+    pop.addEventListener('mouseenter', () => clearTimeout(popTimer));
+    pop.addEventListener('mouseleave', () => hideRoutePop(true));
+    pop.addEventListener('click', e => { const o = e.target.closest('[data-rp-open]'); if (o) { hideRoutePop(); openDetail(o.dataset.rpOpen); } });
+    document.addEventListener('click', e => { if (!pop.hidden && !e.target.closest('#rpop, .rdot')) hideRoutePop(); });
+    document.addEventListener('scroll', () => { if (!pop.hidden) hideRoutePop(); }, { passive: true, capture: true });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !pop.hidden) hideRoutePop(); });
 
     // search
     let qt = null;
