@@ -69,9 +69,12 @@
     road: '<svg class="ico" viewBox="0 0 24 24"><path d="M9 3 5 21M15 3l4 18M12 4v3M12 10.5v3M12 17v3"/></svg>',
     // side view of a lorry; body and cab take the status colour (--c)
     truck: '<svg class="truck" viewBox="0 0 34 20" aria-hidden="true"><rect class="t-box" x="1" y="2" width="20.5" height="11.5" rx="1.8"/>' +
+      '<path class="t-rib" d="M6 3.2v9.2M11.2 3.2v9.2M16.4 3.2v9.2"/>' +
       '<rect class="t-shine" x="2.5" y="3.4" width="17.5" height="2.2" rx="1.1"/><path class="t-cab" d="M22.4 5.2h6.1l4.4 5V14h-10.5z"/>' +
-      '<path class="t-win" d="M24 6.7h4l2.6 3.1H24z"/><rect class="t-base" x="1" y="12.8" width="31.9" height="2.1" rx="1"/>' +
-      '<circle class="t-wheel" cx="7" cy="16" r="2.8"/><circle class="t-wheel" cx="26.6" cy="16" r="2.8"/></svg>'
+      '<path class="t-win" d="M24 6.7h4l2.6 3.1H24z"/><circle class="t-light" cx="32.3" cy="12" r="1"/><rect class="t-base" x="1" y="12.8" width="31.9" height="2.1" rx="1"/>' +
+      '<circle class="t-wheel" cx="7" cy="16" r="2.8"/><circle class="t-wheel" cx="26.6" cy="16" r="2.8"/></svg>',
+    load: '<svg class="ico" viewBox="0 0 24 24"><path d="M3 21V9l9-5 9 5v12M7 21v-7h10v7M7 17h10"/></svg>',  // warehouse
+    flag: '<svg class="ico" viewBox="0 0 24 24"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>'
   };
 
   /* ---------------- state ---------------- */
@@ -2439,17 +2442,18 @@
       (z === 'way' ? '<div class="rc-place"><span>' + ICO.pin + esc(c.place) + (c.vs.length > 1 ? ' <b>×' + c.vs.length + '</b>' : '') + '</span></div>' : '') + '</div>').join('') + '</div>';
     const items = [...new Set(r.vs.map(v => v.item).filter(Boolean))];
     return '<article class="route" style="--k:' + Math.min(r.k || 0, 12) + '">' +
-      '<div class="r-head"><span class="r-ico">' + ICO.road + '</span><div class="r-title"><div class="r-name">' + esc(r.from || 'Start not set') +
-      ' <span class="arrow">⟶</span> ' + esc(r.to || 'Not set yet') + '</div>' +
+      // the route name on a green highway signboard
+      '<div class="r-head"><div class="r-title"><div class="r-sign"><span>' + esc(r.from || 'Start not set') + '</span>' +
+      '<svg class="rs-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h15M13 6l6 6-6 6"/></svg><span>' + esc(r.to || 'Not set yet') + '</span></div>' +
       (items.length ? '<span class="r-items">' + esc(items.join(' · ')) + '</span>' : '') + '</div>' +
       '<span class="r-count" style="--c:var(--orange-d)">' + ICO.truck + '<b>' + r.vs.length + '</b> vehicle' + (r.vs.length > 1 ? 's' : '') + '</span>' +
       // how this route's trucks split by status, as one coloured bar
       '<div class="r-bar">' + CATS.filter(c => counts[c.key]).map(c => '<i style="--c:' + c.color + ';flex-grow:' + counts[c.key] + '" title="' +
         esc(c.label + ': ' + counts[c.key]) + '"></i>').join('') + '</div></div>' +
       '<div class="r-track-wrap"><div class="r-track"><div class="r-road"></div>' +
-      '<div class="r-end r-from"><span class="node"><i>A</i></span><b>' + esc(r.from || '?') + '</b><small>Loading point</small></div>' +
+      '<div class="r-end r-from"><span class="node"><i>A</i></span><b>' + esc(r.from || '?') + '</b><small>' + ICO.load + 'Loading point</small></div>' +
       zone('start') + zone('way') + zone('end') +
-      '<div class="r-end r-to"><span class="node"><i>B</i></span><b>' + esc(r.to || '?') + '</b><small>Unloading point</small></div>' +
+      '<div class="r-end r-to"><span class="node"><i>B</i></span><b>' + esc(r.to || '?') + '</b><small>' + ICO.flag + 'Unloading point</small></div>' +
       '</div></div>' +
       // colour guide: every status, how many of this route's vehicles have it
       '<div class="r-legend"><span class="rl-t">Colour guide</span>' + CATS.map(c =>
@@ -2562,6 +2566,8 @@
     let rqt = null;
     $('#rq').addEventListener('input', e => { clearTimeout(rqt); rqt = setTimeout(() => { S.rq = e.target.value.trim(); renderRoutes(); }, IS_PHONE ? 220 : 120); });
     $('#routeLegend').addEventListener('click', e => { const b = e.target.closest('[data-rcat]'); if (b) { S.rcat = S.rcat === b.dataset.rcat ? '' : b.dataset.rcat; renderRoutes(); } });
+    // the Route banner: three trucks in the company colours driving across
+    ['#rhLane1', '#rhLane2', '#rhLane3'].forEach((s, i) => { $(s).innerHTML = '<span class="rh-truck" style="--c:' + ['#f28a1c', '#ffffff', '#7c83d6'][i] + '">' + ICO.truck + '</span>'; });
     // a vehicle dot: hover (computer) or tap (phone) opens a small window about it; "Full details" opens everything
     const hoverable = !!(window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)').matches);
     const rl = $('#routeList'), pop = $('#rpop');
