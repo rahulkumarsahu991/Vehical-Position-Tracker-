@@ -731,7 +731,12 @@ body.has-bulk main { padding-bottom: 180px; }
 .vr-prog.at-mgr { background: #eef2ff; color: #312e81; border: 1px solid #c7d2fe; }
 .mgr-wait { background: #eef2ff; color: #312e81; border: 1px dashed #a5b4fc; border-radius: 10px; padding: 8px 10px; font-weight: 600; font-size: 13.5px; }
 .btn.send-caller { width: 100%; padding: 10px 12px; }
-.pg-meta.dlv, .pg-meta.goes { font-size: 12.5px; }
+/* the Director's "Direct" (skip the Manager) */
+.btn.direct-btn { background: #fff; border-color: var(--navy-3); color: var(--navy); }
+.btn.direct-btn:hover { background: #eef2ff; }
+.mgr-wait + .send-caller { margin-top: 6px; }
+.bb-btns { display: flex; gap: 6px; }
+.pg-meta.dlv, .pg-meta.goes { font-size: 12.5px; display: block; grid-column: 1 / -1; }
 .seg button.hot { border-color: var(--red); }
 .pin-rows { display: grid; gap: 6px; margin: 8px 0; text-align: left; max-height: 55vh; overflow-y: auto; }
 .pin-row { display: grid; grid-template-columns: 1fr 110px auto; gap: 8px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--line-2); }
@@ -869,7 +874,8 @@ table.pf .ok { color: #15803d; font-weight: 700; }
   /* program box: Program on its own line, then Broker + button side by side */
   .pg.editing { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; }  /* Program, then Broker | Remark, then buttons */
   .pg.editing > .field:first-child, .pg.editing .pg-actions { grid-column: 1 / -1; }
-  .pg.editing .pg-actions { flex-wrap: nowrap; }
+  .pg.editing .pg-actions { flex-wrap: wrap; }
+  .bulk-bar .bb-btns .btn { flex: 1; }
   .pg.editing .btn { padding: 8px 12px; }
   .pg.editing .wa-give { padding: 8px 10px; }
   .pg.editing .wa-give span { display: none; }  /* icon only next to Give program */
@@ -915,7 +921,8 @@ table.pf .ok { color: #15803d; font-weight: 700; }
   main { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
   .sheet { height: 94vh; height: 94dvh; }
   .bulk-bar { bottom: 0; width: 100%; border-radius: 14px 14px 0 0; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
-  .bulk-bar .bb-row { grid-template-columns: 1fr 1fr; }
+  .bulk-bar .bb-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .bulk-bar.two-btn .bb-btns { grid-column: 1 / -1; } /* Director: Give + Direct get a full row */
   .bulk-bar .bb-row .btn { min-height: 42px; } /* Remark + Give program share the 2nd row */
   .ploc-wrap { flex: 1 1 100%; }
   .ploc-wrap select { max-width: none; flex: 1; }

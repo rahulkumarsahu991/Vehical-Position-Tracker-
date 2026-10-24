@@ -22,7 +22,7 @@ It blinks red while any call is pending; callers with pending calls blink in the
 **Director → Manager → Caller** (Inbox 🔔 button, `FLOW` in `config.js` / `CONFIG.FLOW` in Code.gs):
 a program or remark the **Director** gives goes to the **Manager** first (tab *With Manager*; the caller does not
 see it yet). The Manager taps **Send to <caller>** (or *Send all*) and the vehicle's caller gets it; the Manager's
-own programs / remarks go straight to the caller, and the Director's remark goes along when the Manager sends. Whoever it is for taps **Dekh liya ✓**; the sender sees
+own programs / remarks go straight to the caller, and the Director's remark goes along when the Manager sends. The Director can also skip the Manager with **Direct → <caller>** (card, With Manager card, bulk bar). Whoever it is for taps **Dekh liya ✓**; the sender sees
 "✓ Seen 10:42". Kept in the **Messages** tab. The Inbox blinks red while something is unseen; new ones pop up,
 buzz the phone and (if alerts are turned on) show a phone alert.
 

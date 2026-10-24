@@ -373,7 +373,11 @@
       vno: rec.vno, from: user, to: to, kind: kind, program: rec.program, broker: rec.broker, note: note || '', loc: rec.loc, cat: rec.cat,
       caller: rec.caller, seenBy: '', seenAt: '', dnote: dnote || '' });
     if (!rec.program) { rec.stage = ''; rec.dnoteSent = ''; }
-    if (isTop(user)) {
+    if (isTop(user) && b.send) { // "Direct": the Director sends straight to the caller
+      rec.stage = ''; rec.dnoteSent = rec.dnote || '';
+      if (rec.program) { rec.sentBy = user; rec.sentAt = now; if (rec.caller) msg(rec.caller, 'program', rec.note, rec.dnoteSent); }
+      else if (rec.dnote && rec.caller) msg(rec.caller, 'remark', '', rec.dnote);
+    } else if (isTop(user)) {
       if (progNew) { rec.stage = 'manager'; msg(FLOW.MID, 'program', rec.dnote); }
       else if (rec.dnote && rec.dnote !== before.dnote) msg(FLOW.MID, 'remark', rec.dnote);
     } else if (isMid(user)) {
@@ -1009,7 +1013,8 @@
         // the Director's program waits for the Manager's OK before the caller sees it
         h += isMid(S.user)
           ? '<button type="button" class="btn primary send-caller" data-act="send">📨 Send to ' + esc(r.caller) + '</button>'
-          : '<div class="mgr-wait">📨 With ' + esc(FLOW.MID) + ' — not sent to the caller yet</div>';
+          : '<div class="mgr-wait">📨 With ' + esc(FLOW.MID) + ' — not sent to the caller yet</div>' +
+            (isTop(S.user) ? '<button type="button" class="btn send-caller direct-btn" data-act="send">➜ Send direct to ' + esc(r.caller) + '</button>' : '');
       } else {
         h += (v.phoneDigits ? '<a class="btn wa-send" href="' + esc(waLink(v)) + '" target="_blank" rel="noopener">' + ICO.wa + 'Send program on WhatsApp</a>' : '') +
           '<div class="inform"><div class="q">Driver ko bataya? <span class="muted">(Driver informed?)</span></div>' +
@@ -1029,9 +1034,11 @@
         '<label class="field"><span class="pg-lbl">' + esc(r.noteLbl) + ' <span class="hi">(optional)</span></span>' +
         '<input data-f="' + r.nk + '" value="' + esc(noteVal) + '" autocomplete="off"></label>' +
         '<div class="pg-actions"><button type="button" class="btn primary" data-act="give">' + ICO.check + esc(r.giveLbl) + '</button>' +
+        (r.on && isTop(S.user) ? '<button type="button" class="btn direct-btn" data-act="give-direct" title="Skip the ' + esc(FLOW.MID) + ': straight to the caller">➜ Direct → ' + esc(r.caller) + '</button>' : '') +
         (v.phoneDigits && !(r.on && isTop(S.user)) ? '<button type="button" class="btn wa-give" data-act="give-wa" title="Give the program and send it to the driver on WhatsApp">' + ICO.wa + '<span>Give + WhatsApp</span></button>' : '') +
         (has ? '<button type="button" class="btn" data-act="cancel">Cancel</button><button type="button" class="btn link sm" data-act="remove">Remove program</button>' : '') +
-        '</div>' + (r.on && r.to ? '<div class="pg-meta goes">Goes to <b>' + esc(r.to) + '</b> · a remark alone can be sent too</div>' : '') + deliveryHtml(v.vno);
+        '</div>' + (r.on && r.to ? '<div class="pg-meta goes">Goes to <b>' + esc(r.to) + '</b>' +
+          (isTop(S.user) ? ' · or <b>Direct</b> straight to ' + esc(r.caller) : '') + ' · a remark alone can be sent too</div>' : '') + deliveryHtml(v.vno);
     }
     return h + '</div>';
   }
@@ -1090,10 +1097,13 @@
     const places = [...new Set([...S.sel].map(vno => (S.byVno[vno] ? progPlace(S.byVno[vno]) : '')))].filter(Boolean);
     $('#bulkWhere').textContent = places.length === 1 ? '· ' + places[0] : '· ' + places.length + ' locations';
     $('#bulkGive').textContent = 'Give to ' + n + (S.flow && isTop(S.user) ? ' → ' + FLOW.MID : '');
+    $('#bulkDirect').hidden = !(S.flow && isTop(S.user));
+    bar.classList.toggle('two-btn', !$('#bulkDirect').hidden);
     $('#bulkNote').closest('label').querySelector('.pg-lbl').textContent = S.flow && isTop(S.user) ? 'Remark for ' + FLOW.MID : 'Remark';
   }
   /** one program (and broker) for every ticked vehicle — saved at once, sent to the sheet in the background */
-  async function bulkGive() {
+  async function bulkGive(direct) {
+    direct = direct === true; // the Director's "Direct": straight to each vehicle's caller
     const program = $('#bulkProg').value.trim(), broker = $('#bulkBroker').value.trim(), note = $('#bulkNote').value.trim();
     if (!S.sel.size) return;
     if (!program) { toast('Write the program first (where to go / load from)', true); $('#bulkProg').focus(); return; }
@@ -1101,13 +1111,13 @@
     const vnos = [...S.sel], r = flowRole(null);
     for (const vno of vnos) {
       const body = { program: program, broker: broker, [r.nk]: note };
-      if (r.on && isMid(S.user)) body.send = true;
+      if (r.on && (isMid(S.user) || direct)) body.send = true;
       await saveProgram(vno, body, false);
     }
     S.sel.clear();
     $('#bulkProg').value = ''; $('#bulkBroker').value = ''; $('#bulkNote').value = '';
     toast('Program given to ' + vnos.length + ' vehicle' + (vnos.length > 1 ? 's' : '') +
-      (r.on && isTop(S.user) ? ' — sent to ' + FLOW.MID : r.on && isMid(S.user) ? ' — sent to the callers' : ' — now call the drivers'));
+      (direct ? ' — sent straight to the callers ✓' : r.on && isTop(S.user) ? ' — sent to ' + FLOW.MID : r.on && isMid(S.user) ? ' — sent to the callers' : ' — now call the drivers'));
     renderAll();
   }
   function upsertProgram(rec) {
@@ -1190,10 +1200,13 @@
     const clearDraft = () => { S.editing[vno] = false; delete d.program; delete d.broker; delete d.note; delete d.dnote; };
     if (act === 'cancel') clearDraft();
     else if (act === 'send') { await sendToCaller([vno]); return; }
-    else if (act === 'give' || act === 'give-wa') {
+    else if (act === 'give' || act === 'give-wa' || act === 'give-direct') {
       const program = String(d.program || '').trim(), broker = String(d.broker || '').trim(), note = String(d[r.nk] || '').trim();
-      if (!program && note && r.on && act === 'give') { // a remark on its own
-        ok = await saveProgram(vno, { [r.nk]: note }, r.to ? 'Remark sent to ' + r.to : 'Remark saved');
+      const direct = act === 'give-direct'; // the Director, straight to the caller
+      if (!program && note && r.on && act !== 'give-wa') { // a remark on its own
+        const body = { [r.nk]: note };
+        if (direct) body.send = true;
+        ok = await saveProgram(vno, body, direct ? 'Remark sent to ' + r.caller : r.to ? 'Remark sent to ' + r.to : 'Remark saved');
         if (ok) { delete d[r.nk]; if (!(p && p.program)) S.editing[vno] = false; }
       } else if (!program) { toast('Write the program first (where to go / load from)', true); const i = $('[data-f="program"]', box); if (i) i.focus(); return; }
       else {
@@ -1201,9 +1214,10 @@
         const sendNow = act === 'give-wa' && S.user && S.byVno[vno];
         if (sendNow) window.open(waLink(S.byVno[vno], { program: program, broker: broker, note: r.nk === 'note' ? note : '' }), '_blank', 'noopener');
         const body = { program: program, broker: broker, [r.nk]: note };
-        if (r.on && isMid(S.user)) body.send = true; // the Manager's program goes straight to the caller
+        if (r.on && (isMid(S.user) || direct)) body.send = true; // the Manager's (or a Direct) program goes straight to the caller
         ok = await saveProgram(vno, body,
-          r.on && r.to ? 'Program sent to ' + r.to + (isTop(S.user) ? ' — the caller gets it once the ' + FLOW.MID + ' sends it' : '')
+          direct ? 'Program sent straight to ' + r.caller + ' ✓'
+          : r.on && r.to ? 'Program sent to ' + r.to + (isTop(S.user) ? ' — the caller gets it once the ' + FLOW.MID + ' sends it' : '')
             : sendNow ? 'Program saved — WhatsApp opened, press Send there' : act === 'give-wa' ? 'Program saved — now tap “Send program on WhatsApp”' : 'Program saved — now call the driver');
         if (ok) clearDraft();
       }
@@ -1459,7 +1473,7 @@
   const isSeen = m => !!(m.seenAt || S.seenLocal[m.id]);
   const seenAt = m => m.seenAt || (S.seenLocal[m.id] || {}).at || '';
   const byNewest = (a, b) => String(b.at || '').localeCompare(String(a.at || ''));
-  const msgWhat = m => (m.kind === 'program' ? (m.cat === 'Unloading' ? 'Next load: ' : 'Program: ') + m.program : 'Remark: ' + m.note);
+  const msgWhat = m => (m.kind === 'program' ? (m.cat === 'Unloading' ? 'Next load: ' : 'Program: ') + m.program : 'Remark: ' + (m.note || m.dnote));
   const callerOf = vno => { const v = S.byVno[vno]; return (v && v.caller) || ((S.active[vno] || {}).caller) || 'caller'; };
   const unseenForMe = () => S.msgs.filter(m => forMe(m) && !isSeen(m));
   /** vehicles whose (Director's) program is waiting for the Manager */
@@ -2474,7 +2488,8 @@
       renderPrograms();
     });
     $('#bulkClear').addEventListener('click', () => { S.sel.clear(); renderPrograms(); });
-    $('#bulkGive').addEventListener('click', bulkGive);
+    $('#bulkGive').addEventListener('click', () => bulkGive(false));
+    $('#bulkDirect').addEventListener('click', () => bulkGive(true));
     $('#bulkProg').addEventListener('keydown', e => { if (e.key === 'Enter') bulkGive(); });
     $('#progList').addEventListener('click', e => {
       if (e.target.closest('[data-sendall]')) { sendToCaller(S.mgrShown || []); return; }
