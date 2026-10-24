@@ -2439,7 +2439,10 @@
     const tagW = c => Math.min(170, 30 + c.place.length * 7 + (c.vs.length > 1 ? 18 : 0));
     const zone = z => '<div class="rz rz-' + z + '">' + cl[z].map(c =>
       '<div class="rc"' + (z === 'way' ? ' style="--tw:' + tagW(c) + 'px"' : '') + '><div class="rc-dots" style="--rows:' + Math.min(c.vs.length, 4) + '">' + c.vs.map(dot).join('') + '</div>' +
-      (z === 'way' ? '<div class="rc-place"><span>' + ICO.pin + esc(c.place) + (c.vs.length > 1 ? ' <b>×' + c.vs.length + '</b>' : '') + '</span></div>' : '') + '</div>').join('') + '</div>';
+      (z === 'way' ? '<div class="rc-place"><span>' + ICO.pin + esc(c.place) + (c.vs.length > 1 ? ' <b>×' + c.vs.length + '</b>' : '') + '</span></div>'
+        // at A / B: the name stands under the pin on a computer; on a phone the group says where it is
+        : '<div class="rc-place se"><span>' + (z === 'start' ? ICO.load + 'At loading point · ' + esc(r.from || '?') : ICO.flag + 'At unloading point · ' + esc(r.to || '?')) +
+          (c.vs.length > 1 ? ' <b>×' + c.vs.length + '</b>' : '') + '</span></div>') + '</div>').join('') + '</div>';
     const items = [...new Set(r.vs.map(v => v.item).filter(Boolean))];
     return '<article class="route" style="--k:' + Math.min(r.k || 0, 12) + '">' +
       // the route name on a green highway signboard

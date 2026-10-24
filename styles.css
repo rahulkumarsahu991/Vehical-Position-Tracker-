@@ -934,6 +934,7 @@ body.has-bulk main { padding-bottom: 180px; }
 .rp-act .btn { flex: 1; justify-content: center; text-decoration: none; }
 
 .rl-all { display: none; border: 0; background: none; padding: 0; cursor: pointer; color: var(--navy-3); font: 700 11.5px var(--font); }
+.rc-place.se { display: none; }  /* "At loading / unloading point" — phones only (on a computer the A / B name sits under the pin) */
 
 @media (prefers-reduced-motion: reduce) {
   .route, .rdot, .rpop, .r-road::after, .rdot .truck, .r-end .node { animation: none; }
@@ -942,37 +943,41 @@ body.has-bulk main { padding-bottom: 180px; }
   .rh-lane.l3 { transform: translateX(70%); }
 }
 @media (max-width: 760px) {
-  .route-hero { min-height: 146px; border-radius: 16px; margin-bottom: 10px; }
-  .rh-text { padding: 14px 16px 0; }
+  /* top of the page kept short, so the first route is on the screen at once */
+  .route-hero { min-height: 100px; border-radius: 16px; margin-bottom: 10px; }
+  .rh-text { padding: 13px 16px 0; }
   .rh-text small { font-size: 10px; letter-spacing: 1.2px; }
-  .rh-text h2 { font-size: 24px; }
-  .rh-text p { font-size: 12px; }
-  .rh-scene { height: 62px; }
-  .rh-hills { height: 44px; }
-  .rh-truck .truck { width: 38px; height: 22px; }
-  .r-head { padding: 12px 12px 10px; gap: 8px 10px; }
-  .r-sign { font-size: 15.5px; padding: 6px 11px 6px 10px; gap: 2px 6px; }
-  .rs-arrow { width: 16px; height: 16px; }
-  .r-name { font-size: 16.5px; }
-  .r-ico { width: 32px; height: 32px; border-radius: 10px; }
-  .r-ico .ico { width: 17px; height: 17px; }
-  .r-count { padding: 4px 8px; font-size: 0; gap: 4px; }   /* phone: truck + number only */
-  .r-count b { font-size: 17px; }
-  .r-count .truck { width: 24px; height: 15px; }
-  .route-sum { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
-  .rk { grid-template-columns: 1fr; justify-items: start; row-gap: 2px; padding: 8px 9px 8px 11px; border-radius: 12px; }
-  .rk-i { grid-row: auto; width: 30px; height: 30px; border-radius: 9px; }
+  .rh-text h2 { font-size: 23px; margin-bottom: 0; }
+  .rh-text p { display: none; }
+  .rh-scene { height: 46px; }
+  .rh-hills { height: 32px; bottom: 12px; }
+  .rh-road { height: 14px; }
+  .rh-lane { bottom: 6px; }
+  .rh-truck .truck { width: 34px; height: 20px; }
+  .route-sum { display: flex; overflow-x: auto; gap: 8px; margin: 8px -12px 2px; padding: 0 12px 4px; scrollbar-width: none; }
+  .route-sum::-webkit-scrollbar { display: none; }
+  .rk { flex: none; grid-template-columns: auto auto; column-gap: 8px; padding: 7px 12px 7px 11px; border-radius: 12px; }
+  .rk-i { width: 32px; height: 32px; border-radius: 9px; }
   .rk-i .truck { width: 22px; height: 13px; }
   .rk-i .ico { width: 16px; height: 16px; }
-  .rk b { font-size: 21px; }
-  .rk small { font-size: 10.5px; line-height: 1.15; }
+  .rk b { font-size: 20px; }
+  .rk small { font-size: 10.5px; line-height: 1.15; white-space: nowrap; }
+  #view-route > .hint { display: none; }
   .route-head .search { max-width: none; }
   .route-legend { flex-wrap: nowrap; overflow-x: auto; margin: 0 -12px; padding: 0 12px 2px; scrollbar-width: none; width: calc(100% + 24px); }
   .route-legend .chip { flex: none; }
 
-  /* phone: the route runs from A (top) down to B (bottom); places and trucks sit beside the road — no sideways scrolling */
-  .r-track-wrap { margin: 6px 8px 0; overflow: visible; }
-  .r-track { flex-direction: column; align-items: stretch; width: auto; min-width: 0; min-height: 0; padding: 12px 10px 12px 0; gap: 2px; }
+  .r-head { padding: 12px 12px 10px; gap: 8px 10px; }
+  .r-sign { font-size: 15.5px; padding: 6px 11px 6px 10px; gap: 2px 6px; }
+  .rs-arrow { width: 16px; height: 16px; }
+  .r-count { padding: 4px 8px; font-size: 0; gap: 4px; }   /* phone: truck + number only */
+  .r-count b { font-size: 17px; }
+  .r-count .truck { width: 24px; height: 15px; }
+
+  /* phone: the route runs from A (top) down to B (bottom); each stop is a small card beside the road —
+     where the trucks are, then the trucks — no sideways scrolling */
+  .r-track-wrap { margin: 8px 8px 0; overflow: visible; }
+  .r-track { flex-direction: column; align-items: stretch; width: auto; min-width: 0; min-height: 0; padding: 12px 10px 12px 0; gap: 8px; }
   .r-road { left: 21px; right: auto; top: 26px; bottom: 26px; width: 12px; height: auto; }
   .r-road::after {
     top: -24px; bottom: -24px; left: 5px; right: auto; width: 2px; height: auto; animation-name: road-move-v;
@@ -986,12 +991,22 @@ body.has-bulk main { padding-bottom: 180px; }
   .r-end b, .r-end small { position: static; width: auto; text-align: left; }
   .r-end b { font-size: 14.5px; }
   .r-end small { font-size: 11px; margin-left: auto; }
-  .rz { flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 2px; flex: none; }
-  .rc { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; padding: 7px 0 7px 50px; }
-  .rc::after { bottom: auto; top: 50%; left: 27px; margin: -6px 0 0 -6px; }          /* on the road */
-  .rc::before { bottom: auto; top: 50%; left: 33px; width: 13px; height: 2px; margin: -1px 0 0; } /* stem out to the trucks */
-  .rc-place { position: static; order: -1; text-align: left; font-size: 12px; }
-  .rc-dots { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+  .rz { flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 8px; flex: none; }
+  .rc {  /* place on the left, its trucks on the right of the same line (more trucks wrap below) */
+    display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; margin-left: 46px; padding: 7px 10px 8px;
+    background: #fff; border: 1px solid #e6e9f2; border-top: 3px solid #f5b041; border-radius: 12px; box-shadow: 0 1px 4px rgba(22, 26, 51, .07);
+  }
+  .rz-start .rc { border-top-color: var(--orange); }
+  .rz-end .rc { border-top-color: var(--navy-3); }
+  .rc::after { bottom: auto; top: 50%; left: -19px; margin: -6px 0 0 -6px; }   /* on the road */
+  .rc::before { bottom: auto; top: 50%; left: -13px; width: 13px; height: 2px; margin: -1px 0 0; } /* stem from the road to the card */
+  .rc-place, .rc-place.se { display: block; position: static; order: -1; flex: 1 1 auto; text-align: left; font-size: 13px; color: var(--ink); }
+  .rc-place span { background: none; border: 0; box-shadow: none; padding: 0; border-radius: 0; }
+  .rc-place .pin, .rc-place .ico { width: 13px; height: 13px; vertical-align: -2px; margin-right: 4px; color: var(--orange-d); }
+  .rz-end .rc-place .ico { color: var(--navy-3); }
+  .rc-dots { display: flex; flex-wrap: wrap; gap: 6px 8px; }
+  .route, .rdot { animation: none; }  /* cards and trucks show at once on a phone */
+  .rdot span { font-size: 10.5px; }
 
   /* colour guide: the colours on this route; "All colours" shows the rest */
   .r-legend { padding: 8px 12px 10px; gap: 4px 11px; }
