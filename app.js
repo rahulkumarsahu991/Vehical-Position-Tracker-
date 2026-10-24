@@ -369,17 +369,18 @@
   function routeMsgs(rec, before, b, now) {
     const user = String(b.user || ''), out = [];
     const progNew = !!rec.program && rec.program !== before.program;
-    const msg = (to, kind, note) => out.push({ id: 'tmp-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), date: todayKey(), at: now,
+    const msg = (to, kind, note, dnote) => out.push({ id: 'tmp-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), date: todayKey(), at: now,
       vno: rec.vno, from: user, to: to, kind: kind, program: rec.program, broker: rec.broker, note: note || '', loc: rec.loc, cat: rec.cat,
-      caller: rec.caller, seenBy: '', seenAt: '' });
-    if (!rec.program) rec.stage = '';
+      caller: rec.caller, seenBy: '', seenAt: '', dnote: dnote || '' });
+    if (!rec.program) { rec.stage = ''; rec.dnoteSent = ''; }
     if (isTop(user)) {
       if (progNew) { rec.stage = 'manager'; msg(FLOW.MID, 'program', rec.dnote); }
       else if (rec.dnote && rec.dnote !== before.dnote) msg(FLOW.MID, 'remark', rec.dnote);
     } else if (isMid(user)) {
       if (rec.program && (b.send || progNew)) {
-        rec.stage = ''; rec.sentBy = user; rec.sentAt = now;
-        if (rec.caller) msg(rec.caller, 'program', rec.note);
+        // the Director's remark goes on to the caller together with the program
+        rec.stage = ''; rec.sentBy = user; rec.sentAt = now; rec.dnoteSent = rec.dnote || '';
+        if (rec.caller) msg(rec.caller, 'program', rec.note, rec.dnoteSent);
       } else if (rec.note && rec.note !== before.note && rec.stage !== 'manager' && rec.caller) msg(rec.caller, 'remark', rec.note);
     } else if (progNew) rec.stage = '';
     return out;
@@ -391,11 +392,13 @@
     'id': 'id', 'date': 'date', 'vehicle no': 'vno', 'caller': 'caller', 'status': 'cat', 'location': 'loc', 'program next load': 'program',
     'broker party': 'broker', 'given by': 'givenBy', 'given at': 'givenAt', 'driver informed': 'informed', 'informed by': 'informedBy',
     'informed at': 'informedAt', 'going to': 'goingTo', 'note': 'note', 'updated by': 'updatedBy', 'updated at': 'updatedAt',
-    'stage': 'stage', 'director remark': 'dnote', 'remark by': 'noteBy', 'sent by': 'sentBy', 'sent at': 'sentAt'
+    'stage': 'stage', 'director remark': 'dnote', 'remark by': 'noteBy', 'sent by': 'sentBy', 'sent at': 'sentAt',
+    'director remark sent': 'dnoteSent'
   };
   const MSG_HEAD = {
     'id': 'id', 'date': 'date', 'at': 'at', 'vehicle no': 'vno', 'from': 'from', 'to': 'to', 'kind': 'kind', 'program': 'program',
-    'broker party': 'broker', 'remark': 'note', 'location': 'loc', 'status': 'cat', 'caller': 'caller', 'seen by': 'seenBy', 'seen at': 'seenAt'
+    'broker party': 'broker', 'remark': 'note', 'location': 'loc', 'status': 'cat', 'caller': 'caller', 'seen by': 'seenBy', 'seen at': 'seenAt',
+    'director remark': 'dnote'
   };
   async function readTab(tab, head, must) {
     const from = addDays(todayKey(), -(PROGRAM_DAYS - 1));
@@ -997,7 +1000,8 @@
         '<span class="pg-lbl">' + (v.cat === 'unloading' ? 'Next load program' : 'Program') + '</span>' +
         '<div class="pg-text">' + esc(p.program) + '</div>' +
         (p.broker ? '<div class="pg-meta">Broker / Party: <b>' + esc(p.broker) + '</b></div>' : '') +
-        (r.on && isBoss(S.user) && p.dnote ? '<div class="pg-meta">' + esc(FLOW.TOP) + '’s remark: <b>' + esc(p.dnote) + '</b></div>' : '') +
+        // Director's remark: the Director and Manager see the latest; the caller sees what the Manager sent on
+        ((dn => (dn ? '<div class="pg-meta">' + esc(FLOW.TOP) + '’s remark: <b>' + esc(dn) + '</b></div>' : ''))(r.on ? (isBoss(S.user) ? p.dnote : p.dnoteSent) : '')) +
         (p.note ? '<div class="pg-meta">Remark' + (r.on && p.noteBy ? ' (' + esc(p.noteBy) + ')' : '') + ': <b>' + esc(p.note) + '</b></div>' : '') +
         '<div class="pg-meta">Given by <b>' + esc(p.givenBy || '—') + '</b>' + (p.givenAt ? ' · ' + esc(fmtStamp(p.givenAt)) : '') +
         ' <button type="button" class="btn link sm" data-act="edit">Change</button></div>' + deliveryHtml(v.vno) + '</div>';
@@ -1274,7 +1278,8 @@
     if (!vm.length) return '';
     return '<div class="card"><h4>Messages</h4><div class="hist">' + vm.map(m =>
       '<div class="hist-item"><b>' + esc(m.from) + ' → ' + esc(m.to) + '</b> · ' + esc(fmtStamp(m.at)) + '<br>' + esc(msgWhat(m)) +
-      (m.kind === 'program' && m.note ? ' · 💬 ' + esc(m.note) : '') + '<br>' +
+      (m.kind === 'program' && m.dnote ? ' · 💬 ' + esc(FLOW.TOP) + ': ' + esc(m.dnote) : '') +
+      (m.kind === 'program' && m.note ? ' · 💬 ' + (m.dnote ? esc(m.from) + ': ' : '') + esc(m.note) : '') + '<br>' +
       (isSeen(m) ? '<span class="m-ok">✓ Seen ' + esc(fmtStamp(seenAt(m))) + '</span>' : /^tmp-/.test(m.id) ? '<span class="m-wait">Sending…</span>' : '<span class="m-wait">Not seen yet</span>') +
       (forMe(m) && !isSeen(m) ? ' <button type="button" class="btn sm seen-btn" data-seen-id="' + esc(m.id) + '">' + ICO.check + 'Dekh liya</button>' : '') +
       '</div>').join('') + '</div></div>';
@@ -1515,6 +1520,11 @@
     return '<div class="pg-meta dlv">' + (fromMe(m) ? 'Sent' : esc(m.from) + ' sent') + ' to <b>' + esc(m.to) + '</b> · ' + esc(fmtStamp(m.at)) + ' · ' +
       (isSeen(m) ? '<span class="m-ok">✓ Seen ' + esc(fmtStamp(seenAt(m))) + '</span>' : '<span class="m-wait">not seen yet</span>') + '</div>';
   }
+  /** remarks in a message: the Director's (passed on by the Manager) and the sender's own */
+  function msgNotes(m) {
+    return (m.dnote ? '<div class="m-note">💬 <b>' + esc(FLOW.TOP) + ':</b> ' + esc(m.dnote) + '</div>' : '') +
+      (m.note ? '<div class="m-note">💬 ' + (m.dnote ? '<b>' + esc(m.from) + ':</b> ' : '') + esc(m.note) + '</div>' : '');
+  }
   function msgCard(m, out, sendHere) {
     const v = S.byVno[m.vno], seen = isSeen(m);
     const what = m.kind === 'program'
@@ -1526,7 +1536,7 @@
       '<div class="m-top">' + plate(m.vno) + '<span class="m-who">' + (out ? 'To <b>' + esc(m.to) + '</b>' : 'From <b>' + esc(m.from) + '</b>') + '</span>' +
       '<span class="m-time">' + esc(fmtStamp(m.at)) + '</span></div>' +
       '<div class="m-where">' + esc([m.cat, m.loc, m.caller ? 'Caller: ' + m.caller : ''].filter(Boolean).join(' · ')) + '</div>' +
-      what + (m.note ? '<div class="m-note">💬 ' + esc(m.note) + '</div>' : '') +
+      what + msgNotes(m) +
       '<div class="m-act">' + status +
       (sendHere ? '<button type="button" class="btn primary sm" data-msgact="send" data-vno="' + esc(m.vno) + '">📨 Send to ' + esc(callerOf(m.vno)) + '</button>' : '') +
       (v ? '<button type="button" class="btn sm" data-msgact="open" data-vno="' + esc(m.vno) + '">Open</button>' : '') +
