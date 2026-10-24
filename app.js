@@ -411,20 +411,26 @@
     return grid.slice(1).map(row => { const o = {}; keys.forEach((k, i) => { if (k) o[k] = String(row[i] == null ? '' : row[i]); }); return o; })
       .filter(o => o.id && o.vno);
   }
-  /** → { programs, messages } (messages null while the flow is off) */
-  async function loadPrograms() {
-    if (LOCAL) return { programs: Local.list(), messages: null };
-    if (CFG.SHEET_ID && S.readDirect !== false) {
-      try {
-        const [programs, messages] = await Promise.all([
-          readTab(CFG.PROGRAM_TAB || 'Programs', PROG_HEAD, ['id', 'date', 'vno', 'program', 'updatedAt']),
-          S.flow ? readTab(CFG.MESSAGE_TAB || 'Messages', MSG_HEAD, ['id', 'vno', 'from', 'to']) : Promise.resolve(null)
-        ]);
-        return { programs: programs, messages: messages };
-      } catch (e) { /* not readable yet (e.g. Messages tab not made) — ask the Apps Script */ }
-    }
-    const res = await api('programs', { days: PROGRAM_DAYS });
-    return { programs: res.programs || [], messages: S.flow ? res.messages || [] : null };
+  /** → { programs, messages } (messages null while the flow is off).
+   *  The sheet usually answers in under a second, but when nobody opened it for a while Google can take
+   *  15 s to wake it — so if it is not back in 3 s the Apps Script is asked too, and the first answer wins. */
+  function loadPrograms() {
+    if (LOCAL) return Promise.resolve({ programs: Local.list(), messages: null });
+    const viaScript = () => api('programs', { days: PROGRAM_DAYS })
+      .then(res => ({ programs: res.programs || [], messages: S.flow ? res.messages || [] : null }));
+    if (!CFG.SHEET_ID) return viaScript();
+    const viaSheet = () => Promise.all([
+      readTab(CFG.PROGRAM_TAB || 'Programs', PROG_HEAD, ['id', 'date', 'vno', 'program', 'updatedAt']),
+      S.flow ? readTab(CFG.MESSAGE_TAB || 'Messages', MSG_HEAD, ['id', 'vno', 'from', 'to']) : Promise.resolve(null)
+    ]).then(r => ({ programs: r[0], messages: r[1] }));
+    return new Promise((resolve, reject) => {
+      let done = false, asked = false, fails = 0, timer = null;
+      const win = v => { if (!done) { done = true; clearTimeout(timer); resolve(v); } };
+      const lose = e => { if (++fails === 2 && !done) { done = true; reject(e); } }; // both failed
+      const askScript = () => { clearTimeout(timer); if (asked) return; asked = true; viaScript().then(win, lose); };
+      viaSheet().then(win, e => { askScript(); lose(e); }); // not readable (e.g. Messages tab not made yet) → Apps Script
+      timer = setTimeout(askScript, 3000);
+    });
   }
 
   function computeActive() {
