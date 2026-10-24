@@ -32,5 +32,11 @@ window.VPT_CONFIG = {
   PROGRAM_DAYS: 3,      // programs older than this are not shown
 
   // Names shown in "Who are you?" besides the callers found in the sheet
-  EXTRA_USERS: ["Director", "Manager"]
+  EXTRA_USERS: ["Director", "Manager"],
+
+  // Director → Manager → caller: the Director's programs / remarks go to the Manager first, the Manager
+  // sends them on to the vehicle's caller (same names as CONFIG.FLOW in Code.gs).
+  FLOW: { TOP: "Director", MID: "Manager" },
+  PROGRAM_TAB: "Programs",   // tabs Code.gs writes; the website reads them straight from the sheet
+  MESSAGE_TAB: "Messages"
 };

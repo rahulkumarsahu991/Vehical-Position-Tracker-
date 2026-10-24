@@ -6,7 +6,7 @@
  * the network answers quickly, and the saved copy is refreshed every time.
  * Google Sheet / Apps Script data is never cached here — always live.
  * ===================================================================== */
-const CACHE = 'vpt-v10';
+const CACHE = 'vpt-v11';
 const FILES = ['./', './index.html', './styles.css', './app.js', './config.js', './logo.webp', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 const FAST_MS = 1500; // wait this long for the network before using the saved copy
 
@@ -36,4 +36,13 @@ self.addEventListener('fetch', e => {
     const slow = new Promise(resolve => setTimeout(() => resolve(cached), FAST_MS));
     return Promise.race([fresh.catch(() => cached), slow]);
   })());
+});
+
+// tapping an inbox alert brings the website (or the installed app) to the front
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    const open = list.find(c => c.url.startsWith(self.registration.scope));
+    return open ? open.focus() : self.clients.openWindow(self.registration.scope);
+  }));
 });

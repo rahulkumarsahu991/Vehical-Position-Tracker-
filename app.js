@@ -18,6 +18,11 @@
   const REFRESH_MS = Math.max(10, Number(CFG.REFRESH_SECONDS) || (Number(CFG.REFRESH_MINUTES) || 0) * 60 || 20) * 1000;
   const CHANGE_MARK_MS = 3 * 60000; // "Updated" tag stays this long on a vehicle that changed in the sheet
   const COMPANY = CFG.COMPANY || 'Daman Group';
+  // Director → Manager → caller: who passes programs / remarks to whom (same as CONFIG.FLOW in Code.gs)
+  const FLOW = Object.assign({ TOP: 'Director', MID: 'Manager' }, CFG.FLOW || {});
+  const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+  const isTop = u => sameName(u, FLOW.TOP), isMid = u => sameName(u, FLOW.MID);
+  const isBoss = u => isTop(u) || isMid(u);
 
   const $ = (s, el) => (el || document).querySelector(s);
   const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
@@ -32,7 +37,8 @@
   };
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
-    progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden'
+    progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
+    flow: 'vpt_flow', msgCache: 'vpt_msg_cache_v1', seen: 'vpt_seen_local', accounts: 'vpt_accounts_v1'
   };
 
   /* ---------------- status categories (same groups as the sheet's prints) ---------------- */
@@ -78,7 +84,10 @@
     detail: null, pending: false,
     changedAt: {}, gridSig: '', progSig: '', fromCache: false, fails: 0, sheetChangedAt: 0,
     saving: {}, lastSaveAt: 0, outbox: store.get(K.outbox, []), flushing: false, outboxError: '', retryTimer: null,
-    repairInfo: {}, repairAt: 0, repairLoading: false
+    repairInfo: {}, repairAt: 0, repairLoading: false,
+    // Director → Manager → caller messages (Messages tab); flow is on once the deployed Code.gs has it
+    flow: !LOCAL && !!store.get(K.flow, false), msgs: store.get(K.msgCache, []), msgSig: '', msgKnown: new Set(), msgSeeded: false,
+    seenLocal: store.get(K.seen, {}), savedAt: {}, msgAddedAt: {}, inboxTab: 'in'
   };
 
   /* =====================================================================
@@ -310,6 +319,7 @@
     } catch (e) {
       throw new Error(e && e.name === 'AbortError' ? 'Server is taking too long — try again' : 'No internet connection — try again');
     } finally { if (t) clearTimeout(t); }
+    S.apiAt = Date.now();
     let res;
     try { res = JSON.parse(text); } catch (e) { throw new Error('Invalid reply from Apps Script — check the deployment (Who has access: Anyone)'); }
     if (!res || !res.ok) { const er = new Error((res && res.error) || 'Something went wrong'); er.code = (res && res.code) || ''; throw er; }
@@ -347,18 +357,74 @@
     }
     if (b.broker != null) rec.broker = String(b.broker).trim();
     if (b.goingTo != null) rec.goingTo = String(b.goingTo).trim();
-    if (b.note != null) rec.note = String(b.note).trim();
+    if (b.dnote != null) rec.dnote = String(b.dnote).trim();
+    if (b.note != null) { const n = String(b.note).trim(); if (n !== (rec.note || '')) { rec.note = n; rec.noteBy = n ? user : ''; } }
     if (b.informed != null) {
       const v = (b.informed === true || b.informed === 'Yes') ? 'Yes' : 'No';
       if (v !== rec.informed) { rec.informed = v; rec.informedBy = v === 'Yes' ? user : ''; rec.informedAt = v === 'Yes' ? now : ''; }
     }
     rec.updatedBy = user; rec.updatedAt = now;
   }
+  /** Same rules as route_ in Code.gs: sets the stage and returns who is told (shown at once, the server writes the real ones) */
+  function routeMsgs(rec, before, b, now) {
+    const user = String(b.user || ''), out = [];
+    const progNew = !!rec.program && rec.program !== before.program;
+    const msg = (to, kind, note) => out.push({ id: 'tmp-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), date: todayKey(), at: now,
+      vno: rec.vno, from: user, to: to, kind: kind, program: rec.program, broker: rec.broker, note: note || '', loc: rec.loc, cat: rec.cat,
+      caller: rec.caller, seenBy: '', seenAt: '' });
+    if (!rec.program) rec.stage = '';
+    if (isTop(user)) {
+      if (progNew) { rec.stage = 'manager'; msg(FLOW.MID, 'program', rec.dnote); }
+      else if (rec.dnote && rec.dnote !== before.dnote) msg(FLOW.MID, 'remark', rec.dnote);
+    } else if (isMid(user)) {
+      if (rec.program && (b.send || progNew)) {
+        rec.stage = ''; rec.sentBy = user; rec.sentAt = now;
+        if (rec.caller) msg(rec.caller, 'program', rec.note);
+      } else if (rec.note && rec.note !== before.note && rec.stage !== 'manager' && rec.caller) msg(rec.caller, 'remark', rec.note);
+    } else if (progNew) rec.stage = '';
+    return out;
+  }
 
+  /* -------- Programs + Messages: read straight from the sheet (≈1 s, public CSV); Code.gs only writes.
+   *  If that fails (or the tabs are not there yet) the Apps Script is asked instead. -------- */
+  const PROG_HEAD = {
+    'id': 'id', 'date': 'date', 'vehicle no': 'vno', 'caller': 'caller', 'status': 'cat', 'location': 'loc', 'program next load': 'program',
+    'broker party': 'broker', 'given by': 'givenBy', 'given at': 'givenAt', 'driver informed': 'informed', 'informed by': 'informedBy',
+    'informed at': 'informedAt', 'going to': 'goingTo', 'note': 'note', 'updated by': 'updatedBy', 'updated at': 'updatedAt',
+    'stage': 'stage', 'director remark': 'dnote', 'remark by': 'noteBy', 'sent by': 'sentBy', 'sent at': 'sentAt'
+  };
+  const MSG_HEAD = {
+    'id': 'id', 'date': 'date', 'at': 'at', 'vehicle no': 'vno', 'from': 'from', 'to': 'to', 'kind': 'kind', 'program': 'program',
+    'broker party': 'broker', 'remark': 'note', 'location': 'loc', 'status': 'cat', 'caller': 'caller', 'seen by': 'seenBy', 'seen at': 'seenAt'
+  };
+  async function readTab(tab, head, must) {
+    const from = addDays(todayKey(), -(PROGRAM_DAYS - 1));
+    const url = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(CFG.SHEET_ID) + '/gviz/tq?tqx=out:csv&headers=1&sheet=' +
+      encodeURIComponent(tab) + '&tq=' + encodeURIComponent("select * where B >= '" + from + "'");
+    const r = await fetchWithTimeout(url, { cache: 'no-store' }, 15000);
+    const text = await r.text();
+    if (!r.ok || /^\s*</.test(text)) throw new Error('tab not readable');
+    const grid = parseCsv(text);
+    const keys = (grid[0] || []).map(h => head[normHead(h)] || '');
+    // a missing tab gives the first sheet of the file instead — check the headings
+    if (!must.every(k => keys.includes(k))) throw new Error('tab "' + tab + '" not found');
+    return grid.slice(1).map(row => { const o = {}; keys.forEach((k, i) => { if (k) o[k] = String(row[i] == null ? '' : row[i]); }); return o; })
+      .filter(o => o.id && o.vno);
+  }
+  /** → { programs, messages } (messages null while the flow is off) */
   async function loadPrograms() {
-    if (LOCAL) return Local.list();
+    if (LOCAL) return { programs: Local.list(), messages: null };
+    if (CFG.SHEET_ID && S.readDirect !== false) {
+      try {
+        const [programs, messages] = await Promise.all([
+          readTab(CFG.PROGRAM_TAB || 'Programs', PROG_HEAD, ['id', 'date', 'vno', 'program', 'updatedAt']),
+          S.flow ? readTab(CFG.MESSAGE_TAB || 'Messages', MSG_HEAD, ['id', 'vno', 'from', 'to']) : Promise.resolve(null)
+        ]);
+        return { programs: programs, messages: messages };
+      } catch (e) { /* not readable yet (e.g. Messages tab not made) — ask the Apps Script */ }
+    }
     const res = await api('programs', { days: PROGRAM_DAYS });
-    return res.programs || [];
+    return { programs: res.programs || [], messages: S.flow ? res.messages || [] : null };
   }
 
   function computeActive() {
@@ -369,9 +435,11 @@
       const c = latest[p.vno];
       if (!c || String(p.updatedAt || p.givenAt || '') >= String(c.updatedAt || c.givenAt || '')) latest[p.vno] = p;
     });
-    const act = {};
+    const act = {}, hideFromMe = S.flow && !isBoss(S.user);
     Object.keys(latest).forEach(vno => {
       const p = latest[vno], v = S.byVno[vno];
+      // a Director's program still with the Manager is not the caller's to act on yet
+      if (hideFromMe && p.stage === 'manager') return;
       // today's programs always show; older ones only while the vehicle is still waiting for a program
       if (p.date === today || (v && NEEDS_PROGRAM[v.cat])) act[vno] = p;
     });
@@ -381,6 +449,7 @@
 
   function progState(v) {
     const p = S.active[v.vno];
+    if (p && p.program && S.flow && p.stage === 'manager') return 'manager'; // with the Manager, not sent to the caller yet
     if (p && p.program) return p.informed === 'Yes' ? 'informed' : 'given';
     return NEEDS_PROGRAM[v.cat] ? 'need' : '';
   }
@@ -431,9 +500,12 @@
     }
     // a programs list asked for before the last save (or during one) is out of date — keep ours
     const progFresh = started > S.lastSaveAt && !S.outbox.length && !S.flushing;
-    if (prog.status === 'fulfilled' && progFresh) {
-      if (applyPrograms(prog.value) || S.progError) changed = true;
-      S.progError = '';
+    if (prog.status === 'fulfilled') {
+      if (applyMessages(prog.value.messages)) changed = true;
+      if (progFresh) {
+        if (applyPrograms(prog.value.programs) || S.progError) changed = true;
+        S.progError = '';
+      }
     } else if (prog.status === 'rejected') {
       const err = (prog.reason && prog.reason.message) || 'Could not load programs';
       if (err !== S.progError) changed = true;
@@ -451,6 +523,7 @@
   /** Takes a programs list from the server. Programs given / told by another user are highlighted
    *  and announced, so everybody working at the same time sees them. Returns true if anything changed. */
   function applyPrograms(list) {
+    list = keepMySaves(list);
     const sig = JSON.stringify(list);
     if (sig === S.progSig) return false;
     const before = S.active;
@@ -462,7 +535,8 @@
       Object.keys(S.active).forEach(vno => {
         const p = S.active[vno], o = before[vno] || {};
         if (p.updatedBy === S.user) return;
-        if (p.program && p.program !== o.program) news.push('📋 ' + vno + ': ' + p.program + ' (' + (p.givenBy || p.updatedBy) + ')');
+        if (S.flow && p.program && p.program === o.program && p.stage !== 'manager' && o.stage === 'manager') news.push('📨 ' + vno + ': sent to the caller (' + (p.sentBy || p.updatedBy) + ')');
+        else if (p.program && p.program !== o.program) news.push('📋 ' + vno + ': ' + p.program + ' (' + (p.givenBy || p.updatedBy) + ')');
         else if (p.program && p.informed === 'Yes' && o.informed !== 'Yes') news.push('✓ ' + vno + ': driver informed (' + (p.informedBy || p.updatedBy) + ')');
         else return;
         S.changedAt[vno] = now;
@@ -472,14 +546,33 @@
     S.progSeeded = true;
     return true;
   }
-  /** programs only — checked more often than the sheet so other users' programs show up quickly */
+  /** The sheet can answer with what it had a few seconds before our save: a row this browser saved in the
+   *  last 3 minutes is kept when the sheet's copy is older or not there yet. */
+  function keepMySaves(list) {
+    const mine = {}, now = Date.now();
+    S.programs.forEach(p => { if (now - (S.savedAt[p.id] || 0) < 180000) mine[p.id] = p; });
+    if (!Object.keys(mine).length) return list;
+    const out = list.map(p => {
+      const l = mine[p.id];
+      if (!l) return p;
+      delete mine[p.id];
+      return String(l.updatedAt || '') > String(p.updatedAt || '') ? l : p;
+    });
+    return out.concat(Object.keys(mine).map(id => mine[id]));
+  }
+  /** programs (+ messages) only — checked more often than the sheet so other users' work shows up quickly.
+   *  While the tab is hidden it still looks once a minute, so a new message can be announced. */
   async function refreshPrograms() {
-    if (LOCAL || S.loading || S.progLoading || document.hidden || S.outbox.length || S.flushing) return;
+    if (LOCAL || S.loading || S.progLoading || S.outbox.length || S.flushing) return;
+    if (document.hidden && (!S.flow || Date.now() - (S.hiddenPollAt || 0) < 60000)) return;
+    if (document.hidden) S.hiddenPollAt = Date.now();
     S.progLoading = true;
     const started = Date.now();
     try {
-      const list = await loadPrograms();
-      if (started > S.lastSaveAt && !S.outbox.length && !S.flushing && applyPrograms(list)) renderAll();
+      const res = await loadPrograms();
+      let changed = applyMessages(res.messages);
+      if (started > S.lastSaveAt && !S.outbox.length && !S.flushing && applyPrograms(res.programs)) changed = true;
+      if (changed) renderAll();
     } catch (e) { /* the full refresh shows errors */ }
     finally { S.progLoading = false; }
   }
@@ -612,6 +705,7 @@
     const st = progState(v), p = S.active[v.vno];
     if (st === 'informed') return '<div class="vr-prog informed">✓ Program: <b>' + esc(p.program) + '</b>' + (p.broker ? ' (' + esc(p.broker) + ')' : '') + ' · driver informed' + (p.informedBy ? ' by ' + esc(p.informedBy) : '') + '</div>';
     if (st === 'given') return '<div class="vr-prog given">📋 Program: <b>' + esc(p.program) + '</b>' + (p.broker ? ' (' + esc(p.broker) + ')' : '') + ' · <b>driver not told yet</b></div>';
+    if (st === 'manager') return '<div class="vr-prog at-mgr">📨 Program: <b>' + esc(p.program) + '</b> · with ' + esc(FLOW.MID) + ', not sent to the caller yet</div>';
     if (st === 'need') return '<div class="vr-prog need">' + (v.cat === 'unloading' ? 'Next load not given yet' : 'No program yet — waiting for Director') + '</div>';
     return '';
   }
@@ -653,6 +747,7 @@
     $('#callerChips2').innerHTML = chips;
     renderBadges();
     renderUser();
+    renderInboxBtn();
     if (S.view === 'board') renderBoard();
     else if (S.view === 'programs') renderPrograms();
     else if (S.view === 'print') renderPrint();
@@ -661,7 +756,7 @@
 
   function renderBadges() {
     const n = S.vehicles.filter(v => v.cat !== 'sold' && (!S.f.caller || v.callerName === S.f.caller))
-      .filter(v => { const st = progState(v); return st === 'need' || st === 'given'; }).length;
+      .filter(v => { const st = progState(v); return st === 'need' || st === 'given' || (st === 'manager' && isMid(S.user)); }).length;
     $$('[data-badge]').forEach(b => { b.textContent = n; b.hidden = !n; });
   }
   function renderUser() {
@@ -793,16 +888,18 @@
   const PSEGS = [
     { k: 'noprog', t: 'No Program', hint: 'No Program vehicles without a program. Director: write where the vehicle should go / load from and tap “Give program”.' },
     { k: 'unloading', t: 'Unloading', hint: 'Unloading vehicles without a next load. Director: write the next load and tap “Give program”.' },
+    { k: 'mgr', t: 'With ' + FLOW.MID, boss: true, hint: 'Programs the ' + FLOW.TOP + ' gave. The ' + FLOW.MID + ' checks each one and taps “Send to …” — only then the caller gets it.' },
     { k: 'call', t: 'Call driver', hint: 'Program given — caller: call the driver, tell the program, then tap “Yes, told”.' },
     { k: 'done', t: 'Driver informed', hint: 'The driver has been told the program.' },
     { k: 'all', t: 'All', hint: 'Every No Program / Unloading vehicle and every vehicle with a program.' }
   ];
   function progBuckets() {
     const vs = S.vehicles.filter(v => v.cat !== 'sold' && (!S.f.caller || v.callerName === S.f.caller) && (NEEDS_PROGRAM[v.cat] || S.active[v.vno]));
-    const b = { noprog: [], unloading: [], call: [], done: [], all: vs };
+    const b = { noprog: [], unloading: [], mgr: [], call: [], done: [], all: vs };
     vs.forEach(v => {
       const st = progState(v);
       if (st === 'need') b[v.cat].push(v);
+      else if (st === 'manager') b.mgr.push(v);
       else if (st === 'given') b.call.push(v);
       else if (st === 'informed') b.done.push(v);
     });
@@ -814,12 +911,14 @@
   const progPlace = v => (v.cat === 'unloading' ? (v.to || v.cur) : (v.cur || v.where)) || 'Location not written';
 
   function renderPrograms() {
-    const key = [S.ver, S.pseg, S.pq, S.ploc, S.f.caller, JSON.stringify(S.editing), [...S.sel].join(), S.vehicles.length, S.user].join('|');
+    const key = [S.ver, S.pseg, S.pq, S.ploc, S.f.caller, JSON.stringify(S.editing), [...S.sel].join(), S.vehicles.length, S.user, S.flow, S.msgVer].join('|');
     if (key === S.progKey) { renderBulkBar(); return; }
     S.progKey = key;
     const b = progBuckets();
-    $('#progSeg').innerHTML = PSEGS.map(s => '<button type="button" role="tab" data-pseg="' + s.k + '" class="' + (S.pseg === s.k ? 'on' : '') + '">' + s.t + ' <span class="n">' + b[s.k].length + '</span></button>').join('');
-    const seg = PSEGS.find(s => s.k === S.pseg) || PSEGS[0];
+    const segs = PSEGS.filter(s => !s.boss || (S.flow && isBoss(S.user)));
+    $('#progSeg').innerHTML = segs.map(s => '<button type="button" role="tab" data-pseg="' + s.k + '" class="' + (S.pseg === s.k ? 'on' : '') + (s.k === 'mgr' && b.mgr.length && isMid(S.user) ? ' hot' : '') + '">' +
+      esc(s.t) + ' <span class="n">' + b[s.k].length + '</span></button>').join('');
+    const seg = segs.find(s => s.k === S.pseg) || segs[0];
     const picking = seg.k === 'noprog' || seg.k === 'unloading';
     $('#progHint').textContent = seg.hint + (picking ? ' Tick several vehicles (or “Select all” of a location) to give them one program together.' : '');
     const list = $('#progList');
@@ -838,7 +937,7 @@
     else [...S.sel].forEach(vno => { if (!vs.some(v => v.vno === vno)) S.sel.delete(vno); });
     renderBulkBar();
     if (!vs.length) {
-      const msg = { noprog: 'Every No Program vehicle has a program 👍', unloading: 'Every Unloading vehicle has a next load 👍', call: 'No driver is waiting to be called.', done: 'No driver informed yet.', all: 'No vehicle here.' }[seg.k];
+      const msg = { noprog: 'Every No Program vehicle has a program 👍', unloading: 'Every Unloading vehicle has a next load 👍', mgr: 'Nothing waiting for the ' + esc(FLOW.MID) + ' 👍', call: 'No driver is waiting to be called.', done: 'No driver informed yet.', all: 'No vehicle here.' }[seg.k];
       list.innerHTML = '<div class="empty"><b>' + msg + '</b>' + (S.f.caller ? 'Caller: ' + esc(S.f.caller) : 'All callers') + '</div>';
       return;
     }
@@ -855,7 +954,10 @@
     }
     // mixed lists: No Program and Unloading shown in their own sections
     const groups = [['noprog', 'No Program'], ['unloading', 'Unloading'], ['', 'Other status']];
-    list.innerHTML = groups.map(g => {
+    S.mgrShown = seg.k === 'mgr' ? vs.map(v => v.vno) : [];
+    const sendAll = seg.k === 'mgr' && isMid(S.user) && vs.length > 1
+      ? '<div class="inbox-tools"><button type="button" class="btn primary" data-sendall="1">📨 Send all ' + vs.length + ' to the callers</button></div>' : '';
+    list.innerHTML = sendAll + groups.map(g => {
       const part = vs.filter(v => (g[0] ? v.cat === g[0] : !NEEDS_PROGRAM[v.cat]));
       if (!part.length) return '';
       return '<h3 class="prog-sec" style="--c:' + (g[0] ? CAT[g[0]].color : 'var(--navy-3)') + '"><span class="sw"></span>' + g[1] + ' <span class="n">' + part.length + '</span></h3>' +
@@ -881,38 +983,54 @@
     const d = S.drafts[v.vno] || {};
     const has = !!(p && p.program);
     const editing = !has || S.editing[v.vno];
+    const r = flowRole(v);
     let h = '<div class="pg' + (editing ? ' editing' : '') + (S.saving[v.vno] ? ' busy' : '') + '" data-v="' + esc(v.vno) + '">';
     if (!editing) {
-      const ok = p.informed === 'Yes';
-      h += '<div class="pg-given' + (ok ? ' ok' : '') + '">' +
+      const ok = p.informed === 'Yes', atMgr = r.on && p.stage === 'manager';
+      h += '<div class="pg-given' + (ok ? ' ok' : '') + (atMgr ? ' at-mgr' : '') + '">' +
         '<span class="pg-lbl">' + (v.cat === 'unloading' ? 'Next load program' : 'Program') + '</span>' +
         '<div class="pg-text">' + esc(p.program) + '</div>' +
         (p.broker ? '<div class="pg-meta">Broker / Party: <b>' + esc(p.broker) + '</b></div>' : '') +
-        (p.note ? '<div class="pg-meta">Remark: <b>' + esc(p.note) + '</b></div>' : '') +
+        (r.on && isBoss(S.user) && p.dnote ? '<div class="pg-meta">' + esc(FLOW.TOP) + '’s remark: <b>' + esc(p.dnote) + '</b></div>' : '') +
+        (p.note ? '<div class="pg-meta">Remark' + (r.on && p.noteBy ? ' (' + esc(p.noteBy) + ')' : '') + ': <b>' + esc(p.note) + '</b></div>' : '') +
         '<div class="pg-meta">Given by <b>' + esc(p.givenBy || '—') + '</b>' + (p.givenAt ? ' · ' + esc(fmtStamp(p.givenAt)) : '') +
-        ' <button type="button" class="btn link sm" data-act="edit">Change</button></div></div>' +
-        (v.phoneDigits ? '<a class="btn wa-send" href="' + esc(waLink(v)) + '" target="_blank" rel="noopener">' + ICO.wa + 'Send program on WhatsApp</a>' : '') +
-        '<div class="inform"><div class="q">Driver ko bataya? <span class="muted">(Driver informed?)</span></div>' +
-        '<div class="yn"><button type="button" class="yes' + (ok ? ' on' : '') + '" data-act="inform" data-val="Yes">' + ICO.check + 'Yes, told</button>' +
-        '<button type="button" class="no' + (p.informed === 'No' ? ' on' : '') + '" data-act="inform" data-val="No">Not yet</button></div>' +
-        (ok ? '<div class="pg-meta">Told by <b>' + esc(p.informedBy || '—') + '</b>' + (p.informedAt ? ' · ' + esc(fmtStamp(p.informedAt)) : '') + '</div>' : '') +
-        '</div>';
+        ' <button type="button" class="btn link sm" data-act="edit">Change</button></div>' + deliveryHtml(v.vno) + '</div>';
+      if (atMgr) {
+        // the Director's program waits for the Manager's OK before the caller sees it
+        h += isMid(S.user)
+          ? '<button type="button" class="btn primary send-caller" data-act="send">📨 Send to ' + esc(r.caller) + '</button>'
+          : '<div class="mgr-wait">📨 With ' + esc(FLOW.MID) + ' — not sent to the caller yet</div>';
+      } else {
+        h += (v.phoneDigits ? '<a class="btn wa-send" href="' + esc(waLink(v)) + '" target="_blank" rel="noopener">' + ICO.wa + 'Send program on WhatsApp</a>' : '') +
+          '<div class="inform"><div class="q">Driver ko bataya? <span class="muted">(Driver informed?)</span></div>' +
+          '<div class="yn"><button type="button" class="yes' + (ok ? ' on' : '') + '" data-act="inform" data-val="Yes">' + ICO.check + 'Yes, told</button>' +
+          '<button type="button" class="no' + (p.informed === 'No' ? ' on' : '') + '" data-act="inform" data-val="No">Not yet</button></div>' +
+          (ok ? '<div class="pg-meta">Told by <b>' + esc(p.informedBy || '—') + '</b>' + (p.informedAt ? ' · ' + esc(fmtStamp(p.informedAt)) : '') + '</div>' : '') +
+          '</div>';
+      }
     } else {
       const progVal = d.program != null ? d.program : (p && p.program) || '';
       const brokerVal = d.broker != null ? d.broker : (p && p.broker) || '';
-      const noteVal = d.note != null ? d.note : (p && p.note) || '';
+      const noteVal = d[r.nk] != null ? d[r.nk] : (p && p[r.nk]) || '';
       h += '<label class="field"><span class="pg-lbl">' + (v.cat === 'unloading' ? 'Next load program' : 'Program') + ' <span class="hi">— where to go / load from</span></span>' +
         '<input data-f="program" list="locList" value="' + esc(progVal) + '" autocomplete="off"></label>' +
         '<label class="field"><span class="pg-lbl">Broker / Party <span class="hi">(optional)</span></span>' +
         '<input data-f="broker" value="' + esc(brokerVal) + '" autocomplete="off"></label>' +
-        '<label class="field"><span class="pg-lbl">Remark <span class="hi">(optional)</span></span>' +
-        '<input data-f="note" value="' + esc(noteVal) + '" autocomplete="off"></label>' +
-        '<div class="pg-actions"><button type="button" class="btn primary" data-act="give">' + ICO.check + 'Give program</button>' +
-        (v.phoneDigits ? '<button type="button" class="btn wa-give" data-act="give-wa" title="Give the program and send it to the driver on WhatsApp">' + ICO.wa + '<span>Give + WhatsApp</span></button>' : '') +
+        '<label class="field"><span class="pg-lbl">' + esc(r.noteLbl) + ' <span class="hi">(optional)</span></span>' +
+        '<input data-f="' + r.nk + '" value="' + esc(noteVal) + '" autocomplete="off"></label>' +
+        '<div class="pg-actions"><button type="button" class="btn primary" data-act="give">' + ICO.check + esc(r.giveLbl) + '</button>' +
+        (v.phoneDigits && !(r.on && isTop(S.user)) ? '<button type="button" class="btn wa-give" data-act="give-wa" title="Give the program and send it to the driver on WhatsApp">' + ICO.wa + '<span>Give + WhatsApp</span></button>' : '') +
         (has ? '<button type="button" class="btn" data-act="cancel">Cancel</button><button type="button" class="btn link sm" data-act="remove">Remove program</button>' : '') +
-        '</div>';
+        '</div>' + (r.on && r.to ? '<div class="pg-meta goes">Goes to <b>' + esc(r.to) + '</b> · a remark alone can be sent too</div>' : '') + deliveryHtml(v.vno);
     }
     return h + '</div>';
+  }
+  /** what this person's program box says and writes, in the Director → Manager → caller flow */
+  function flowRole(v) {
+    const on = S.flow && !!S.user, caller = (v && v.caller) || 'caller';
+    if (on && isTop(S.user)) return { on: on, caller: caller, nk: 'dnote', to: FLOW.MID, noteLbl: 'Remark for ' + FLOW.MID, giveLbl: 'Give program → ' + FLOW.MID };
+    if (on && isMid(S.user)) return { on: on, caller: caller, nk: 'note', to: caller, noteLbl: 'Remark for ' + caller, giveLbl: 'Give program → ' + caller };
+    return { on: on, caller: caller, nk: 'note', to: '', noteLbl: 'Remark', giveLbl: 'Give program' };
   }
 
   function editingNow() {
@@ -937,9 +1055,14 @@
         id: 'tmp-' + Date.now().toString(36), date: todayKey(), vno: vno, caller: '', cat: '', loc: '', program: '', broker: '',
         givenBy: '', givenAt: '', informed: '', informedBy: '', informedAt: '', goingTo: '', note: '', updatedBy: '', updatedAt: ''
       };
-      applyPatch(rec, body, nowStr());
+      const before = { program: rec.program || '', note: rec.note || '', dnote: rec.dnote || '', stage: rec.stage || '' };
+      const now = nowStr();
+      applyPatch(rec, body, now);
+      const tmpMsgs = S.flow ? routeMsgs(rec, before, body, now) : [];
       upsertProgram(rec);
-      S.outbox.push({ vno: vno, body: body });
+      S.savedAt[rec.id] = Date.now();
+      if (tmpMsgs.length) { S.msgs = S.msgs.concat(tmpMsgs); renderInboxBtn(); }
+      S.outbox.push({ vno: vno, body: body, tmpMsgs: tmpMsgs.map(m => m.id) });
       store.set(K.outbox, S.outbox);
       flushOutbox();
     }
@@ -956,7 +1079,8 @@
     $('#bulkCount').textContent = n + ' vehicle' + (n > 1 ? 's' : '') + ' selected';
     const places = [...new Set([...S.sel].map(vno => (S.byVno[vno] ? progPlace(S.byVno[vno]) : '')))].filter(Boolean);
     $('#bulkWhere').textContent = places.length === 1 ? '· ' + places[0] : '· ' + places.length + ' locations';
-    $('#bulkGive').textContent = 'Give to ' + n;
+    $('#bulkGive').textContent = 'Give to ' + n + (S.flow && isTop(S.user) ? ' → ' + FLOW.MID : '');
+    $('#bulkNote').closest('label').querySelector('.pg-lbl').textContent = S.flow && isTop(S.user) ? 'Remark for ' + FLOW.MID : 'Remark';
   }
   /** one program (and broker) for every ticked vehicle — saved at once, sent to the sheet in the background */
   async function bulkGive() {
@@ -964,11 +1088,16 @@
     if (!S.sel.size) return;
     if (!program) { toast('Write the program first (where to go / load from)', true); $('#bulkProg').focus(); return; }
     if (!(await ensureUser())) return;
-    const vnos = [...S.sel];
-    for (const vno of vnos) await saveProgram(vno, { program: program, broker: broker, note: note }, false);
+    const vnos = [...S.sel], r = flowRole(null);
+    for (const vno of vnos) {
+      const body = { program: program, broker: broker, [r.nk]: note };
+      if (r.on && isMid(S.user)) body.send = true;
+      await saveProgram(vno, body, false);
+    }
     S.sel.clear();
     $('#bulkProg').value = ''; $('#bulkBroker').value = ''; $('#bulkNote').value = '';
-    toast('Program given to ' + vnos.length + ' vehicle' + (vnos.length > 1 ? 's' : '') + ' — now call the drivers');
+    toast('Program given to ' + vnos.length + ' vehicle' + (vnos.length > 1 ? 's' : '') +
+      (r.on && isTop(S.user) ? ' — sent to ' + FLOW.MID : r.on && isMid(S.user) ? ' — sent to the callers' : ' — now call the drivers'));
     renderAll();
   }
   function upsertProgram(rec) {
@@ -983,11 +1112,12 @@
     try {
       while (S.outbox.length) {
         const job = S.outbox[0];
-        const a = S.active[job.vno];
+        const a = S.programs.filter(p => p.vno === job.vno).sort((x, y) => String(y.updatedAt).localeCompare(String(x.updatedAt)))[0];
         const id = a && !/^tmp-/.test(a.id) ? a.id : ''; // server also reuses today's row of the vehicle
-        let srv;
+        let srv, res;
         try {
-          srv = (await api('saveProgram', Object.assign({}, job.body, { id: id, token: S.auth.token || '' }))).program;
+          if (job.action === 'seen') res = await api('seen', { ids: job.ids, token: S.auth.token || '' });
+          else { res = await api('saveProgram', Object.assign({}, job.body, { id: id, token: S.auth.token || '' })); srv = res.program; }
         } catch (e) {
           if (e.code === 'auth') { // login ended → ask for the PIN, then the waiting saves go on
             S.outboxError = 'Log in to save';
@@ -1005,6 +1135,16 @@
         S.outbox.shift();
         store.set(K.outbox, S.outbox);
         S.outboxError = '';
+        if (job.action === 'seen') continue;
+        S.savedAt[srv.id] = Date.now();
+        // the server's messages replace the ones shown while saving
+        const gone = new Set(job.tmpMsgs || []);
+        if (gone.size || (res.messages || []).length) {
+          S.msgs = S.msgs.filter(m => !gone.has(m.id)).concat(res.messages || []);
+          (res.messages || []).forEach(m => { S.msgAddedAt[m.id] = Date.now(); S.msgKnown.add(m.id); });
+          store.set(K.msgCache, S.msgs);
+          renderInboxBtn();
+        }
         const local = S.programs.find(p => p.vno === job.vno && (p.id === srv.id || /^tmp-/.test(p.id)));
         if (S.outbox.some(j => j.vno === job.vno)) { if (local) local.id = srv.id; } // newer local change still to send
         else {
@@ -1036,20 +1176,31 @@
     $$('[data-f]', box).forEach(i => { d[i.dataset.f] = i.value; });
     let ok = true;
     if (act === 'edit') { S.editing[vno] = true; }
-    else if (act === 'cancel') { S.editing[vno] = false; delete d.program; delete d.broker; delete d.note; }
+    const r = flowRole(S.byVno[vno]), p = S.active[vno];
+    const clearDraft = () => { S.editing[vno] = false; delete d.program; delete d.broker; delete d.note; delete d.dnote; };
+    if (act === 'cancel') clearDraft();
+    else if (act === 'send') { await sendToCaller([vno]); return; }
     else if (act === 'give' || act === 'give-wa') {
-      const program = String(d.program || '').trim(), broker = String(d.broker || '').trim(), note = String(d.note || '').trim();
-      if (!program) { toast('Write the program first (where to go / load from)', true); const i = $('[data-f="program"]', box); if (i) i.focus(); return; }
-      // WhatsApp has to open right inside the tap (before any waiting), or the browser blocks the new tab
-      const sendNow = act === 'give-wa' && S.user && S.byVno[vno];
-      if (sendNow) window.open(waLink(S.byVno[vno], { program: program, broker: broker, note: note }), '_blank', 'noopener');
-      ok = await saveProgram(vno, { program: program, broker: broker, note: note },
-        sendNow ? 'Program saved — WhatsApp opened, press Send there' : act === 'give-wa' ? 'Program saved — now tap “Send program on WhatsApp”' : 'Program saved — now call the driver');
-      if (ok) { S.editing[vno] = false; delete d.program; delete d.broker; delete d.note; }
+      const program = String(d.program || '').trim(), broker = String(d.broker || '').trim(), note = String(d[r.nk] || '').trim();
+      if (!program && note && r.on && act === 'give') { // a remark on its own
+        ok = await saveProgram(vno, { [r.nk]: note }, r.to ? 'Remark sent to ' + r.to : 'Remark saved');
+        if (ok) { delete d[r.nk]; if (!(p && p.program)) S.editing[vno] = false; }
+      } else if (!program) { toast('Write the program first (where to go / load from)', true); const i = $('[data-f="program"]', box); if (i) i.focus(); return; }
+      else {
+        // WhatsApp has to open right inside the tap (before any waiting), or the browser blocks the new tab
+        const sendNow = act === 'give-wa' && S.user && S.byVno[vno];
+        if (sendNow) window.open(waLink(S.byVno[vno], { program: program, broker: broker, note: r.nk === 'note' ? note : '' }), '_blank', 'noopener');
+        const body = { program: program, broker: broker, [r.nk]: note };
+        if (r.on && isMid(S.user)) body.send = true; // the Manager's program goes straight to the caller
+        ok = await saveProgram(vno, body,
+          r.on && r.to ? 'Program sent to ' + r.to + (isTop(S.user) ? ' — the caller gets it once the ' + FLOW.MID + ' sends it' : '')
+            : sendNow ? 'Program saved — WhatsApp opened, press Send there' : act === 'give-wa' ? 'Program saved — now tap “Send program on WhatsApp”' : 'Program saved — now call the driver');
+        if (ok) clearDraft();
+      }
     } else if (act === 'remove') {
       if (!confirm('Remove the program of ' + vno + '?')) return;
-      ok = await saveProgram(vno, { program: '', broker: '', note: '' }, 'Program removed');
-      if (ok) { S.editing[vno] = false; delete d.program; delete d.broker; delete d.note; }
+      ok = await saveProgram(vno, { program: '', broker: '', note: '', dnote: '' }, 'Program removed');
+      if (ok) clearDraft();
     } else if (act === 'inform') {
       ok = await saveProgram(vno, { informed: btn.dataset.val }, btn.dataset.val === 'Yes' ? 'Marked: driver informed ✓' : 'Marked: driver not told yet');
     }
@@ -1100,7 +1251,7 @@
         esc(c.label + (v.from && v.to ? ' · ' + v.from + ' → ' + v.to : v.from ? ' · from ' + v.from : v.to ? ' · to ' + v.to : '') + (v.item ? ' · ' + v.item : '')) + '</div></div>' +
       (v.phoneDigits ? '<div class="quick"><a href="tel:+91' + v.phoneDigits + '" class="btn call-btn">' + ICO.phone + 'Call ' + esc((v.driver || 'driver').split(' ')[0]) + '</a>' +
         '<a href="' + esc(waLink(v)) + '" target="_blank" rel="noopener" class="btn wa-btn">' + ICO.wa + 'WhatsApp' + (p && p.program ? ' program' : '') + '</a></div>' : '') +
-      '<div class="card"><h4>Program</h4>' + progEditor(v) + '</div>' +
+      '<div class="card"><h4>Program</h4>' + progEditor(v) + '</div>' + detailMsgsHtml(v) +
       '<div class="card"><h4>Calling Sheet</h4><dl class="kv">' + kv.map(x => '<dt>' + esc(x[0]) + '</dt><dd>' + esc(x[1]) + '</dd>').join('') + '</dl></div>' +
       (hist.length ? '<div class="card"><h4>Program history</h4><div class="hist">' + hist.map(x =>
         '<div class="hist-item">' + (x.program ? '<b>' + esc(x.program) + '</b>' : '<i>No program</i>') + (x.broker ? ' (' + esc(x.broker) + ')' : '') +
@@ -1109,6 +1260,18 @@
         (x.informed === 'Yes' ? ' · <b style="color:var(--green)">told by ' + esc(x.informedBy) + ' ' + esc(fmtStamp(x.informedAt)) + '</b>' : x.program ? ' · <b style="color:var(--amber)">driver not told</b>' : '') +
         '</div>').join('') + '</div></div>' : '') +
       '</div>';
+  }
+
+  /** who was told what about this vehicle (Director → Manager → caller), newest first */
+  function detailMsgsHtml(v) {
+    const vm = S.flow ? S.msgs.filter(m => m.vno === v.vno && (isBoss(S.user) || forMe(m) || fromMe(m))).sort(byNewest) : [];
+    if (!vm.length) return '';
+    return '<div class="card"><h4>Messages</h4><div class="hist">' + vm.map(m =>
+      '<div class="hist-item"><b>' + esc(m.from) + ' → ' + esc(m.to) + '</b> · ' + esc(fmtStamp(m.at)) + '<br>' + esc(msgWhat(m)) +
+      (m.kind === 'program' && m.note ? ' · 💬 ' + esc(m.note) : '') + '<br>' +
+      (isSeen(m) ? '<span class="m-ok">✓ Seen ' + esc(fmtStamp(seenAt(m))) + '</span>' : /^tmp-/.test(m.id) ? '<span class="m-wait">Sending…</span>' : '<span class="m-wait">Not seen yet</span>') +
+      (forMe(m) && !isSeen(m) ? ' <button type="button" class="btn sm seen-btn" data-seen-id="' + esc(m.id) + '">' + ICO.check + 'Dekh liya</button>' : '') +
+      '</div>').join('') + '</div></div>';
   }
 
   /* =====================================================================
@@ -1264,6 +1427,169 @@
   }
 
   /* =====================================================================
+   *  Inbox — Director → Manager → caller (rows of the Messages tab)
+   * ===================================================================== */
+  const BASE_TITLE = document.title;
+  const forMe = m => !!S.user && sameName(m.to, S.user);
+  const fromMe = m => !!S.user && sameName(m.from, S.user);
+  const isSeen = m => !!(m.seenAt || S.seenLocal[m.id]);
+  const seenAt = m => m.seenAt || (S.seenLocal[m.id] || {}).at || '';
+  const byNewest = (a, b) => String(b.at || '').localeCompare(String(a.at || ''));
+  const msgWhat = m => (m.kind === 'program' ? (m.cat === 'Unloading' ? 'Next load: ' : 'Program: ') + m.program : 'Remark: ' + m.note);
+  const callerOf = vno => { const v = S.byVno[vno]; return (v && v.caller) || ((S.active[vno] || {}).caller) || 'caller'; };
+  const unseenForMe = () => S.msgs.filter(m => forMe(m) && !isSeen(m));
+  /** vehicles whose (Director's) program is waiting for the Manager */
+  const mgrVnos = () => Object.keys(S.active).filter(vno => S.active[vno].program && S.active[vno].stage === 'manager' && S.byVno[vno]);
+
+  /** Takes the messages from the sheet; keeps ours that the sheet does not show yet. Returns true if anything changed. */
+  function applyMessages(list) {
+    if (!list || !S.flow) return false;
+    const byId = {}, now = Date.now();
+    list.forEach(m => { byId[m.id] = m; });
+    const keep = S.msgs.filter(m => !byId[m.id] && (/^tmp-/.test(m.id) || now - (S.msgAddedAt[m.id] || 0) < 180000));
+    const merged = list.concat(keep);
+    let gone = false; // "seen" marks the sheet has confirmed need not be kept here any more
+    Object.keys(S.seenLocal).forEach(id => { if ((byId[id] && byId[id].seenAt) || now - S.seenLocal[id].t > 86400000) { delete S.seenLocal[id]; gone = true; } });
+    if (gone) store.set(K.seen, S.seenLocal);
+    const sig = JSON.stringify(merged);
+    if (sig === S.msgSig) return false;
+    S.msgSig = sig; S.msgs = merged; S.msgVer = (S.msgVer || 0) + 1;
+    store.set(K.msgCache, merged);
+    const fresh = merged.filter(m => forMe(m) && !isSeen(m) && !S.msgKnown.has(m.id));
+    merged.forEach(m => S.msgKnown.add(m.id));
+    if (S.msgSeeded && fresh.length) announce(fresh);
+    S.msgSeeded = true;
+    renderInboxBtn();
+    if (!$('#inboxOverlay').hidden) renderInbox();
+    return true;
+  }
+  /** a new message for me: note on screen, buzz the phone, and a system alert while the app is in the background */
+  function announce(list) {
+    const m = list.sort(byNewest)[0];
+    toast(list.length === 1 ? '📩 ' + m.from + ' · ' + m.vno + ' · ' + msgWhat(m) : '📩 ' + list.length + ' new messages for you — open Inbox');
+    try { if (navigator.vibrate) navigator.vibrate([160, 80, 160]); } catch (e) { /* not on this phone */ }
+    if (!document.hidden || !('Notification' in window) || Notification.permission !== 'granted') return;
+    const title = list.length === 1 ? 'From ' + m.from + ' · ' + m.vno : list.length + ' new messages';
+    const opts = { body: list.length === 1 ? msgWhat(m) : list.map(x => x.vno).join(', '), icon: 'icon-192.png', tag: 'vpt-inbox', renotify: true };
+    const plain = () => { try { new Notification(title, opts); } catch (e) { /* phones need the service worker */ } };
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {
+      navigator.serviceWorker.getRegistration().then(r => (r ? r.showNotification(title, opts) : plain())).catch(plain);
+    } else plain();
+  }
+  function renderInboxBtn() {
+    const b = $('#inboxBtn');
+    const on = S.flow && !!S.user;
+    b.hidden = !on;
+    const n = on ? unseenForMe().length : 0;
+    document.title = (n ? '(' + n + ') ' : '') + BASE_TITLE;
+    if (!on) return;
+    $('#inboxCount').textContent = n;
+    b.classList.toggle('blink', n > 0);
+    b.classList.toggle('none', n === 0);
+    b.title = n ? n + ' new — tap to see' : 'Inbox — nothing new';
+  }
+  /** "sent to X · ✓ seen 10:42" under a program, for the Director and the Manager */
+  function deliveryHtml(vno) {
+    if (!S.flow || !isBoss(S.user)) return '';
+    const m = S.msgs.filter(x => x.vno === vno).sort(byNewest)[0];
+    if (!m) return '';
+    return '<div class="pg-meta dlv">' + (fromMe(m) ? 'Sent' : esc(m.from) + ' sent') + ' to <b>' + esc(m.to) + '</b> · ' + esc(fmtStamp(m.at)) + ' · ' +
+      (isSeen(m) ? '<span class="m-ok">✓ Seen ' + esc(fmtStamp(seenAt(m))) + '</span>' : '<span class="m-wait">not seen yet</span>') + '</div>';
+  }
+  function msgCard(m, out, sendHere) {
+    const v = S.byVno[m.vno], seen = isSeen(m);
+    const what = m.kind === 'program'
+      ? '<div class="m-body">📋 ' + (m.cat === 'Unloading' ? 'Next load' : 'Program') + ': <b>' + esc(m.program) + '</b>' + (m.broker ? ' <span class="muted">(' + esc(m.broker) + ')</span>' : '') + '</div>' : '';
+    const status = out
+      ? (seen ? '<span class="m-ok">✓ Seen ' + esc(fmtStamp(seenAt(m))) + '</span>' : /^tmp-/.test(m.id) ? '<span class="m-wait">Sending…</span>' : '<span class="m-wait">Not seen yet</span>')
+      : (seen ? '<span class="m-ok">✓ Seen</span>' : '');
+    return '<article class="msg' + (!out && !seen ? ' unseen' : '') + '">' +
+      '<div class="m-top">' + plate(m.vno) + '<span class="m-who">' + (out ? 'To <b>' + esc(m.to) + '</b>' : 'From <b>' + esc(m.from) + '</b>') + '</span>' +
+      '<span class="m-time">' + esc(fmtStamp(m.at)) + '</span></div>' +
+      '<div class="m-where">' + esc([m.cat, m.loc, m.caller ? 'Caller: ' + m.caller : ''].filter(Boolean).join(' · ')) + '</div>' +
+      what + (m.note ? '<div class="m-note">💬 ' + esc(m.note) + '</div>' : '') +
+      '<div class="m-act">' + status +
+      (sendHere ? '<button type="button" class="btn primary sm" data-msgact="send" data-vno="' + esc(m.vno) + '">📨 Send to ' + esc(callerOf(m.vno)) + '</button>' : '') +
+      (v ? '<button type="button" class="btn sm" data-msgact="open" data-vno="' + esc(m.vno) + '">Open</button>' : '') +
+      (!out && !seen ? '<button type="button" class="btn sm seen-btn" data-msgact="seen" data-id="' + esc(m.id) + '">' + ICO.check + 'Dekh liya</button>' : '') +
+      '</div></article>';
+  }
+  function renderInbox() {
+    const mine = S.msgs.filter(forMe).sort(byNewest), sent = S.msgs.filter(fromMe).sort(byNewest);
+    const unseen = mine.filter(m => !isSeen(m)).length;
+    $('#inboxSeg').innerHTML =
+      '<button type="button" data-itab="in" class="' + (S.inboxTab === 'in' ? 'on' : '') + '">For me <span class="n' + (unseen ? ' hot' : '') + '">' + unseen + '</span></button>' +
+      '<button type="button" data-itab="out" class="' + (S.inboxTab === 'out' ? 'on' : '') + '">Sent by me <span class="n">' + sent.length + '</span></button>';
+    const waiting = isMid(S.user) ? mgrVnos() : [];
+    let tools = '';
+    if (S.inboxTab === 'in' && waiting.length > 1) tools += '<button type="button" class="btn primary sm" data-msgact="sendall">📨 Send all ' + waiting.length + ' to the callers</button>';
+    if (S.inboxTab === 'in' && unseen > 1) tools += '<button type="button" class="btn sm seen-btn" data-msgact="allseen">' + ICO.check + 'Dekh liya — all ' + unseen + '</button>';
+    if ('Notification' in window && Notification.permission === 'default') tools += '<button type="button" class="btn link sm" data-msgact="alerts">🔔 Turn on alerts</button>';
+    const list = S.inboxTab === 'in' ? mine : sent;
+    const sendShown = new Set();
+    $('#inboxBody').innerHTML = (tools ? '<div class="inbox-tools">' + tools + '</div>' : '') + (list.length
+      ? list.map(m => {
+        const here = S.inboxTab === 'in' && waiting.includes(m.vno) && !sendShown.has(m.vno);
+        if (here) sendShown.add(m.vno);
+        return msgCard(m, S.inboxTab === 'out', here);
+      }).join('')
+      : '<div class="empty"><b>' + (S.inboxTab === 'in' ? 'Nothing for you yet' : 'You have not sent anything yet') + '</b>' +
+        (S.inboxTab === 'in' ? (isMid(S.user) ? 'Programs and remarks from the ' + esc(FLOW.TOP) + ' come here.' : isTop(S.user) ? 'Replies come here.' : 'Programs and remarks from the ' + esc(FLOW.MID) + ' come here.') : '') + '</div>');
+  }
+  function openInbox() {
+    S.inboxTab = unseenForMe().length || S.inboxTab !== 'out' ? 'in' : 'out';
+    renderInbox();
+    const ov = $('#inboxOverlay');
+    ov.hidden = false;
+    requestAnimationFrame(() => requestAnimationFrame(() => ov.classList.add('show')));
+    setTimeout(() => ov.classList.add('show'), 60);
+    refreshPrograms();
+  }
+  function closeInbox() {
+    const ov = $('#inboxOverlay');
+    ov.classList.remove('show');
+    setTimeout(() => { ov.hidden = true; }, 180);
+  }
+  /** "Dekh liya ✓" — shown as seen at once, written to the sheet in the background */
+  function markSeen(ids) {
+    ids = ids.filter(id => id && !/^tmp-/.test(id) && !S.seenLocal[id]);
+    if (!ids.length) return;
+    const at = nowStr();
+    ids.forEach(id => { S.seenLocal[id] = { at: at, t: Date.now() }; });
+    store.set(K.seen, S.seenLocal);
+    S.outbox.push({ action: 'seen', ids: ids });
+    store.set(K.outbox, S.outbox);
+    flushOutbox();
+    S.msgVer = (S.msgVer || 0) + 1;
+    renderInboxBtn();
+    if (!$('#inboxOverlay').hidden) renderInbox();
+  }
+  /** the Manager sends the Director's program(s) on to the caller(s) */
+  async function sendToCaller(vnos) {
+    vnos = vnos.filter(vno => S.active[vno] && S.active[vno].stage === 'manager');
+    if (!vnos.length || !(await ensureUser())) return;
+    for (const vno of vnos) await saveProgram(vno, { send: true }, false);
+    markSeen(S.msgs.filter(m => forMe(m) && vnos.includes(m.vno) && !isSeen(m)).map(m => m.id));
+    toast(vnos.length === 1 ? 'Sent to ' + callerOf(vnos[0]) + ' ✓' : vnos.length + ' programs sent to the callers ✓');
+    renderAll();
+    if (!$('#inboxOverlay').hidden) renderInbox();
+  }
+  async function onInboxClick(e) {
+    if (e.target.id === 'inboxOverlay' || e.target.closest('[data-close-inbox]')) { closeInbox(); return; }
+    const t = e.target.closest('[data-itab]');
+    if (t) { S.inboxTab = t.dataset.itab; renderInbox(); return; }
+    const a = e.target.closest('[data-msgact]');
+    if (!a) return;
+    const act = a.dataset.msgact, vno = a.dataset.vno;
+    if (act === 'seen') markSeen([a.dataset.id]);
+    else if (act === 'allseen') markSeen(unseenForMe().map(m => m.id));
+    else if (act === 'open') { closeInbox(); openDetail(vno); }
+    else if (act === 'send') await sendToCaller([vno]);
+    else if (act === 'sendall') await sendToCaller(mgrVnos());
+    else if (act === 'alerts') { try { await Notification.requestPermission(); } catch (er) { /* ignore */ } renderInbox(); }
+  }
+
+  /* =====================================================================
    *  Login with a PIN (checked by Code.gs; switched on as soon as the
    *  deployed script supports it — until then "Who are you?" is used)
    * ===================================================================== */
@@ -1285,6 +1611,7 @@
     store.set(K_AUTH.token, res.token); store.set(K_AUTH.admin, !!res.admin);
     S.user = res.user; store.set(K.user, res.user);
     if (S.callers.includes(res.user)) { S.f.caller = res.user; store.set(K.caller, res.user); }
+    else if (isBoss(res.user)) { S.f.caller = ''; store.set(K.caller, ''); } // Director / Manager start on all callers
   }
   /** at start: does the deployed script have login? is the saved login still valid? */
   async function checkAuth() {
@@ -1293,6 +1620,10 @@
       const ping = await api('ping');
       S.auth.on = !!ping.auth;
       store.set(K_AUTH.on, S.auth.on);
+      if (!!ping.flow !== S.flow) { // Director → Manager → caller switched on (or off) by a new Code.gs
+        S.flow = !!ping.flow; store.set(K.flow, S.flow);
+        computeActive(); renderAll(); refreshPrograms();
+      }
     } catch (e) { return; } // offline: keep what we knew
     if (!S.auth.on) { closeAuth(); return; }
     if (!S.auth.token) { openLogin(); return; }
@@ -1328,37 +1659,118 @@
   function setAuthErr(msg) { const e = $('#authErr'); if (e) e.textContent = msg || ''; }
   function setAuthBusy(on) { $$('#authBox button, #authBox input').forEach(x => { x.disabled = on; }); }
 
-  async function openLogin() {
+  /* ---- quick login: a phone that logged in before keeps that login (and a salted hash of the PIN),
+   *  so the next login with the same PIN opens at once — Google confirms it in the background ---- */
+  const accKey = n => String(n || '').trim().toLowerCase();
+  const accounts = () => store.get(K.accounts, {}) || {};
+  const hex = buf => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  async function pinHash(salt, name, pin) {
+    if (!window.crypto || !crypto.subtle || !window.TextEncoder) return '';
+    return hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + '|' + accKey(name) + '|' + pin)));
+  }
+  async function remember(name, pin, token, admin) {
+    try {
+      const salt = hex(crypto.getRandomValues(new Uint8Array(12)));
+      const h = await pinHash(salt, name, pin);
+      if (!h) return;
+      const all = accounts();
+      all[accKey(name)] = { name: name, token: token, admin: !!admin, salt: salt, h: h, len: pin.length, at: Date.now() };
+      store.set(K.accounts, all);
+    } catch (e) { /* this browser cannot remember — normal login every time */ }
+  }
+  function forget(name) { const all = accounts(); delete all[accKey(name)]; store.set(K.accounts, all); }
+  /** Google's script sleeps when nobody used it for a while: wake it while the person picks a name */
+  function warmApi() { if (!LOCAL && Date.now() - (S.apiAt || 0) > 60000) api('ping').catch(() => {}); }
+
+  async function openLogin(msg) {
     if (!S.auth.on) return openWho();
+    warmApi();
     const names = S.auth.users.length ? S.auth.users : (CFG.EXTRA_USERS || ['Director']).concat(S.callers);
-    showAuth(authHead('Login', 'Choose your name') +
-      '<div class="who-list">' + names.map(n => '<button type="button" data-login="' + esc(n) + '">' + esc(n) +
-        '<small>' + (S.callers.includes(n) ? 'Caller' : 'Management') + '</small></button>').join('') + '</div>', true);
+    const acc = accounts();
+    const quick = Object.keys(acc).map(k => acc[k]).sort((a, b) => b.at - a.at);
+    const role = n => (S.callers.includes(n) ? 'Caller' : 'Management');
+    showAuth(authHead('Login', quick.length ? 'Tap your name' : 'Choose your name') +
+      (msg ? '<p class="auth-err">' + esc(msg) + '</p>' : '') +
+      (quick.length ? '<div class="who-list fast">' + quick.map(a => '<button type="button" data-login="' + esc(a.name) + '">' + esc(a.name) +
+        '<small>⚡ Quick login · ' + role(a.name) + '</small></button>').join('') + '</div><p class="muted or-line">Someone else</p>' : '') +
+      '<div class="who-list">' + names.filter(n => !acc[accKey(n)]).map(n => '<button type="button" data-login="' + esc(n) + '">' + esc(n) +
+        '<small>' + role(n) + '</small></button>').join('') + '</div>', true);
     if (!S.auth.users.length) {
       try { S.auth.users = (await api('users')).users || []; } catch (e) { /* keep the local list */ }
-      if (S.auth.users.length && !$('#authOverlay').hidden && $('#authBox [data-login]')) openLogin();
+      if (S.auth.users.length && !$('#authOverlay').hidden && $('#authBox [data-login]')) openLogin(msg);
     }
   }
-  function openPin(name) {
-    showAuth(authHead(name, 'Enter your PIN') +
-      '<form class="pin-form" data-pinform="' + esc(name) + '">' +
-      '<input type="password" inputmode="numeric" autocomplete="current-password" maxlength="8" id="pinIn" aria-label="PIN">' +
-      authErr + '<button type="submit" class="btn primary">Login</button>' +
-      '<button type="button" class="btn link" data-auth="back">← Other name</button></form>', true);
+  /** PIN pad (no phone keyboard popping up); a quick-login name logs in by itself at the last digit */
+  function openPin(name, msg) {
+    const a = accounts()[accKey(name)];
+    S.pin = { name: name, digits: '', len: (a && a.len) || 0, busy: false };
+    showAuth(authHead(name, a ? 'Enter your PIN' : 'Enter your PIN and tap ➜') +
+      '<div class="pin-dots" id="pinDots" aria-live="polite"></div>' + authErr + '<p class="auth-note" id="authNote"></p>' +
+      '<div class="pin-pad" id="pinPad">' + [1, 2, 3, 4, 5, 6, 7, 8, 9].map(k => '<button type="button" data-k="' + k + '">' + k + '</button>').join('') +
+      '<button type="button" data-k="del" class="fn" aria-label="Delete">⌫</button><button type="button" data-k="0">0</button>' +
+      '<button type="button" data-k="ok" class="go" aria-label="Login">➜</button></div>' +
+      '<button type="button" class="btn link" data-auth="back">← Other name</button>', true);
+    renderPinDots();
+    if (msg) setAuthErr(msg);
   }
+  function renderPinDots() {
+    const box = $('#pinDots');
+    if (!box || !S.pin) return;
+    const n = Math.max(S.pin.len || 4, S.pin.digits.length);
+    box.innerHTML = Array.from({ length: n }, (_, i) => '<i class="' + (i < S.pin.digits.length ? 'on' : '') + '"></i>').join('');
+    box.classList.toggle('busy', S.pin.busy);
+    $$('#pinPad button').forEach(b => { b.disabled = S.pin.busy; });
+  }
+  function pinKey(k) {
+    if (!S.pin || S.pin.busy || !$('#pinPad')) return;
+    if (k === 'ok') { if (S.pin.digits.length >= 4) doLogin(S.pin.name, S.pin.digits); else setAuthErr('The PIN has 4 or more digits'); return; }
+    if (k === 'del') S.pin.digits = S.pin.digits.slice(0, -1);
+    else if (/^\d$/.test(k) && S.pin.digits.length < 8) S.pin.digits += k;
+    setAuthErr('');
+    const box = $('#pinDots'); if (box) box.classList.remove('shake');
+    renderPinDots();
+    if (S.pin.len && S.pin.digits.length === S.pin.len) doLogin(S.pin.name, S.pin.digits);
+  }
+  function setAuthNote(t) { const e = $('#authNote'); if (e) e.textContent = t || ''; }
   async function doLogin(name, pin) {
     if (!pin) { setAuthErr('Enter your PIN'); return; }
-    setAuthBusy(true); setAuthErr('');
+    const a = accounts()[accKey(name)];
+    if (a && a.token && (await pinHash(a.salt, name, pin)) === a.h) {
+      finishLogin({ token: a.token, user: a.name, admin: a.admin }, false);
+      a.at = Date.now(); const all = accounts(); all[accKey(name)] = a; store.set(K.accounts, all);
+      api('me', { token: a.token })
+        .then(me => { S.auth.admin = !!me.admin; store.set(K_AUTH.admin, S.auth.admin); })
+        .catch(e => { if (e.code === 'auth') serverLogin(name, pin, true); }); // login ran out → renewed with the same PIN
+      return;
+    }
+    await serverLogin(name, pin, false);
+  }
+  async function serverLogin(name, pin, quiet) {
+    let slow = null;
+    if (!quiet) {
+      S.pin.busy = true; renderPinDots(); setAuthErr(''); setAuthNote('Checking PIN…');
+      slow = setTimeout(() => setAuthNote('Checking PIN… Google is slow right now, please wait'), 4000);
+    }
     try {
       const res = await api('login', { name: name, pin: pin });
-      setLoggedIn(res);
-      if (res.mustChange) openSetPin(true);
-      else { closeAuth(); toast('Welcome ' + res.user); }
-      renderAll(); renderUser(); flushOutbox();
+      remember(res.user, pin, res.token, res.admin);
+      if (quiet) setLoggedIn(res); else finishLogin(res, res.mustChange);
     } catch (e) {
-      setAuthBusy(false); setAuthErr(e.message || 'Could not log in');
-      const i = $('#pinIn'); if (i) { i.value = ''; i.focus(); }
-    }
+      if (quiet) { // the PIN was changed on another phone → ask for the new one
+        forget(name); logoutLocal(); S.user = ''; computeActive(); renderAll();
+        openPin(name, 'Your PIN was changed — enter the new PIN');
+        return;
+      }
+      S.pin.busy = false; S.pin.digits = ''; renderPinDots(); setAuthNote('');
+      setAuthErr(e.message || 'Could not log in');
+      const box = $('#pinDots'); if (box) { box.classList.remove('shake'); void box.offsetWidth; box.classList.add('shake'); }
+    } finally { clearTimeout(slow); }
+  }
+  function finishLogin(res, mustChange) {
+    setLoggedIn(res);
+    if (mustChange) openSetPin(true);
+    else { closeAuth(); toast('Welcome ' + res.user); }
+    computeActive(); renderAll(); flushOutbox(); refreshPrograms();
   }
   function openSetPin(first) {
     showAuth(authHead(first ? 'Set your own PIN' : 'Change my PIN', first ? 'First login: choose a new PIN (4–8 digits) that only you know' : 'New PIN, 4–8 digits') +
@@ -1374,6 +1786,8 @@
     setAuthBusy(true); setAuthErr('');
     try {
       await api('setPin', Object.assign({ token: S.auth.token, pin: p1 }, name ? { name: name } : {}));
+      if (!name || sameName(name, S.user)) remember(S.user, p1, S.auth.token, S.auth.admin); // quick login knows the new PIN
+      else forget(name);
       toast(name ? 'PIN set for ' + name : 'Your new PIN is saved');
       if (after) after(); else closeAuth();
     } catch (e) {
@@ -1385,9 +1799,10 @@
   function openUserMenu() {
     showAuth(authHead(S.user || 'Not logged in', S.auth.admin ? 'Director — can manage everybody\'s PIN' : 'Logged in on this phone') +
       '<div class="menu-list">' +
+      '<button type="button" class="btn primary" data-auth="switch">Switch user <small>— next person logs in; you stay on quick login</small></button>' +
       '<button type="button" class="btn" data-auth="mypin">Change my PIN</button>' +
       (S.auth.admin ? '<button type="button" class="btn" data-auth="manage">Manage PINs</button>' : '') +
-      '<button type="button" class="btn danger" data-auth="logout">Log out</button>' +
+      '<button type="button" class="btn danger" data-auth="logout">Log out from this phone</button>' +
       '<button type="button" class="btn link" data-auth="close">Close</button></div>', false);
   }
   async function openManagePins() {
@@ -1407,6 +1822,8 @@
       if (e.target === ov && !ov.dataset.locked) { closeAuth(); return; }
       const n = e.target.closest('[data-login]');
       if (n) { openPin(n.dataset.login); return; }
+      const k = e.target.closest('[data-k]');
+      if (k) { pinKey(k.dataset.k); return; }
       const a = e.target.closest('[data-auth]');
       if (!a) return;
       const act = a.dataset.auth;
@@ -1414,17 +1831,29 @@
       else if (act === 'close') closeAuth();
       else if (act === 'mypin') openSetPin(false);
       else if (act === 'manage') openManagePins();
-      else if (act === 'logout') {
-        const t = S.auth.token;
-        if (t) api('logout', { token: t }).catch(() => {});
-        logoutLocal(); S.user = ''; renderUser(); openLogin();
+      else if (act === 'switch' || act === 'logout') {
+        if (act === 'logout') { // forget this phone's login completely
+          const t = S.auth.token;
+          if (t) api('logout', { token: t }).catch(() => {});
+          forget(S.user);
+        }
+        logoutLocal(); S.user = ''; store.set(K.user, '');
+        computeActive(); renderAll(); openLogin();
       }
+    });
+    // PIN pad from a computer keyboard too
+    document.addEventListener('keydown', e => {
+      if ($('#authOverlay').hidden || !$('#pinPad')) return;
+      if (/^\d$/.test(e.key)) pinKey(e.key);
+      else if (e.key === 'Backspace') pinKey('del');
+      else if (e.key === 'Enter') pinKey('ok');
+      else return;
+      e.preventDefault();
     });
     ov.addEventListener('submit', e => {
       e.preventDefault();
       const f = e.target;
-      if (f.dataset.pinform) doLogin(f.dataset.pinform, $('#pinIn').value.trim());
-      else if (f.dataset.setpin) doSetPin('', $('#newPin1').value.trim(), $('#newPin2').value.trim());
+      if (f.dataset.setpin) doSetPin('', $('#newPin1').value.trim(), $('#newPin2').value.trim());
       else if (f.dataset.adminpin) {
         const i = $('input', f);
         doSetPin(f.dataset.adminpin, i.value.trim(), null, () => { i.value = ''; setAuthBusy(false); setAuthErr(''); });
@@ -1930,6 +2359,8 @@
     $('#userBtn').addEventListener('click', () => { if (S.auth.on) openUserMenu(); else openWho(); });
     $('#callsBtn').addEventListener('click', openCalls);
     $('#callsOverlay').addEventListener('click', e => { if (e.target.id === 'callsOverlay' || e.target.closest('[data-close-calls]')) closeCalls(); });
+    $('#inboxBtn').addEventListener('click', openInbox);
+    $('#inboxOverlay').addEventListener('click', onInboxClick);
 
     // caller chips (board + programs)
     ['#callerChips', '#callerChips2'].forEach(sel => $(sel).addEventListener('click', e => {
@@ -1943,7 +2374,7 @@
     $('#pq').addEventListener('input', e => { clearTimeout(pqt); pqt = setTimeout(() => { S.pq = e.target.value.trim(); renderPrograms(); }, IS_PHONE ? 220 : 120); });
     document.addEventListener('keydown', e => {
       if (e.key === '/' && S.view === 'board' && !/input|select|textarea/i.test((document.activeElement || {}).tagName || '')) { e.preventDefault(); $('#q').focus(); }
-      if (e.key === 'Escape') { if (!$('#whoOverlay').hidden) closeWho(); else if (!$('#callsOverlay').hidden) closeCalls(); else if (S.detail) closeDetail(); }
+      if (e.key === 'Escape') { if (!$('#whoOverlay').hidden) closeWho(); else if (!$('#callsOverlay').hidden) closeCalls(); else if (!$('#inboxOverlay').hidden) closeInbox(); else if (S.detail) closeDetail(); }
     });
 
     // group + filters
@@ -2017,6 +2448,7 @@
     $('#bulkGive').addEventListener('click', bulkGive);
     $('#bulkProg').addEventListener('keydown', e => { if (e.key === 'Enter') bulkGive(); });
     $('#progList').addEventListener('click', e => {
+      if (e.target.closest('[data-sendall]')) { sendToCaller(S.mgrShown || []); return; }
       if (e.target.closest('a, button, input, label')) return;
       const card = e.target.closest('[data-card]'); if (card) openDetail(card.dataset.card);
     });
@@ -2041,7 +2473,11 @@
     document.addEventListener('focusout', () => setTimeout(() => { if (S.pending && !editingNow()) renderAll(); }, 250));
 
     // detail sheet
-    $('#sheetOverlay').addEventListener('click', e => { if (e.target.id === 'sheetOverlay' || e.target.closest('[data-close]')) closeDetail(); });
+    $('#sheetOverlay').addEventListener('click', e => {
+      if (e.target.id === 'sheetOverlay' || e.target.closest('[data-close]')) { closeDetail(); return; }
+      const s = e.target.closest('[data-seen-id]');
+      if (s) { markSeen([s.dataset.seenId]); renderDetail(); }
+    });
 
     // who
     $('#whoList').addEventListener('click', e => { const b = e.target.closest('[data-who]'); if (b) closeWho(b.dataset.who); });
@@ -2147,6 +2583,7 @@
       } catch (e) { /* ignore a bad cache */ }
     }
     S.programs = LOCAL ? Local.list() : store.get(K.progCache, []); // last known programs until the server answers
+    S.msgs.forEach(m => S.msgKnown.add(m.id)); // already-known messages are not announced again
     computeActive();
     setView(location.hash.slice(1) || 'board', true);
     showBanner();
@@ -2162,6 +2599,7 @@
     const cc = store.get(K_CALLS, null); // last calls figures: shown at once, refreshed right after
     if (cc && cc.calls) { S.calls = cc.calls; S.callsAt = cc.at; }
     renderCallsBtn();
+    renderInboxBtn();
     loadCalls();
     setStickyTop();
     refresh().then(schedulePoll);

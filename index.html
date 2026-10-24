@@ -31,6 +31,10 @@
       </nav>
       <div class="top-right">
         <span id="saveState" class="save-state" hidden></span>
+        <button type="button" class="calls-btn inbox-btn" id="inboxBtn" title="Inbox" hidden>
+          <svg class="ico" viewBox="0 0 24 24"><path d="M6 9a6 6 0 1 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9M10 20a2 2 0 0 0 4 0"/></svg>
+          <span class="lbl">Inbox</span><span class="cnt" id="inboxCount">0</span>
+        </button>
         <button type="button" class="calls-btn" id="callsBtn" title="Caller-wise pending calls">
           <svg class="ico" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>
           <span class="lbl">Pending calls</span><span class="cnt" id="callsCount">–</span>
@@ -247,6 +251,16 @@
       <h2 id="callsTitle">Caller-wise calls</h2>
       <p class="muted" id="callsSub">From the Dashboard sheet</p>
       <div id="callsBody"></div>
+    </div>
+  </div>
+
+  <!-- inbox: programs / remarks passed Director → Manager → caller (Messages tab) -->
+  <div class="overlay center" id="inboxOverlay" hidden>
+    <div class="modal inbox-modal" role="dialog" aria-modal="true" aria-labelledby="inboxTitle">
+      <button type="button" class="modal-x" data-close-inbox aria-label="Close">×</button>
+      <h2 id="inboxTitle">Inbox</h2>
+      <div class="seg inbox-seg" id="inboxSeg" role="tablist"></div>
+      <div id="inboxBody" class="inbox-body"></div>
     </div>
   </div>
 

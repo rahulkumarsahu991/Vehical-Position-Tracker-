@@ -19,6 +19,17 @@ Programs given by one user reach everybody else within ~10–20 seconds (they fl
 **Dashboard** tab of the Fleet sheet (`CALLS_SHEET_ID` / `CALLS_GID` in `config.js`, checked every minute).
 It blinks red while any call is pending; callers with pending calls blink in the list.
 
+**Director → Manager → Caller** (Inbox 🔔 button, `FLOW` in `config.js` / `CONFIG.FLOW` in Code.gs):
+a program or remark the **Director** gives goes to the **Manager** first (tab *With Manager*; the caller does not
+see it yet). The Manager taps **Send to <caller>** (or *Send all*) and the vehicle's caller gets it; the Manager's
+own programs / remarks go straight to the caller. Whoever it is for taps **Dekh liya ✓**; the sender sees
+"✓ Seen 10:42". Kept in the **Messages** tab. The Inbox blinks red while something is unseen; new ones pop up,
+buzz the phone and (if alerts are turned on) show a phone alert.
+
+**Login:** pick your name, tap your PIN on the keypad. On a phone that logged in before, the name shows
+"⚡ Quick login" and opens at once on the last digit (Google confirms it in the background).
+*Switch user* lets the next person log in; *Log out from this phone* forgets the quick login.
+
 The website **only reads** the Calling Sheet — it never changes it.
 Programs are saved in a separate tab **Programs** (made by Code.gs), one row per vehicle per day.
 After running **linkPrintSheets** once (Apps Script editor), the sheet's own **U&N** tab shows them too

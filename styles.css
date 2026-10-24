@@ -673,7 +673,66 @@ body.has-bulk main { padding-bottom: 180px; }
 .auth-err { min-height: 18px; margin: 0; color: var(--red); font-size: 13.5px; font-weight: 600; }
 .auth-err:empty { min-height: 0; }
 .menu-list { display: grid; gap: 8px; margin-top: 6px; }
-.menu-list .btn { padding: 11px; font-size: 15px; }
+.menu-list .btn { padding: 11px; font-size: 15px; flex-wrap: wrap; }
+.menu-list .btn small { font-weight: 500; font-size: 12px; opacity: .85; }
+/* quick login names (this phone logged in before) */
+.who-list.fast button { border-color: var(--orange); background: var(--orange-l); }
+.who-list.fast button small { color: var(--orange-d); }
+.or-line { margin: 12px 0 8px !important; font-size: 12.5px !important; text-transform: uppercase; letter-spacing: .5px; }
+/* PIN pad: big keys, no phone keyboard */
+.pin-dots { display: flex; justify-content: center; gap: 14px; margin: 6px 0 10px; min-height: 18px; }
+.pin-dots i { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--navy-3); transition: background .1s, transform .1s; }
+.pin-dots i.on { background: var(--navy); border-color: var(--navy); transform: scale(1.05); }
+.pin-dots.busy i { animation: pin-wait 1s ease-in-out infinite; }
+.pin-dots.busy i:nth-child(2) { animation-delay: .15s; } .pin-dots.busy i:nth-child(3) { animation-delay: .3s; } .pin-dots.busy i:nth-child(4) { animation-delay: .45s; }
+@keyframes pin-wait { 50% { background: var(--orange); border-color: var(--orange); } }
+.pin-dots.shake { animation: shake .35s; }
+.pin-dots.shake i { border-color: var(--red); }
+@keyframes shake { 20%, 60% { transform: translateX(-7px); } 40%, 80% { transform: translateX(7px); } }
+.auth-note { margin: 0 0 6px !important; min-height: 18px; color: var(--ink-2); font-size: 13.5px !important; font-weight: 600; }
+.auth-note:empty { min-height: 0; margin: 0 !important; }
+.pin-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 6px auto 10px; max-width: 290px; }
+.pin-pad button {
+  height: 58px; border-radius: 14px; border: 1.5px solid var(--line); background: #fff;
+  font: 700 26px var(--cond); color: var(--ink); touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.pin-pad button:active { background: var(--line-2); transform: scale(.96); }
+.pin-pad button.fn { font-size: 22px; color: var(--ink-2); background: var(--line-2); }
+.pin-pad button.go { background: var(--orange); border-color: var(--orange); color: #fff; }
+.pin-pad button:disabled { opacity: .55; }
+@media (hover: hover) { .pin-pad button:hover { border-color: var(--orange); } }
+
+/* ---------------- inbox (Director → Manager → caller) ---------------- */
+.inbox-btn .ico { width: 16px; height: 16px; }
+.inbox-btn.none .cnt { display: none; }
+.inbox-modal { width: min(600px, 100%); text-align: left; position: relative; }
+.inbox-modal h2 { margin-top: 0; }
+.inbox-seg { margin: 6px 0 10px; }
+.seg button .n.hot, .seg button.hot .n { background: var(--red); color: #fff; }
+.inbox-body { display: grid; gap: 10px; }
+.inbox-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.msg { border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 5px; background: #fff; }
+.msg.unseen { border-left-color: var(--red); background: #fff8f8; }
+.msg .m-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.msg .m-who { font-size: 14px; }
+.msg .m-time { margin-left: auto; font-size: 12.5px; color: var(--muted); font-weight: 600; }
+.msg .m-where { font-size: 12.5px; color: var(--muted); }
+.msg .m-body { font-size: 15px; }
+.msg .m-note { font-size: 14px; background: var(--line-2); border-radius: 8px; padding: 5px 9px; overflow-wrap: anywhere; }
+.msg .m-act { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 2px; }
+.msg .m-act > span:first-child { margin-right: auto; }
+.m-ok { color: var(--green); font-weight: 700; font-size: 13px; }
+.m-wait { color: var(--amber); font-weight: 700; font-size: 13px; }
+.btn.seen-btn { background: var(--green); border-color: var(--green); color: #fff; }
+.btn.seen-btn:hover { background: #166534; border-color: #166534; }
+.btn.seen-btn .ico { width: 14px; height: 14px; }
+/* a Director's program waiting for the Manager */
+.pg-given.at-mgr { background: #eef2ff; border-color: #c7d2fe; }
+.vr-prog.at-mgr { background: #eef2ff; color: #312e81; border: 1px solid #c7d2fe; }
+.mgr-wait { background: #eef2ff; color: #312e81; border: 1px dashed #a5b4fc; border-radius: 10px; padding: 8px 10px; font-weight: 600; font-size: 13.5px; }
+.btn.send-caller { width: 100%; padding: 10px 12px; }
+.pg-meta.dlv, .pg-meta.goes { font-size: 12.5px; }
+.seg button.hot { border-color: var(--red); }
 .pin-rows { display: grid; gap: 6px; margin: 8px 0; text-align: left; max-height: 55vh; overflow-y: auto; }
 .pin-row { display: grid; grid-template-columns: 1fr 110px auto; gap: 8px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--line-2); }
 .pin-row input { border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; text-align: center; letter-spacing: 3px; outline: 0; min-width: 0; }
@@ -737,8 +796,8 @@ table.pf .ok { color: #15803d; font-weight: 700; }
   /* ---- header: logo + name on one line, round buttons, then a full-width tab bar ---- */
   .top-in {
     height: auto; padding: 8px 12px 0; gap: 0 6px; align-items: center;
-    display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto;
-    grid-template-areas: "brand calls sync user" "tabs tabs tabs tabs" "save save save save";
+    display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+    grid-template-areas: "brand inbox calls sync user" "tabs tabs tabs tabs tabs" "save save save save save";
   }
   .top-right { display: contents; }
   .brand { grid-area: brand; gap: 8px; min-width: 0; }
@@ -747,9 +806,10 @@ table.pf .ok { color: #15803d; font-weight: 700; }
   .brand-txt b { font-size: 17px; letter-spacing: 1px; white-space: nowrap; }
   .brand-txt small { font-size: 9px; letter-spacing: .2px; overflow: hidden; text-overflow: ellipsis; }
   .calls-btn, .sync, .user-chip { height: 36px; }
-  #callsBtn { grid-area: calls; position: relative; width: 36px; padding: 0; justify-content: center; border-radius: 50%; }
-  #callsBtn .lbl { display: none; }
-  #callsBtn .cnt {
+  #callsBtn, #inboxBtn { grid-area: calls; position: relative; width: 36px; padding: 0; justify-content: center; border-radius: 50%; }
+  #inboxBtn { grid-area: inbox; }
+  #callsBtn .lbl, #inboxBtn .lbl { display: none; }
+  #callsBtn .cnt, #inboxBtn .cnt {
     position: absolute; top: -5px; right: -6px; min-width: 19px; height: 19px; padding: 0 5px;
     font-size: 11px; line-height: 15px; border: 2px solid var(--navy);
   }
