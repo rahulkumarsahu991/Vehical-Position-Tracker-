@@ -1289,20 +1289,21 @@
   const CALLS_MS = Math.max(20, Number(CFG.CALLS_REFRESH_SECONDS) || 60) * 1000;
   /** The big Fleet sheet is sometimes slow or briefly refuses: the last result is kept (shown at once on
    *  the next open) and a failed check is tried again after 5 s and 15 s instead of waiting a minute. */
-  const K_CALLS = 'vpt_calls_cache_v1', K_CALLS_COLS = 'vpt_calls_cols_v1';
+  const K_CALLS = 'vpt_calls_cache_v1', K_CALLS_COLS = 'vpt_calls_cols_v1', K_CALLS_VIA = 'vpt_calls_via';
   function getCallsCsv(url, ms) {
     return fetchWithTimeout(url, { cache: 'no-store' }, ms)
       .then(r => r.text().then(text => ({ r: r, text: text })),
-        () => { throw new Error('The Dashboard sheet did not answer — trying again'); })
+        e => { throw new Error(/too long/.test(e.message) ? 'too slow' : 'blocked'); })
       .then(({ r, text }) => {
-        if (!r.ok) throw new Error('Google is busy (' + r.status + ') — trying again');
-        if (/^\s*</.test(text)) throw new Error('Dashboard sheet is not shared (Anyone with the link: Viewer)');
+        if (!r.ok) throw new Error('Google busy ' + r.status);
+        if (/^\s*</.test(text)) throw new Error('not shared (Anyone with the link: Viewer)');
         return text;
       });
   }
-  /** Two ways to read the Dashboard: the CSV export (exact column headings) and gviz (the same Google
-   *  server the vehicles come from). Some laptops block or hold up the export — it arrives as a file
-   *  download, which antivirus / office networks stop — so gviz takes over, and stays first after that. */
+  /** Three ways to read the Dashboard: the CSV export (exact column headings), gviz (the server the vehicles
+   *  come from) and the Apps Script (Google reads it on its side). Some office networks / antivirus stop the
+   *  browser from reading the Fleet sheet at all — then only the Apps Script gets through. The way that
+   *  worked is tried first next time (the usual order is tried again an hour after a switch). */
   async function loadCalls(attempt) {
     if (!CFG.CALLS_SHEET_ID || S.callsLoading) return;
     S.callsLoading = true;
@@ -1310,14 +1311,26 @@
     let failed = false;
     try {
       const base = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(CFG.CALLS_SHEET_ID), gid = encodeURIComponent(CFG.CALLS_GID);
-      const viaExport = () => getCallsCsv(base + '/export?format=csv&gid=' + gid, 10000).then(t => parseCalls(parseCsv(t)));
-      const viaGviz = () => getCallsCsv(base + '/gviz/tq?tqx=out:csv&headers=0&gid=' + gid, 20000).then(t => parseCalls(parseCsv(t), true));
-      let calls;
-      if (S.callsViaGviz) {
-        try { calls = await viaGviz(); } catch (e) { calls = await viaExport(); S.callsViaGviz = false; }
-      } else {
-        try { calls = await viaExport(); } catch (e) { calls = await viaGviz(); S.callsViaGviz = true; }
+      const ways = {
+        export: () => getCallsCsv(base + '/export?format=csv&gid=' + gid, 10000).then(t => parseCalls(parseCsv(t))),
+        gviz: () => getCallsCsv(base + '/gviz/tq?tqx=out:csv&headers=0&gid=' + gid, 12000).then(t => parseCalls(parseCsv(t), true)),
+        script: () => api('dashboard').then(res => parseCalls(res.grid || []))
+      };
+      const label = { export: 'file', gviz: 'sheet', script: 'script' };
+      const pref = store.get(K_CALLS_VIA, null);
+      let order = ['export', 'gviz'].concat(LOCAL ? [] : ['script']);
+      const fresh = !!pref && order.includes(pref.way) && Date.now() - (pref.at || 0) < 3600000;
+      if (fresh) order = [pref.way].concat(order.filter(w => w !== pref.way));
+      let calls = null;
+      const tried = [];
+      for (const w of order) {
+        try {
+          calls = await ways[w]();
+          if (!fresh || pref.way !== w) store.set(K_CALLS_VIA, { way: w, at: Date.now() });
+          break;
+        } catch (e) { tried.push(label[w] + ' ' + (e.message || 'failed')); }
       }
+      if (!calls) throw new Error('The Dashboard sheet did not answer — trying again (' + tried.join(' · ') + ')');
       S.calls = calls; S.callsAt = Date.now(); S.callsError = '';
       store.set(K_CALLS, { at: S.callsAt, calls: S.calls });
     } catch (e) {
