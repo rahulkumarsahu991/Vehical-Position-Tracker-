@@ -1031,22 +1031,21 @@
         '<input data-f="program" list="locList" value="' + esc(progVal) + '" autocomplete="off"></label>' +
         '<label class="field"><span class="pg-lbl">Broker / Party <span class="hi">(optional)</span></span>' +
         '<input data-f="broker" value="' + esc(brokerVal) + '" autocomplete="off"></label>' +
-        '<label class="field"><span class="pg-lbl">' + esc(r.noteLbl) + ' <span class="hi">(optional)</span></span>' +
+        '<label class="field" title="' + (r.on ? 'Only a remark? Leave Program empty and tap the button.' : '') + '"><span class="pg-lbl">' + esc(r.noteLbl) + ' <span class="hi">(optional)</span></span>' +
         '<input data-f="' + r.nk + '" value="' + esc(noteVal) + '" autocomplete="off"></label>' +
         '<div class="pg-actions"><button type="button" class="btn primary" data-act="give">' + ICO.check + esc(r.giveLbl) + '</button>' +
-        (r.on && isTop(S.user) ? '<button type="button" class="btn direct-btn" data-act="give-direct" title="Skip the ' + esc(FLOW.MID) + ': straight to the caller">➜ Direct → ' + esc(r.caller) + '</button>' : '') +
+        (r.on && isTop(S.user) ? '<button type="button" class="btn direct-btn" data-act="give-direct" title="Skip the ' + esc(FLOW.MID) + ': straight to the caller">Direct → ' + esc(r.caller) + '</button>' : '') +
         (v.phoneDigits && !(r.on && isTop(S.user)) ? '<button type="button" class="btn wa-give" data-act="give-wa" title="Give the program and send it to the driver on WhatsApp">' + ICO.wa + '<span>Give + WhatsApp</span></button>' : '') +
         (has ? '<button type="button" class="btn" data-act="cancel">Cancel</button><button type="button" class="btn link sm" data-act="remove">Remove program</button>' : '') +
-        '</div>' + (r.on && r.to ? '<div class="pg-meta goes">Goes to <b>' + esc(r.to) + '</b>' +
-          (isTop(S.user) ? ' · or <b>Direct</b> straight to ' + esc(r.caller) : '') + ' · a remark alone can be sent too</div>' : '') + deliveryHtml(v.vno);
+        '</div>' + deliveryHtml(v.vno);
     }
     return h + '</div>';
   }
   /** what this person's program box says and writes, in the Director → Manager → caller flow */
   function flowRole(v) {
     const on = S.flow && !!S.user, caller = (v && v.caller) || 'caller';
-    if (on && isTop(S.user)) return { on: on, caller: caller, nk: 'dnote', to: FLOW.MID, noteLbl: 'Remark for ' + FLOW.MID, giveLbl: 'Give program → ' + FLOW.MID };
-    if (on && isMid(S.user)) return { on: on, caller: caller, nk: 'note', to: caller, noteLbl: 'Remark for ' + caller, giveLbl: 'Give program → ' + caller };
+    if (on && isTop(S.user)) return { on: on, caller: caller, nk: 'dnote', to: FLOW.MID, noteLbl: 'Remark for ' + FLOW.MID, giveLbl: 'Give → ' + FLOW.MID };
+    if (on && isMid(S.user)) return { on: on, caller: caller, nk: 'note', to: caller, noteLbl: 'Remark for ' + caller, giveLbl: 'Give → ' + caller };
     return { on: on, caller: caller, nk: 'note', to: '', noteLbl: 'Remark', giveLbl: 'Give program' };
   }
 

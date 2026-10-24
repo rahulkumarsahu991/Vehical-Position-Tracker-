@@ -337,6 +337,13 @@ select:focus, .field input:focus { border-color: var(--navy-3); box-shadow: 0 0 
 .vr-remark { font-size: 13px; color: var(--ink-2); font-style: italic; min-width: 0; overflow-wrap: anywhere; }
 .vr-remark:empty { display: none; }
 .vr-c { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+/* phones / tablets: caller + call time sit on the number-plate line (one line less per vehicle) */
+@media (max-width: 979px) {
+  .vrow { grid-template-columns: minmax(0, 1fr) auto; }
+  .vrow > * { grid-column: 1 / -1; }
+  .vrow > .vr-plate { grid-column: 1; grid-row: 1; }
+  .vrow > .vr-c { grid-column: 2; grid-row: 1; justify-content: flex-end; text-align: right; }
+}
 
 @media (min-width: 980px) {
   .vrow {
@@ -415,7 +422,7 @@ button, a, .vrow, .pcard, .chip, .kpi { -webkit-tap-highlight-color: transparent
 /* send the program to the driver on WhatsApp */
 .btn.wa-give, .btn.wa-send { background: var(--green); border-color: var(--green); color: #fff; text-decoration: none; }
 .btn.wa-give:hover, .btn.wa-send:hover { background: #166534; border-color: #166534; }
-.btn.wa-send { width: 100%; padding: 9px 12px; }
+.btn.wa-send { width: 100%; padding: 7px 12px; font-size: 13.5px; }
 .nodrv { color: var(--muted); font-style: italic; }
 
 /* program pill on a row */
@@ -467,7 +474,8 @@ table.vt td.rem { min-width: 180px; color: var(--ink-2); }
 .seg button.on .n { background: var(--orange); color: #fff; }
 .hint { font-size: 13px; color: var(--muted); margin: 4px 2px 12px; }
 
-.prog-list { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); align-items: start; }
+/* compact cards: 4 across on a 1366 px laptop; minmax(0…) / min(100%…) so a long line can never push a card wider than the screen */
+.prog-list { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); align-items: start; }
 .prog-sec {
   grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; margin: 6px 2px 0;
   font: 700 18px/1.1 var(--cond); letter-spacing: .5px; text-transform: uppercase;
@@ -475,37 +483,54 @@ table.vt td.rem { min-width: 180px; color: var(--ink-2); }
 .prog-sec .sw { width: 12px; height: 12px; border-radius: 4px; background: var(--c); }
 .prog-sec .n { background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px; font: 700 13px var(--font); }
 .pcard {
-  position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 13px;
-  padding: 12px 13px 13px 16px; box-shadow: var(--shadow); display: grid; gap: 7px;
+  position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 12px; min-width: 0;
+  padding: 10px 12px 11px 15px; box-shadow: var(--shadow); display: grid; gap: 6px;
+  transition: box-shadow .15s, border-color .15s;
 }
+@media (hover: hover) { .pcard:hover { box-shadow: 0 6px 18px rgba(22, 26, 51, .10); border-color: #d6d9e6; } }
 .pcard::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 4px; border-radius: 0 4px 4px 0; background: var(--c); }
-.pc-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.pc-top .tag-caller { margin-left: auto; font-size: 13px; }
-.pc-where { font-weight: 600; }
+.pc-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pc-top .tag-caller { margin-left: auto; font-size: 12.5px; }
+.pc-where { font-weight: 600; font-size: 14px; }
 .pc-where .sm { color: var(--muted); font-weight: 500; }
-.pc-line { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 13.5px; color: var(--ink-2); }
-.pc-remark { font-size: 13px; font-style: italic; color: var(--ink-2); }
+.pc-line { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 13px; color: var(--ink-2); }
+.pc-remark { font-size: 12.5px; font-style: italic; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .pcard .open-det { position: absolute; right: 10px; bottom: 10px; }
 
 /* program editor (cards + detail sheet) */
-.pg { border-top: 1px dashed var(--line); padding-top: 9px; display: grid; gap: 8px; }
-.pg-lbl { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+.pg { border-top: 1px dashed var(--line); padding-top: 8px; display: grid; gap: 6px; min-width: 0; }
+.pg-lbl { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
 .pg-lbl .hi { text-transform: none; letter-spacing: 0; font-weight: 600; color: var(--ink-2); }
-.field { display: grid; gap: 4px; }
+.field { display: grid; gap: 3px; min-width: 0; }
 .field input { width: 100%; }
 .pg-row { display: flex; gap: 6px; }
 .pg-row .field { flex: 1; }
-.pg-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.pg-given { background: var(--amber-l); border: 1px solid #f5d79e; border-radius: 10px; padding: 9px 11px; display: grid; gap: 6px; }
+.pg-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+/* program box while writing: Program, then Broker | Remark side by side, then the buttons */
+.pg.editing { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px 8px; align-items: end; }
+.pg.editing > .field:first-child, .pg.editing .pg-actions { grid-column: 1 / -1; }
+.pg.editing .pg-lbl .hi { display: none; }   /* short labels (the boxes have no placeholder text) */
+.pg.editing .field input { padding: 7px 9px; font-size: 13.5px; background: #fafbfe; }
+.pg.editing .field input:focus { background: #fff; }
+.pg.editing .btn { padding: 7px 11px; font-size: 13.5px; }
+.pg.editing .wa-give { padding: 7px 10px; }
+.pg.editing .wa-give span { display: none; }  /* icon only next to Give program */
+.pg.editing .pg-actions .btn.primary, .pg.editing .pg-actions .direct-btn { flex: 1 1 auto; justify-content: center; }
+.pg-given { background: var(--amber-l); border: 1px solid #f5d79e; border-radius: 10px; padding: 8px 10px; display: grid; gap: 4px; }
 .pg-given.ok { background: var(--green-l); border-color: #bfe3cb; }
-.pg-text { font-weight: 700; font-size: 15.5px; color: var(--ink); overflow-wrap: anywhere; }
+.pg-text { font-weight: 700; font-size: 15px; color: var(--ink); overflow-wrap: anywhere; }
 .pg-meta { font-size: 12.5px; color: var(--ink-2); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.inform { display: grid; gap: 6px; }
-.inform .q { font-weight: 700; font-size: 14px; }
+/* "Driver ko bataya?" and its Yes / Not yet on one row */
+.inform { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 8px; align-items: center; }
+.inform .q { font-weight: 700; font-size: 13px; line-height: 1.25; }
+.inform .q .muted { display: block; font-weight: 500; font-size: 11.5px; }
+.inform .pg-meta { grid-column: 1 / -1; }
 .yn { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.inform .yn { grid-template-columns: auto auto; }
+.pg-meta .btn.link.sm { padding: 0 4px; min-height: 0; }
 .yn button {
-  border: 1.5px solid var(--line); background: #fff; border-radius: 10px; padding: 9px 8px;
-  font-weight: 700; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 1.5px solid var(--line); background: #fff; border-radius: 10px; padding: 7px 8px;
+  font-weight: 700; font-size: 13.5px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
 }
 .yn button.yes.on { background: var(--green); border-color: var(--green); color: #fff; }
 .yn button.no.on { background: var(--red-l); border-color: #ef9a9a; color: var(--red); }
@@ -736,7 +761,8 @@ body.has-bulk main { padding-bottom: 180px; }
 .btn.direct-btn:hover { background: #eef2ff; }
 .mgr-wait + .send-caller { margin-top: 6px; }
 .bb-btns { display: flex; gap: 6px; }
-.pg-meta.dlv, .pg-meta.goes { font-size: 12.5px; display: block; grid-column: 1 / -1; }
+.pg-meta.dlv, .pg-meta.goes { font-size: 12px; display: block; grid-column: 1 / -1; }
+.pg-meta.goes { color: var(--muted); }
 .seg button.hot { border-color: var(--red); }
 .pin-rows { display: grid; gap: 6px; margin: 8px 0; text-align: left; max-height: 55vh; overflow-y: auto; }
 .pin-row { display: grid; grid-template-columns: 1fr 110px auto; gap: 8px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--line-2); }
@@ -858,33 +884,24 @@ table.pf .ok { color: #15803d; font-weight: 700; }
   .search input { padding: 9px 0; }
 
   /* ---- compact cards ---- */
-  .prog-list { grid-template-columns: 1fr; gap: 8px; }
-  .pcard { padding: 10px 12px 11px 14px; gap: 5px; border-radius: 12px; }
-  .pc-top { gap: 6px; }
-  .pc-where { font-size: 14px; }
-  .pc-line { font-size: 13px; gap: 6px; }
-  .pc-remark, .vr-remark { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prog-list { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .pcard { padding: 9px 11px 10px 13px; gap: 4px; border-radius: 12px; }
+  .pc-top { gap: 5px; }
+  .pc-where { font-size: 13.5px; }
+  .pc-line { font-size: 12.5px; gap: 6px; }
+  .pc-remark, .vr-remark { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .plate { font-size: 14px; }
   .plate span { padding: 3px 6px 2px; }
   .badge { font-size: 11px; padding: 1px 6px; }
   .call { font-size: 12.5px; padding: 2px 8px 2px 6px; }
-  .pg { padding-top: 8px; gap: 6px; }
-  .pg-lbl { font-size: 11px; }
-  .field input { padding: 8px 10px; font-size: 14px; }
-  /* program box: Program on its own line, then Broker + button side by side */
-  .pg.editing { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; }  /* Program, then Broker | Remark, then buttons */
-  .pg.editing > .field:first-child, .pg.editing .pg-actions { grid-column: 1 / -1; }
-  .pg.editing .pg-actions { flex-wrap: wrap; }
+  .pg { padding-top: 7px; gap: 5px; }
+  .field input { padding: 7px 9px; font-size: 14px; }
   .bulk-bar .bb-btns .btn { flex: 1; }
-  .pg.editing .btn { padding: 8px 12px; }
-  .pg.editing .wa-give { padding: 8px 10px; }
-  .pg.editing .wa-give span { display: none; }  /* icon only next to Give program */
-  .pg.editing .pg-lbl .hi { display: none; }   /* short labels on phones (boxes have no placeholder text) */
-  .pg-given { padding: 8px 10px; gap: 4px; }
+  .pg-given { padding: 7px 9px; gap: 3px; }
   .pg-text { font-size: 14.5px; }
-  .inform .q { font-size: 13px; }
-  .yn button { padding: 8px 6px; font-size: 13px; }
-  .vrow { padding: 9px 11px 9px 14px; gap: 3px; }
+  .inform .q { font-size: 12.5px; }
+  .yn button { padding: 7px 6px; font-size: 13px; }
+  .vrow { padding: 8px 10px 8px 13px; gap: 2px; }
   .vr-what { font-size: 14px; }
   .vr-b { font-size: 13px; }
   .vr-c { font-size: 12px; }
