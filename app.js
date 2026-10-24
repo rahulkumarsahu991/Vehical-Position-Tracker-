@@ -565,7 +565,7 @@
     }
     if (f.q) {
       const p = S.active[v.vno];
-      const hay = v.search + (p ? ' ' + norm(p.program + ' ' + p.broker + ' ' + p.goingTo) : '');
+      const hay = v.search + (p ? ' ' + norm(p.program + ' ' + p.broker + ' ' + p.goingTo + ' ' + (p.note || '')) : '');
       const words = norm(f.q).split(' ');
       for (const w of words) if (w && !hay.includes(w.replace(/\s/g, ''))) return false;
     }
@@ -602,7 +602,8 @@
   function waLink(v, prog) {
     const p = prog || S.active[v.vno];
     const text = '*' + COMPANY.toUpperCase() + '*' + (v.driver ? '\nDriver: ' + v.driver : '') + '\nVehicle: *' + v.vno + '*' +
-      (p && p.program ? '\n' + (v.cat === 'unloading' ? 'Next Loading' : 'Program') + ': *' + p.program + '*' : '');
+      (p && p.program ? '\n' + (v.cat === 'unloading' ? 'Next Loading' : 'Program') + ': *' + p.program + '*' : '') +
+      (p && p.program && p.note ? '\nRemark: ' + p.note : '');
     return IS_PHONE
       ? 'https://wa.me/91' + v.phoneDigits + '?text=' + encodeURIComponent(text)
       : 'https://web.whatsapp.com/send?phone=91' + v.phoneDigits + '&text=' + encodeURIComponent(text);
@@ -887,6 +888,7 @@
         '<span class="pg-lbl">' + (v.cat === 'unloading' ? 'Next load program' : 'Program') + '</span>' +
         '<div class="pg-text">' + esc(p.program) + '</div>' +
         (p.broker ? '<div class="pg-meta">Broker / Party: <b>' + esc(p.broker) + '</b></div>' : '') +
+        (p.note ? '<div class="pg-meta">Remark: <b>' + esc(p.note) + '</b></div>' : '') +
         '<div class="pg-meta">Given by <b>' + esc(p.givenBy || '—') + '</b>' + (p.givenAt ? ' · ' + esc(fmtStamp(p.givenAt)) : '') +
         ' <button type="button" class="btn link sm" data-act="edit">Change</button></div></div>' +
         (v.phoneDigits ? '<a class="btn wa-send" href="' + esc(waLink(v)) + '" target="_blank" rel="noopener">' + ICO.wa + 'Send program on WhatsApp</a>' : '') +
@@ -898,10 +900,13 @@
     } else {
       const progVal = d.program != null ? d.program : (p && p.program) || '';
       const brokerVal = d.broker != null ? d.broker : (p && p.broker) || '';
+      const noteVal = d.note != null ? d.note : (p && p.note) || '';
       h += '<label class="field"><span class="pg-lbl">' + (v.cat === 'unloading' ? 'Next load program' : 'Program') + ' <span class="hi">— where to go / load from</span></span>' +
         '<input data-f="program" list="locList" value="' + esc(progVal) + '" autocomplete="off"></label>' +
         '<label class="field"><span class="pg-lbl">Broker / Party <span class="hi">(optional)</span></span>' +
         '<input data-f="broker" value="' + esc(brokerVal) + '" autocomplete="off"></label>' +
+        '<label class="field"><span class="pg-lbl">Remark <span class="hi">(optional)</span></span>' +
+        '<input data-f="note" value="' + esc(noteVal) + '" autocomplete="off"></label>' +
         '<div class="pg-actions"><button type="button" class="btn primary" data-act="give">' + ICO.check + 'Give program</button>' +
         (v.phoneDigits ? '<button type="button" class="btn wa-give" data-act="give-wa" title="Give the program and send it to the driver on WhatsApp">' + ICO.wa + '<span>Give + WhatsApp</span></button>' : '') +
         (has ? '<button type="button" class="btn" data-act="cancel">Cancel</button><button type="button" class="btn link sm" data-act="remove">Remove program</button>' : '') +
@@ -955,14 +960,14 @@
   }
   /** one program (and broker) for every ticked vehicle — saved at once, sent to the sheet in the background */
   async function bulkGive() {
-    const program = $('#bulkProg').value.trim(), broker = $('#bulkBroker').value.trim();
+    const program = $('#bulkProg').value.trim(), broker = $('#bulkBroker').value.trim(), note = $('#bulkNote').value.trim();
     if (!S.sel.size) return;
     if (!program) { toast('Write the program first (where to go / load from)', true); $('#bulkProg').focus(); return; }
     if (!(await ensureUser())) return;
     const vnos = [...S.sel];
-    for (const vno of vnos) await saveProgram(vno, { program: program, broker: broker }, false);
+    for (const vno of vnos) await saveProgram(vno, { program: program, broker: broker, note: note }, false);
     S.sel.clear();
-    $('#bulkProg').value = ''; $('#bulkBroker').value = '';
+    $('#bulkProg').value = ''; $('#bulkBroker').value = ''; $('#bulkNote').value = '';
     toast('Program given to ' + vnos.length + ' vehicle' + (vnos.length > 1 ? 's' : '') + ' — now call the drivers');
     renderAll();
   }
@@ -1031,20 +1036,20 @@
     $$('[data-f]', box).forEach(i => { d[i.dataset.f] = i.value; });
     let ok = true;
     if (act === 'edit') { S.editing[vno] = true; }
-    else if (act === 'cancel') { S.editing[vno] = false; delete d.program; delete d.broker; }
+    else if (act === 'cancel') { S.editing[vno] = false; delete d.program; delete d.broker; delete d.note; }
     else if (act === 'give' || act === 'give-wa') {
-      const program = String(d.program || '').trim(), broker = String(d.broker || '').trim();
+      const program = String(d.program || '').trim(), broker = String(d.broker || '').trim(), note = String(d.note || '').trim();
       if (!program) { toast('Write the program first (where to go / load from)', true); const i = $('[data-f="program"]', box); if (i) i.focus(); return; }
       // WhatsApp has to open right inside the tap (before any waiting), or the browser blocks the new tab
       const sendNow = act === 'give-wa' && S.user && S.byVno[vno];
-      if (sendNow) window.open(waLink(S.byVno[vno], { program: program, broker: broker }), '_blank', 'noopener');
-      ok = await saveProgram(vno, { program: program, broker: broker },
+      if (sendNow) window.open(waLink(S.byVno[vno], { program: program, broker: broker, note: note }), '_blank', 'noopener');
+      ok = await saveProgram(vno, { program: program, broker: broker, note: note },
         sendNow ? 'Program saved — WhatsApp opened, press Send there' : act === 'give-wa' ? 'Program saved — now tap “Send program on WhatsApp”' : 'Program saved — now call the driver');
-      if (ok) { S.editing[vno] = false; delete d.program; delete d.broker; }
+      if (ok) { S.editing[vno] = false; delete d.program; delete d.broker; delete d.note; }
     } else if (act === 'remove') {
       if (!confirm('Remove the program of ' + vno + '?')) return;
-      ok = await saveProgram(vno, { program: '', broker: '' }, 'Program removed');
-      if (ok) { S.editing[vno] = false; delete d.program; delete d.broker; }
+      ok = await saveProgram(vno, { program: '', broker: '', note: '' }, 'Program removed');
+      if (ok) { S.editing[vno] = false; delete d.program; delete d.broker; delete d.note; }
     } else if (act === 'inform') {
       ok = await saveProgram(vno, { informed: btn.dataset.val }, btn.dataset.val === 'Yes' ? 'Marked: driver informed ✓' : 'Marked: driver not told yet');
     }
@@ -1099,6 +1104,7 @@
       '<div class="card"><h4>Calling Sheet</h4><dl class="kv">' + kv.map(x => '<dt>' + esc(x[0]) + '</dt><dd>' + esc(x[1]) + '</dd>').join('') + '</dl></div>' +
       (hist.length ? '<div class="card"><h4>Program history</h4><div class="hist">' + hist.map(x =>
         '<div class="hist-item">' + (x.program ? '<b>' + esc(x.program) + '</b>' : '<i>No program</i>') + (x.broker ? ' (' + esc(x.broker) + ')' : '') +
+        (x.note ? ' · Remark: ' + esc(x.note) : '') +
         '<br>Given by ' + esc(x.givenBy || '—') + (x.givenAt ? ' · ' + esc(fmtStamp(x.givenAt)) : '') +
         (x.informed === 'Yes' ? ' · <b style="color:var(--green)">told by ' + esc(x.informedBy) + ' ' + esc(fmtStamp(x.informedAt)) + '</b>' : x.program ? ' · <b style="color:var(--amber)">driver not told</b>' : '') +
         '</div>').join('') + '</div></div>' : '') +
@@ -1802,7 +1808,7 @@
     const who = S.print.caller ? 'caller ' + S.print.caller : 'all callers';
     if (!confirm('Remove the program of ' + vnos.length + ' vehicle' + (vnos.length > 1 ? 's' : '') + ' (' + who + ')?\nThey go back to “Need program”.')) return;
     if (!(await ensureUser())) return;
-    for (const vno of vnos) await saveProgram(vno, { program: '', broker: '' }, false);
+    for (const vno of vnos) await saveProgram(vno, { program: '', broker: '', note: '' }, false);
     toast('Programs removed from ' + vnos.length + ' vehicle' + (vnos.length > 1 ? 's' : ''));
     renderAll();
   }

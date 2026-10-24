@@ -658,7 +658,7 @@ table.vt td.rem { min-width: 180px; color: var(--ink-2); }
 }
 .bulk-bar .bb-top { display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .bulk-bar .bb-top .btn { margin-left: auto; }
-.bulk-bar .bb-row { display: grid; grid-template-columns: 1.4fr 1fr auto; gap: 8px; align-items: end; }
+.bulk-bar .bb-row { display: grid; grid-template-columns: 1.4fr 1fr 1fr auto; gap: 8px; align-items: end; }
 body.has-bulk main { padding-bottom: 180px; }
 
 /* login / PIN screens */
@@ -807,8 +807,8 @@ table.pf .ok { color: #15803d; font-weight: 700; }
   .pg-lbl { font-size: 11px; }
   .field input { padding: 8px 10px; font-size: 14px; }
   /* program box: Program on its own line, then Broker + button side by side */
-  .pg.editing { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
-  .pg.editing > .field:first-child { grid-column: 1 / -1; }
+  .pg.editing { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; }  /* Program, then Broker | Remark, then buttons */
+  .pg.editing > .field:first-child, .pg.editing .pg-actions { grid-column: 1 / -1; }
   .pg.editing .pg-actions { flex-wrap: nowrap; }
   .pg.editing .btn { padding: 8px 12px; }
   .pg.editing .wa-give { padding: 8px 10px; }
@@ -856,7 +856,7 @@ table.pf .ok { color: #15803d; font-weight: 700; }
   .sheet { height: 94vh; height: 94dvh; }
   .bulk-bar { bottom: 0; width: 100%; border-radius: 14px 14px 0 0; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
   .bulk-bar .bb-row { grid-template-columns: 1fr 1fr; }
-  .bulk-bar .bb-row .btn { grid-column: 1 / -1; }
+  .bulk-bar .bb-row .btn { min-height: 42px; } /* Remark + Give program share the 2nd row */
   .ploc-wrap { flex: 1 1 100%; }
   .ploc-wrap select { max-width: none; flex: 1; }
 }
