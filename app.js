@@ -66,7 +66,12 @@
     check: '<svg class="ico" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>',
     clock: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
     pin: '<svg class="ico pin" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
-    road: '<svg class="ico" viewBox="0 0 24 24"><path d="M9 3 5 21M15 3l4 18M12 4v3M12 10.5v3M12 17v3"/></svg>'
+    road: '<svg class="ico" viewBox="0 0 24 24"><path d="M9 3 5 21M15 3l4 18M12 4v3M12 10.5v3M12 17v3"/></svg>',
+    // side view of a lorry; body and cab take the status colour (--c)
+    truck: '<svg class="truck" viewBox="0 0 34 20" aria-hidden="true"><rect class="t-box" x="1" y="2" width="20.5" height="11.5" rx="1.8"/>' +
+      '<rect class="t-shine" x="2.5" y="3.4" width="17.5" height="2.2" rx="1.1"/><path class="t-cab" d="M22.4 5.2h6.1l4.4 5V14h-10.5z"/>' +
+      '<path class="t-win" d="M24 6.7h4l2.6 3.1H24z"/><rect class="t-base" x="1" y="12.8" width="31.9" height="2.1" rx="1"/>' +
+      '<circle class="t-wheel" cx="7" cy="16" r="2.8"/><circle class="t-wheel" cx="26.6" cy="16" r="2.8"/></svg>'
   };
 
   /* ---------------- state ---------------- */
@@ -2382,6 +2387,11 @@
    *  (grouped by where they are now) or at the unloading point. The sheet has no distances / GPS,
    *  so the place on the road comes from the status and the current location.
    * ===================================================================== */
+  /** "CG08BA4211" → "BA42": series letters + first two digits (the fleet's numbers mostly end the same way) */
+  function shortNo(vno) {
+    const m = String(vno).match(/([A-Z]{1,3})(\d{2,4})$/);
+    return m ? m[1] + m[2].slice(0, 2) : String(vno).slice(-4);
+  }
   function routeZone(v) {
     if (v.cur && v.from && v.cur === v.from) return 'start';
     if (v.cur && v.to && v.cur === v.to) return 'end';
@@ -2419,9 +2429,9 @@
       return order.map(k => ({ place: k, vs: m[k] }));
     };
     const cl = { start: clusters('start'), way: clusters('way'), end: clusters('end') };
-    let n = 0; // dots pop in one after another
+    let n = 0; // trucks pop in one after another
     const dot = v => '<button type="button" class="rdot rd-' + v.cat + (S.rcat && v.cat !== S.rcat ? ' dim' : '') + '" data-v="' + esc(v.vno) + '" style="--c:' + CAT[v.cat].color + ';--i:' + (n++) + '"' +
-      ' aria-label="' + esc(v.vno + ', ' + CAT[v.cat].label + (v.cur ? ', now at ' + v.cur : '')) + '">' + esc(v.vno.slice(-4)) + '</button>';
+      ' aria-label="' + esc(v.vno + ', ' + CAT[v.cat].label + (v.cur ? ', now at ' + v.cur : '')) + '">' + ICO.truck + '<span>' + esc(shortNo(v.vno)) + '</span></button>';
     const zone = z => '<div class="rz rz-' + z + '">' + cl[z].map(c =>
       '<div class="rc"><div class="rc-dots" style="--rows:' + Math.min(c.vs.length, 4) + '">' + c.vs.map(dot).join('') + '</div>' +
       (z === 'way' ? '<div class="rc-place">' + ICO.pin + esc(c.place) + (c.vs.length > 1 ? ' <b>×' + c.vs.length + '</b>' : '') + '</div>' : '') + '</div>').join('') + '</div>';
@@ -2438,6 +2448,7 @@
       // colour guide: every status, how many of this route's vehicles have it
       '<div class="r-legend"><span class="rl-t">Colour guide</span>' + CATS.map(c =>
         '<span class="rl' + (counts[c.key] ? '' : ' zero') + '" style="--c:' + c.color + '"><i></i>' + esc(c.label) + ' <b>' + (counts[c.key] || 0) + '</b></span>').join('') +
+      '<button type="button" class="rl-all">All colours ▾</button>' +
       '<span class="rl-key"><span class="node-mini">A</span> loading point · <span class="node-mini b">B</span> unloading point · ' + ICO.pin + ' where it is now</span></div>' +
       '</article>';
   }
@@ -2551,6 +2562,8 @@
     });
     rl.addEventListener('focusin', e => { const d = e.target.closest('.rdot'); if (d) showRoutePop(d); });
     rl.addEventListener('click', e => {
+      const all = e.target.closest('.rl-all');
+      if (all) { const lg = all.closest('.r-legend'); lg.classList.toggle('open'); all.textContent = lg.classList.contains('open') ? 'Fewer colours ▴' : 'All colours ▾'; return; }
       const d = e.target.closest('.rdot');
       if (!d) return;
       if (hoverable) { hideRoutePop(); openDetail(d.dataset.v); } else showRoutePop(d);
