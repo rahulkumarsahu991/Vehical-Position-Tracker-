@@ -2823,6 +2823,16 @@
     if (S.auth.on && !S.auth.token) openLogin(); // login known to be on and nobody logged in on this phone
     checkAuth();
     if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+      // a new version of the site took over (on a slow phone the saved old copy may have opened first):
+      // reload once so the new one shows — unless somebody is typing, then just say so
+      const hadController = !!navigator.serviceWorker.controller;
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!hadController || reloading) return;
+        if (editingNow()) { toast('A new version of the website is ready — refresh the page'); return; }
+        reloading = true;
+        location.reload();
+      });
       navigator.serviceWorker.register('sw.js').catch(() => {}); // offline copy: opens at once on slow networks
     }
     const cc = store.get(K_CALLS, null); // last calls figures: shown at once, refreshed right after
