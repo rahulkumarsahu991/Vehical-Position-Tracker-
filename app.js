@@ -2432,18 +2432,24 @@
     let n = 0; // trucks pop in one after another
     const dot = v => '<button type="button" class="rdot rd-' + v.cat + (S.rcat && v.cat !== S.rcat ? ' dim' : '') + '" data-v="' + esc(v.vno) + '" style="--c:' + CAT[v.cat].color + ';--i:' + (n++) + '"' +
       ' aria-label="' + esc(v.vno + ', ' + CAT[v.cat].label + (v.cur ? ', now at ' + v.cur : '')) + '">' + ICO.truck + '<span>' + esc(shortNo(v.vno)) + '</span></button>';
+    // a stop on the way is at least as wide as its place name, so the name stays on one line
+    const tagW = c => Math.min(170, 30 + c.place.length * 7 + (c.vs.length > 1 ? 18 : 0));
     const zone = z => '<div class="rz rz-' + z + '">' + cl[z].map(c =>
-      '<div class="rc"><div class="rc-dots" style="--rows:' + Math.min(c.vs.length, 4) + '">' + c.vs.map(dot).join('') + '</div>' +
-      (z === 'way' ? '<div class="rc-place">' + ICO.pin + esc(c.place) + (c.vs.length > 1 ? ' <b>×' + c.vs.length + '</b>' : '') + '</div>' : '') + '</div>').join('') + '</div>';
+      '<div class="rc"' + (z === 'way' ? ' style="--tw:' + tagW(c) + 'px"' : '') + '><div class="rc-dots" style="--rows:' + Math.min(c.vs.length, 4) + '">' + c.vs.map(dot).join('') + '</div>' +
+      (z === 'way' ? '<div class="rc-place"><span>' + ICO.pin + esc(c.place) + (c.vs.length > 1 ? ' <b>×' + c.vs.length + '</b>' : '') + '</span></div>' : '') + '</div>').join('') + '</div>';
     const items = [...new Set(r.vs.map(v => v.item).filter(Boolean))];
     return '<article class="route" style="--k:' + Math.min(r.k || 0, 12) + '">' +
-      '<div class="r-head"><span class="r-ico">' + ICO.road + '</span><div class="r-name">' + esc(r.from || 'Start not set') + ' <span class="arrow">⟶</span> ' + esc(r.to || 'Not set yet') + '</div>' +
-      '<span class="r-count">' + r.vs.length + ' vehicle' + (r.vs.length > 1 ? 's' : '') + '</span>' +
+      '<div class="r-head"><span class="r-ico">' + ICO.road + '</span><div class="r-title"><div class="r-name">' + esc(r.from || 'Start not set') +
+      ' <span class="arrow">⟶</span> ' + esc(r.to || 'Not set yet') + '</div>' +
       (items.length ? '<span class="r-items">' + esc(items.join(' · ')) + '</span>' : '') + '</div>' +
+      '<span class="r-count" style="--c:var(--orange-d)">' + ICO.truck + '<b>' + r.vs.length + '</b> vehicle' + (r.vs.length > 1 ? 's' : '') + '</span>' +
+      // how this route's trucks split by status, as one coloured bar
+      '<div class="r-bar">' + CATS.filter(c => counts[c.key]).map(c => '<i style="--c:' + c.color + ';flex-grow:' + counts[c.key] + '" title="' +
+        esc(c.label + ': ' + counts[c.key]) + '"></i>').join('') + '</div></div>' +
       '<div class="r-track-wrap"><div class="r-track"><div class="r-road"></div>' +
-      '<div class="r-end r-from"><span class="node">A</span><b>' + esc(r.from || '?') + '</b><small>Loading point</small></div>' +
+      '<div class="r-end r-from"><span class="node"><i>A</i></span><b>' + esc(r.from || '?') + '</b><small>Loading point</small></div>' +
       zone('start') + zone('way') + zone('end') +
-      '<div class="r-end r-to"><span class="node">B</span><b>' + esc(r.to || '?') + '</b><small>Unloading point</small></div>' +
+      '<div class="r-end r-to"><span class="node"><i>B</i></span><b>' + esc(r.to || '?') + '</b><small>Unloading point</small></div>' +
       '</div></div>' +
       // colour guide: every status, how many of this route's vehicles have it
       '<div class="r-legend"><span class="rl-t">Colour guide</span>' + CATS.map(c =>
@@ -2505,6 +2511,11 @@
     $('#routeLegend').innerHTML = CATS.filter(c => counts[c.key] || S.rcat === c.key).map(c =>
       '<button type="button" class="chip' + (S.rcat === c.key ? ' on' : '') + '" data-rcat="' + c.key + '" style="--c:' + c.color + '"><span class="sw"></span>' +
       esc(c.label) + ' <b>' + (counts[c.key] || 0) + '</b></button>').join('');
+    // summary cards over the routes
+    const onRoad = g.routes.reduce((s, r) => s + r.vs.length, 0);
+    const kpi = (lbl, n, color, ico) => '<div class="rk" style="--c:' + color + '"><span class="rk-i">' + ico + '</span><b>' + n + '</b><small>' + esc(lbl) + '</small></div>';
+    $('#routeSum').innerHTML = kpi('Routes', g.routes.length, 'var(--navy-3)', ICO.road) + kpi('Trucks on routes', onRoad, 'var(--orange)', ICO.truck) +
+      ['running', 'loading', 'unloading', 'repair'].map(k => kpi(CAT[k].label, counts[k] || 0, CAT[k].color, ICO.truck)).join('');
     hideRoutePop();
     list.innerHTML = (g.routes.length ? g.routes.map((r, i) => { r.k = i; return routeCard(r); }).join('')
       : '<div class="empty"><b>No route found</b>' + (S.rq || S.rcat ? 'Clear the search / status to see all routes.' : '') + '</div>') +
