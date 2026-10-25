@@ -29,6 +29,7 @@
         <button type="button" data-view="programs">Programs <span class="tab-badge" data-badge hidden></span></button>
         <button type="button" data-view="print">Print</button>
         <button type="button" data-view="route">Route</button>
+        <button type="button" data-view="hub"><span class="t-long">Hub Analyzer</span><span class="t-short">Hub</span></button>
       </nav>
       <div class="top-right">
         <span id="saveState" class="save-state" hidden></span>
@@ -238,6 +239,33 @@
       <div id="routeSum" class="route-sum"></div>
       <p class="hint">Each road is one route, A (loading) → B (unloading). Every truck is a vehicle: at the loading point, on the way (grouped by where it is now) or at the unloading point. Tap a status to show only it; point at / tap a truck for its details.</p>
       <div id="routeList" class="route-list"></div>
+    </section>
+
+    <!-- ============ HUB ANALYZER ============ -->
+    <section id="view-hub" class="view" hidden>
+      <div class="hub-hero">
+        <div>
+          <small>Daman Group · Hub Analyzer</small>
+          <h2>One hub, all its routes</h2>
+          <p>Pick a loading or unloading point: where trucks are coming from, how many are there now, and where they go next.</p>
+        </div>
+        <svg class="hh-web" viewBox="0 0 120 120" aria-hidden="true">
+          <g fill="none" stroke="currentColor" stroke-width="1.2">
+            <circle cx="60" cy="60" r="16"/><circle cx="60" cy="60" r="32"/><circle cx="60" cy="60" r="50"/>
+            <path d="M60 4v112M4 60h112M20 20l80 80M100 20 20 100"/>
+          </g>
+          <circle cx="60" cy="60" r="9" fill="#f28a1c"/>
+        </svg>
+      </div>
+      <div class="hub-controls">
+        <div class="seg" id="hubSeg" role="tablist">
+          <button type="button" data-hmode="load" class="on">Loading point</button>
+          <button type="button" data-hmode="unload">Unloading point</button>
+        </div>
+        <label class="select-wrap hub-pick"><span>Hub</span><select id="hubSel"></select></label>
+      </div>
+      <div class="hub-chips" id="hubChips"></div>
+      <div id="hubBody"></div>
     </section>
   </main>
 

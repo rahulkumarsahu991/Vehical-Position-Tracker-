@@ -90,6 +90,7 @@
     sort: { key: 'cat', dir: 1 },
     pseg: 'noprog', pq: '', ploc: '', sel: new Set(),
     rq: '', rcat: '', // route view: search, one status only
+    hmode: 'load', hub: '', // hub analyzer: loading / unloading point, which hub
     drafts: {}, editing: {},
     print: Object.assign({ rep: 'caller', caller: '', orient: 'auto', cols: 'auto' }, store.get(K.print, {})),
     detail: null, pending: false,
@@ -777,6 +778,7 @@
     else if (S.view === 'programs') renderPrograms();
     else if (S.view === 'print') renderPrint();
     else if (S.view === 'route') renderRoutes();
+    else if (S.view === 'hub') renderHub();
     if (S.detail) renderDetail();
   }
 
@@ -2375,7 +2377,7 @@
    *  Views, toast, events
    * ===================================================================== */
   function setView(view, noHash) {
-    if (!['board', 'programs', 'print', 'route'].includes(view)) view = 'board';
+    if (!['board', 'programs', 'print', 'route', 'hub'].includes(view)) view = 'board';
     S.view = view;
     $$('.view').forEach(s => { s.hidden = s.id !== 'view-' + view; });
     $$('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view));
@@ -2529,6 +2531,180 @@
       (g.noRoute ? '<p class="hint">' + g.noRoute + ' vehicle' + (g.noRoute > 1 ? 's have' : ' has') + ' no From / To in the Calling Sheet, so ' + (g.noRoute > 1 ? 'they are' : 'it is') + ' not on a route.</p>' : '');
   }
 
+  /* =====================================================================
+   *  Hub Analyzer — one place in the middle of a spider web, all its routes around it.
+   *  Loading point X:  in  = empty trucks heading to X to load (their From is X), from where they are now,
+   *                          + trucks whose program is X;  at = loading at X;  out = loaded from X, by To.
+   *  Unloading point Y: in = loaded trucks on the way to Y, by From;  at = unloading at Y;
+   *                     out = empty trucks leaving Y for their next loading point + next-load programs.
+   * ===================================================================== */
+  const HUB_COL = { load: { in: '#0e9fb8', out: '#16a34a' }, unload: { in: '#16a34a', out: '#0e9fb8' } };
+  /** the sheet spells some places several ways (VIZIANAGRAM / VIZIANAGARAM / VIZIANGARAM):
+   *  places whose letters differ only in vowels count as one, shown with the spelling used most */
+  const spellKey = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/[AEIOU]/g, '');
+  function hubGroups(list, key) {
+    const m = {}, spell = {};
+    list.forEach(x => {
+      const name = x[key] || '—', k = spellKey(name) || name;
+      (m[k] = m[k] || []).push(x.v);
+      (spell[k] = spell[k] || {})[name] = (spell[k][name] || 0) + 1;
+    });
+    const best = k => Object.keys(spell[k]).sort((a, b) => spell[k][b] - spell[k][a] || a.length - b.length)[0];
+    return Object.keys(m).map(k => ({ place: best(k), vs: m[k] })).sort((a, b) => b.vs.length - a.vs.length || a.place.localeCompare(b.place));
+  }
+  function hubData(mode, hubName) {
+    const at = [], inn = [], out = [], used = new Set(), hub = spellKey(hubName);
+    const live = S.vehicles.filter(v => v.cat !== 'sold');
+    const is = s => !!s && spellKey(s) === hub;
+    if (mode === 'load') {
+      live.forEach(v => {
+        if (v.cat === 'loading' && (is(v.from) || (!v.from && is(v.cur)))) { at.push(v); used.add(v.vno); }
+        else if (v.cat === 'empty' && is(v.from)) { inn.push({ v: v, at: v.cur || '—' }); used.add(v.vno); }
+        else if (is(v.from) && ['running', 'unloading', 'loadnd'].includes(v.cat)) { out.push({ v: v, to: v.to || 'Not set' }); used.add(v.vno); }
+      });
+      // trucks given a program to this place are coming here too
+      const h = norm(hubName);
+      live.forEach(v => {
+        const p = S.active[v.vno];
+        if (used.has(v.vno) || !p || !p.program || !['unloading', 'noprog', 'empty'].includes(v.cat) || !norm(p.program).includes(h)) return;
+        inn.push({ v: v, at: v.cur || v.to || '—', prog: true });
+      });
+    } else {
+      live.forEach(v => {
+        if (v.cat === 'unloading' && is(v.to)) {
+          at.push(v);
+          const p = S.active[v.vno];
+          if (p && p.program) out.push({ v: v, to: up(p.program).slice(0, 24), prog: true });
+        } else if (is(v.to) && ['running', 'loadnd'].includes(v.cat)) inn.push({ v: v, from: v.from || '—' });
+        else if (v.cat === 'empty' && is(v.cur)) out.push({ v: v, to: v.from || 'Not set' });
+      });
+    }
+    return { at: at, inn: hubGroups(inn, mode === 'load' ? 'at' : 'from'), out: hubGroups(out, 'to'),
+      nIn: inn.length, nOut: out.length, progs: new Set(inn.concat(out).filter(x => x.prog).map(x => x.v.vno)) };
+  }
+  /** hubs to choose from, busiest first */
+  function hubList(mode) {
+    const spell = {}; // one entry per place, named with its most used spelling
+    S.vehicles.forEach(v => {
+      if (v.cat === 'sold') return;
+      const name = mode === 'load' ? v.from : v.to;
+      if (!name || !['loading', 'running', 'unloading', 'empty', 'loadnd'].includes(v.cat)) return;
+      const k = spellKey(name);
+      (spell[k] = spell[k] || {})[name] = (spell[k][name] || 0) + 1;
+    });
+    return Object.keys(spell).map(k => {
+      const n = Object.keys(spell[k]).sort((a, b) => spell[k][b] - spell[k][a] || a.length - b.length)[0], d = hubData(mode, n);
+      return { name: n, n: d.nIn + d.at.length + d.nOut };
+    }).filter(h => h.n).sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
+  }
+  /** the spider web: hub in the middle, places around it, line width = trucks, dashes run in the direction of travel */
+  function hubWeb(d, mode, hub, narrow) {
+    const W = narrow ? 400 : 1000, max = narrow ? 6 : 10;
+    const cut = gs => gs.length > max ? gs.slice(0, max - 1).concat([{ place: '+' + (gs.length - max + 1) + ' more', vs: [].concat(...gs.slice(max - 1).map(g => g.vs)), more: true }]) : gs;
+    const ins = cut(d.inn), outs = cut(d.out);
+    const most = Math.max(ins.length, outs.length, 1);
+    const H = narrow ? Math.min(600, 380 + 40 * most) : Math.min(760, Math.max(360, 64 * most + 120));
+    const cx = W / 2, cy = H / 2, Rx = narrow ? W * 0.39 : W * 0.37, Ry = narrow ? H * 0.40 : H * 0.40;
+    const col = HUB_COL[mode];
+    const place = (gs, side) => {
+      const n = gs.length, span = Math.min(narrow ? 164 : 150, (narrow ? 50 : 26) * (n - 1));
+      const mid = narrow ? (side === 'in' ? 270 : 90) : (side === 'in' ? 180 : 0);
+      return gs.map((g, i) => {
+        const a = (mid - span / 2 + (n > 1 ? span * i / (n - 1) : span / 2)) * Math.PI / 180;
+        const k = (n > 4 || (narrow && n > 2)) && i % 2 ? 0.78 : 1; // every other place a little closer: labels do not touch
+        const name = g.place.length > (narrow ? 12 : 18) ? g.place.slice(0, narrow ? 11 : 17) + '…' : g.place;
+        const tw = name.length * (narrow ? 7.3 : 8.3) + 48;
+        const x = Math.max(tw / 2 + 6, Math.min(W - tw / 2 - 6, cx + Rx * k * Math.cos(a))); // always inside the picture
+        return Object.assign({ x: x, y: cy + Ry * k * Math.sin(a), side: side, name: name, tw: tw }, g);
+      });
+    };
+    const nodes = place(ins, 'in').concat(place(outs, 'out'));
+    // two bubbles still touching (long names close together): move the second one further from the hub;
+    // the picture grows to fit (top / bot below)
+    for (let pass = 0; pass < 6; pass++) {
+      let moved = false;
+      nodes.forEach((a, i) => nodes.slice(i + 1).forEach(b => {
+        if (Math.abs(a.x - b.x) >= (a.tw + b.tw) / 2 + 4 || Math.abs(a.y - b.y) >= 34) return;
+        b.y += (b.y < cy ? -1 : 1) * 36;
+        moved = true;
+      }));
+      if (!moved) break;
+    }
+    const hr = narrow ? 58 : 72; // hub circle + its ring: no bubble on it
+    nodes.forEach(nd => {
+      if (Math.abs(nd.x - cx) < hr + nd.tw / 2 + 6 && Math.abs(nd.y - cy) < hr + 22) nd.y = cy + (nd.side === 'in' ? (narrow ? -1 : (nd.y < cy ? -1 : 1)) : (narrow ? 1 : (nd.y < cy ? -1 : 1))) * (hr + 24);
+    });
+    const ys = nodes.map(nd => nd.y).concat([cy]);
+    const top = Math.min(0, Math.min(...ys) - 48), bot = Math.max(H, Math.max(...ys) + 40);
+    const web = [0.36, 0.68, 1].map(f => '<ellipse cx="' + cx + '" cy="' + cy + '" rx="' + (Rx * f) + '" ry="' + (Ry * f) + '"/>').join('') +
+      Array.from({ length: 12 }, (_, i) => { const a = i * Math.PI / 6; return '<line x1="' + cx + '" y1="' + cy + '" x2="' + (cx + Rx * 1.08 * Math.cos(a)) + '" y2="' + (cy + Ry * 1.08 * Math.sin(a)) + '"/>'; }).join('');
+    const spokes = nodes.map(nd => {
+      const c = nd.side === 'in' ? col.in : col.out, w = (2 + Math.min(10, 2.3 * Math.sqrt(nd.vs.length))).toFixed(1);
+      const qx = narrow ? nd.x : (nd.x + cx) / 2, qy = narrow ? (nd.y + cy) / 2 : nd.y;
+      const path = nd.side === 'in' ? 'M' + nd.x + ' ' + nd.y + ' Q' + qx + ' ' + qy + ' ' + cx + ' ' + cy : 'M' + cx + ' ' + cy + ' Q' + qx + ' ' + qy + ' ' + nd.x + ' ' + nd.y;
+      return '<path class="hs-base" d="' + path + '" stroke="' + c + '" stroke-width="' + w + '"/><path class="hs-flow" d="' + path + '" stroke-width="' + Math.max(1.5, w / 3) + '"/>';
+    }).join('');
+    const label = nd => {
+      const name = nd.name, tw = nd.tw, c = nd.side === 'in' ? col.in : col.out;
+      return '<g class="hn' + (nd.more ? ' more' : '') + '" data-hgo="' + nd.side + '|' + esc(nd.place) + '" transform="translate(' + nd.x.toFixed(1) + ',' + nd.y.toFixed(1) + ')" tabindex="0">' +
+        '<title>' + esc(nd.place + ': ' + nd.vs.length + ' truck' + (nd.vs.length > 1 ? 's' : '')) + '</title>' +
+        '<rect x="' + (-tw / 2) + '" y="-15" width="' + tw + '" height="30" rx="15" stroke="' + c + '"/>' +
+        '<text x="' + (-tw / 2 + 12) + '" y="4.5">' + esc(name) + '</text>' +
+        '<circle cx="' + (tw / 2 - 15) + '" cy="0" r="11" fill="' + c + '"/><text class="hn-n" x="' + (tw / 2 - 15) + '" y="4">' + nd.vs.length + '</text></g>';
+    };
+    const r = narrow ? 50 : 64, words = hub.split(' ');
+    const hubName = (hub.length > 12 && words.length > 1 ? [words.slice(0, Math.ceil(words.length / 2)).join(' '), words.slice(Math.ceil(words.length / 2)).join(' ')] : [hub])
+      .map((t, i, a) => '<text class="hc-name" x="' + cx + '" y="' + (cy - (a.length > 1 ? 14 : 6) + i * 16) + '">' + esc(t.length > 14 ? t.slice(0, 13) + '…' : t) + '</text>').join('');
+    return '<svg class="hub-svg" viewBox="0 ' + top + ' ' + W + ' ' + (bot - top) + '" role="img" aria-label="' + esc(hub) + ' hub">' +
+      '<defs><radialGradient id="hubGrad" cx="35%" cy="30%"><stop offset="0" stop-color="#4b51a8"/><stop offset="1" stop-color="#1b1e4f"/></radialGradient></defs>' +
+      '<g class="h-web">' + web + '</g>' + spokes + nodes.map(label).join('') +
+      '<circle class="hc-ring" cx="' + cx + '" cy="' + cy + '" r="' + (r + 8) + '"/>' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="url(#hubGrad)" stroke="#fff" stroke-width="4"/>' + hubName +
+      '<text class="hc-sub" x="' + cx + '" y="' + (cy + 24) + '">' + (mode === 'load' ? 'Loading' : 'Unloading') + ' here: ' + d.at.length + '</text>' +
+      '<text class="hc-side" x="' + (narrow ? cx : 40) + '" y="' + (top + (narrow ? 22 : 30)) + '" text-anchor="' + (narrow ? 'middle' : 'start') + '">' + (mode === 'load' ? '⬇ COMING TO LOAD' : '⬇ COMING TO UNLOAD') + '</text>' +
+      '<text class="hc-side" x="' + (narrow ? cx : W - 40) + '" y="' + (narrow ? bot - 12 : top + 30) + '" text-anchor="' + (narrow ? 'middle' : 'end') + '">' + (mode === 'load' ? 'LOADED, GOING TO ⬆' : 'AFTER UNLOADING, GOING TO ⬆') + '</text>' +
+      '</svg>';
+  }
+  function hubTrucks(vs, progs) {
+    return vs.map(v => '<button type="button" class="rdot rd-' + v.cat + '" data-v="' + esc(v.vno) + '" style="--c:' + CAT[v.cat].color + '" aria-label="' + esc(v.vno + ', ' + CAT[v.cat].label) + '">' +
+      ICO.truck + '<span>' + esc(shortNo(v.vno)) + (progs.has(v.vno) ? ' 📋' : '') + '</span></button>').join('');
+  }
+  function renderHub() {
+    const body = $('#hubBody'), narrow = body.clientWidth < 640;
+    const key = [S.ver, S.hmode, S.hub, S.vehicles.length, narrow].join('|');
+    if (key === S.hubKey) return;
+    S.hubKey = key;
+    $$('#hubSeg [data-hmode]').forEach(b => b.classList.toggle('on', b.dataset.hmode === S.hmode));
+    if (!S.vehicles.length) { body.innerHTML = '<div class="skeleton"></div>'; return; }
+    const hubs = hubList(S.hmode);
+    if (!hubs.length) { body.innerHTML = '<div class="empty"><b>No hub found</b>The Calling Sheet has no From / To yet.</div>'; return; }
+    S.hub = (hubs.find(h => spellKey(h.name) === spellKey(S.hub)) || hubs[0]).name;
+    $('#hubSel').innerHTML = hubs.map(h => '<option value="' + esc(h.name) + '"' + (h.name === S.hub ? ' selected' : '') + '>' + esc(h.name) + ' (' + h.n + ')</option>').join('');
+    $('#hubChips').innerHTML = hubs.slice(0, narrow ? 6 : 10).map(h => '<button type="button" class="chip' + (h.name === S.hub ? ' on' : '') + '" data-hub="' + esc(h.name) + '">' + esc(h.name) + ' <b>' + h.n + '</b></button>').join('');
+    const d = hubData(S.hmode, S.hub), col = HUB_COL[S.hmode], load = S.hmode === 'load';
+    const stat = (lbl, n, sub, c) => '<div class="hst" style="--c:' + c + '"><b>' + n + '</b><span>' + esc(lbl) + '</span><small>' + esc(sub) + '</small></div>';
+    const group = (side, g) => '<div class="hrow" data-hrow="' + side + '|' + esc(g.place) + '"><div class="hr-head">' + ICO.pin + '<b>' + esc(g.place) + '</b><span>' + g.vs.length +
+      ' truck' + (g.vs.length > 1 ? 's' : '') + '</span></div><div class="hr-trucks">' + hubTrucks(g.vs, d.progs) + '</div></div>';
+    const col2 = (side, title, gs, n, c, empty) => '<div class="hcol" style="--c:' + c + '"><h3>' + title + ' <span>' + n + ' truck' + (n === 1 ? '' : 's') +
+      ' · ' + gs.length + ' place' + (gs.length === 1 ? '' : 's') + '</span></h3>' + (gs.length ? gs.map(g => group(side, g)).join('') : '<p class="muted">' + empty + '</p>') + '</div>';
+    body.innerHTML =
+      '<div class="hub-stats">' +
+        stat(load ? 'Coming to load' : 'Coming to unload', d.nIn, 'from ' + d.inn.length + ' place' + (d.inn.length === 1 ? '' : 's'), col.in) +
+        stat(load ? 'Loading here now' : 'Unloading here now', d.at.length, S.hub, 'var(--navy-3)') +
+        stat(load ? 'Loaded, going out' : 'Leaving after unloading', d.nOut, 'to ' + d.out.length + ' place' + (d.out.length === 1 ? '' : 's'), col.out) +
+      '</div>' +
+      '<div class="hub-web">' + hubWeb(d, S.hmode, S.hub, narrow) +
+        '<div class="hub-key"><span style="--c:' + col.in + '"><i></i>' + (load ? 'Empty trucks coming to load (📋 = program given)' : 'Loaded trucks coming to unload') + '</span>' +
+        '<span style="--c:' + col.out + '"><i></i>' + (load ? 'Loaded trucks going out' : 'Empty trucks leaving for the next load (📋 = next-load program)') + '</span>' +
+        '<span class="hk-w">Thicker line = more trucks · tap a place to see its trucks</span></div></div>' +
+      (d.at.length ? '<div class="hcol hat" style="--c:var(--navy-3)"><h3>' + (load ? 'Loading at ' : 'Unloading at ') + esc(S.hub) + ' <span>' + d.at.length + ' truck' + (d.at.length > 1 ? 's' : '') + '</span></h3>' +
+        '<div class="hr-trucks">' + hubTrucks(d.at, d.progs) + '</div></div>' : '') +
+      '<div class="hub-cols">' +
+        col2('in', load ? '⬅ Coming to load, from' : '⬅ Coming to unload, from', d.inn, d.nIn, col.in, 'No truck is on the way here right now.') +
+        col2('out', load ? 'Loaded, going to ➡' : 'After unloading, going to ➡', d.out, d.nOut, col.out, load ? 'No loaded truck from here right now.' : 'No truck is leaving from here right now.') +
+      '</div>';
+  }
+
   /** sticky group headings sit right under the header (two rows high on phones) */
   function setStickyTop() { document.documentElement.style.setProperty('--sticky-top', $('.top').offsetHeight + 'px'); }
 
@@ -2573,21 +2749,35 @@
     ['#rhLane1', '#rhLane2', '#rhLane3'].forEach((s, i) => { $(s).innerHTML = '<span class="rh-truck" style="--c:' + ['#f28a1c', '#ffffff', '#7c83d6'][i] + '">' + ICO.truck + '</span>'; });
     // a vehicle dot: hover (computer) or tap (phone) opens a small window about it; "Full details" opens everything
     const hoverable = !!(window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)').matches);
-    const rl = $('#routeList'), pop = $('#rpop');
-    rl.addEventListener('mouseover', e => { const d = hoverable && e.target.closest('.rdot'); if (d) showRoutePop(d); });
-    rl.addEventListener('mouseout', e => {
-      if (!hoverable || !e.target.closest('.rdot')) return;
-      const to = e.relatedTarget;
-      if (!(to && to.closest && (to.closest('#rpop') || to.closest('.rdot')))) hideRoutePop(true);
+    const pop = $('#rpop');
+    [$('#routeList'), $('#hubBody')].forEach(rl => { // Route and Hub Analyzer trucks behave the same
+      rl.addEventListener('mouseover', e => { const d = hoverable && e.target.closest('.rdot'); if (d) showRoutePop(d); });
+      rl.addEventListener('mouseout', e => {
+        if (!hoverable || !e.target.closest('.rdot')) return;
+        const to = e.relatedTarget;
+        if (!(to && to.closest && (to.closest('#rpop') || to.closest('.rdot')))) hideRoutePop(true);
+      });
+      rl.addEventListener('focusin', e => { const d = e.target.closest('.rdot'); if (d) showRoutePop(d); });
+      rl.addEventListener('click', e => {
+        const all = e.target.closest('.rl-all');
+        if (all) { const lg = all.closest('.r-legend'); lg.classList.toggle('open'); all.textContent = lg.classList.contains('open') ? 'Fewer colours ▴' : 'All colours ▾'; return; }
+        const go = e.target.closest('[data-hgo]'); // a place in the hub web → its trucks in the list below
+        if (go) {
+          const row = $$('#hubBody [data-hrow]').find(r => r.dataset.hrow === go.dataset.hgo) || $('#hubBody .hub-cols');
+          if (row) { row.scrollIntoView({ behavior: 'smooth', block: 'center' }); row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); }
+          return;
+        }
+        const d = e.target.closest('.rdot');
+        if (!d) return;
+        if (hoverable) { hideRoutePop(); openDetail(d.dataset.v); } else showRoutePop(d);
+      });
     });
-    rl.addEventListener('focusin', e => { const d = e.target.closest('.rdot'); if (d) showRoutePop(d); });
-    rl.addEventListener('click', e => {
-      const all = e.target.closest('.rl-all');
-      if (all) { const lg = all.closest('.r-legend'); lg.classList.toggle('open'); all.textContent = lg.classList.contains('open') ? 'Fewer colours ▴' : 'All colours ▾'; return; }
-      const d = e.target.closest('.rdot');
-      if (!d) return;
-      if (hoverable) { hideRoutePop(); openDetail(d.dataset.v); } else showRoutePop(d);
-    });
+    // hub analyzer controls
+    $('#hubSeg').addEventListener('click', e => { const b = e.target.closest('[data-hmode]'); if (b && b.dataset.hmode !== S.hmode) { S.hmode = b.dataset.hmode; S.hub = ''; renderHub(); } });
+    $('#hubSel').addEventListener('change', e => { S.hub = e.target.value; renderHub(); });
+    $('#hubChips').addEventListener('click', e => { const b = e.target.closest('[data-hub]'); if (b) { S.hub = b.dataset.hub; renderHub(); } });
+    let hubRt = null;
+    window.addEventListener('resize', () => { clearTimeout(hubRt); hubRt = setTimeout(() => { if (S.view === 'hub') renderHub(); }, 200); });
     pop.addEventListener('mouseenter', () => clearTimeout(popTimer));
     pop.addEventListener('mouseleave', () => hideRoutePop(true));
     pop.addEventListener('click', e => { const o = e.target.closest('[data-rp-open]'); if (o) { hideRoutePop(); openDetail(o.dataset.rpOpen); } });
