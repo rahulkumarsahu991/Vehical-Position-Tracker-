@@ -1121,6 +1121,77 @@ body.has-bulk main { padding-bottom: 180px; }
   .hf-hub em { font-size: 10px; }
 }
 
+/* ---------------- hub analyzer, compact: small stylish cards, trucks as one-line pills ---------------- */
+.hub-hero { padding: 12px 18px; border-radius: 16px; margin-bottom: 10px; }
+.hub-hero h2 { font-size: 23px; margin: 2px 0 1px; }
+.hub-hero p { font-size: 12.5px; }
+.hh-web { width: 64px; height: 64px; }
+.hub-controls { margin-bottom: 6px; }
+.hub-chips { gap: 5px; margin-bottom: 8px; }
+.hub-chips .chip { padding: 4px 10px; font-size: 12.5px; }
+.hub-stats { gap: 8px; margin-bottom: 10px; }
+.hst { grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; align-items: center; padding: 8px 12px 8px 15px; border-radius: 12px; }
+.hst::before { width: 4px; }
+.hst b { grid-row: 1 / 3; font-size: 26px; min-width: 30px; }
+.hst span { font-size: 12.5px; line-height: 1.2; }
+.hst small { font-size: 11px; }
+.hflow { padding: 10px 12px 12px; border-radius: 14px; border-top-width: 3px; margin-bottom: 10px; }
+.hflow h3 { font-size: 15.5px; margin-bottom: 8px; }
+.hflow h3 span { font-size: 11.5px; }
+.hf-grid { grid-template-columns: minmax(0, 1fr) 110px 190px; gap: 5px 0; }
+.hf-out .hf-grid { grid-template-columns: 190px 110px minmax(0, 1fr); }
+.hf-h { font-size: 10px; }
+.hf-list { gap: 6px; }
+.hf-row { padding: 6px 9px 7px; border-radius: 9px; border-width: 1px; }
+.hf-name { font-size: 13px; gap: 5px; }
+.hf-name .pin { width: 12px; height: 12px; }
+.hf-name b { font-size: 14px; }
+.hf-n { min-width: 22px; font-size: 11.5px; padding: 1px 7px; }
+.hf-row .hr-trucks, .hcol.hat .hr-trucks { gap: 5px; margin-top: 5px; }
+/* a truck as a small one-line pill: 🚚 BA42 */
+.hf-row .rdot, .hcol.hat .rdot {
+  flex-direction: row; gap: 4px; padding: 2px 8px 2px 5px; border-radius: 999px; background: #fff;
+  box-shadow: 0 1px 2px rgba(22, 26, 51, .14), inset 0 0 0 1px rgba(22, 26, 51, .06);
+}
+.hf-row .rdot .truck, .hcol.hat .rdot .truck { width: 22px; height: 13px; }
+.hf-row .rdot span, .hcol.hat .rdot span { background: none; box-shadow: none; padding: 0; font-size: 10.5px; line-height: 15px; }
+.hf-row .rdot:hover, .hcol.hat .rdot:hover, .hf-row .rdot.on, .hcol.hat .rdot.on { transform: translateY(-1px); background: #fff; box-shadow: 0 0 0 1.5px var(--c), 0 4px 10px rgba(22, 26, 51, .18); }
+.hf-row .rdot:hover span, .hcol.hat .rdot:hover span, .hf-row .rdot.on span, .hcol.hat .rdot.on span { background: none; color: var(--ink); }
+.hf-hub { min-height: 88px; padding: 9px 8px; gap: 2px; border-radius: 11px; border-width: 2px; box-shadow: 0 4px 12px rgba(27, 30, 79, .16); }
+.hf-hub small { font-size: 9.5px; }
+.hf-hub b { font-size: 18px; }
+.hf-hub span { font-size: 11.5px; padding: 1px 8px; }
+.hf-hub em { font-size: 10.5px; }
+.hcol.hat { padding: 8px 11px 10px; border-radius: 12px; border-top-width: 3px; margin-bottom: 10px; }
+.hcol.hat h3 { font-size: 15px; margin-bottom: 4px; }
+@media (max-width: 760px) {
+  .hub-hero { padding: 10px 13px; border-radius: 14px; }
+  .hub-hero h2 { font-size: 19px; }
+  .hub-hero small { font-size: 9.5px; }
+  .hh-web { width: 42px; height: 42px; }
+  .hub-controls .seg button { padding: 6px 10px; font-size: 13px; }
+  .hub-stats { gap: 6px; }
+  .hst { grid-template-columns: minmax(0, 1fr); padding: 7px 8px 7px 11px; row-gap: 0; }
+  .hst b { grid-row: auto; font-size: 21px; }
+  .hst span { font-size: 11px; }
+  .hst small { display: none; }
+  .hflow { padding: 9px 9px 10px; }
+  .hflow h3 { font-size: 14.5px; }
+  .hf-grid { grid-template-columns: minmax(0, 1fr) 26px 82px; }
+  .hf-out .hf-grid { grid-template-columns: 82px 26px minmax(0, 1fr); }
+  .hf-h { font-size: 8.5px; }
+  .hf-row { padding: 5px 7px 6px; }
+  .hf-name b { font-size: 13px; }
+  .hf-row .rdot, .hcol.hat .rdot { padding: 1px 6px 1px 4px; gap: 3px; }
+  .hf-row .rdot .truck, .hcol.hat .rdot .truck { width: 18px; height: 11px; }
+  .hf-row .rdot span, .hcol.hat .rdot span { font-size: 9.5px; line-height: 13px; }
+  .hf-hub { min-height: 74px; padding: 8px 4px; }
+  .hf-hub b { font-size: 13px; }
+  .hf-hub small { font-size: 8px; letter-spacing: .3px; }
+  .hf-hub span { font-size: 10px; padding: 1px 6px; }
+  .hf-hub em { font-size: 9px; }
+}
+
 /* ---------------- inbox (Director → Manager → caller) ---------------- */
 .inbox-btn .ico { width: 16px; height: 16px; }
 .inbox-btn.none .cnt { display: none; }
