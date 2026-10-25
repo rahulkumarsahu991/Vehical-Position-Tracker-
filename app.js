@@ -2597,82 +2597,64 @@
       return { name: n, n: d.nIn + d.at.length + d.nOut };
     }).filter(h => h.n).sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
   }
-  /** the spider web: hub in the middle, places around it, line width = trucks, dashes run in the direction of travel */
-  function hubWeb(d, mode, hub, narrow) {
-    const W = narrow ? 400 : 1000, max = narrow ? 6 : 10;
-    const cut = gs => gs.length > max ? gs.slice(0, max - 1).concat([{ place: '+' + (gs.length - max + 1) + ' more', vs: [].concat(...gs.slice(max - 1).map(g => g.vs)), more: true }]) : gs;
-    const ins = cut(d.inn), outs = cut(d.out);
-    const most = Math.max(ins.length, outs.length, 1);
-    const H = narrow ? Math.min(600, 380 + 40 * most) : Math.min(760, Math.max(360, 64 * most + 120));
-    const cx = W / 2, cy = H / 2, Rx = narrow ? W * 0.39 : W * 0.37, Ry = narrow ? H * 0.40 : H * 0.40;
-    const col = HUB_COL[mode];
-    const place = (gs, side) => {
-      const n = gs.length, span = Math.min(narrow ? 164 : 150, (narrow ? 50 : 26) * (n - 1));
-      const mid = narrow ? (side === 'in' ? 270 : 90) : (side === 'in' ? 180 : 0);
-      return gs.map((g, i) => {
-        const a = (mid - span / 2 + (n > 1 ? span * i / (n - 1) : span / 2)) * Math.PI / 180;
-        const k = (n > 4 || (narrow && n > 2)) && i % 2 ? 0.78 : 1; // every other place a little closer: labels do not touch
-        const name = g.place.length > (narrow ? 12 : 18) ? g.place.slice(0, narrow ? 11 : 17) + '…' : g.place;
-        const tw = name.length * (narrow ? 7.3 : 8.3) + 48;
-        const x = Math.max(tw / 2 + 6, Math.min(W - tw / 2 - 6, cx + Rx * k * Math.cos(a))); // always inside the picture
-        return Object.assign({ x: x, y: cy + Ry * k * Math.sin(a), side: side, name: name, tw: tw }, g);
-      });
-    };
-    const nodes = place(ins, 'in').concat(place(outs, 'out'));
-    // two bubbles still touching (long names close together): move the second one further from the hub;
-    // the picture grows to fit (top / bot below)
-    for (let pass = 0; pass < 6; pass++) {
-      let moved = false;
-      nodes.forEach((a, i) => nodes.slice(i + 1).forEach(b => {
-        if (Math.abs(a.x - b.x) >= (a.tw + b.tw) / 2 + 4 || Math.abs(a.y - b.y) >= 34) return;
-        b.y += (b.y < cy ? -1 : 1) * 36;
-        moved = true;
-      }));
-      if (!moved) break;
-    }
-    const hr = narrow ? 58 : 72; // hub circle + its ring: no bubble on it
-    nodes.forEach(nd => {
-      if (Math.abs(nd.x - cx) < hr + nd.tw / 2 + 6 && Math.abs(nd.y - cy) < hr + 22) nd.y = cy + (nd.side === 'in' ? (narrow ? -1 : (nd.y < cy ? -1 : 1)) : (narrow ? 1 : (nd.y < cy ? -1 : 1))) * (hr + 24);
-    });
-    const ys = nodes.map(nd => nd.y).concat([cy]);
-    const top = Math.min(0, Math.min(...ys) - 48), bot = Math.max(H, Math.max(...ys) + 40);
-    const web = [0.36, 0.68, 1].map(f => '<ellipse cx="' + cx + '" cy="' + cy + '" rx="' + (Rx * f) + '" ry="' + (Ry * f) + '"/>').join('') +
-      Array.from({ length: 12 }, (_, i) => { const a = i * Math.PI / 6; return '<line x1="' + cx + '" y1="' + cy + '" x2="' + (cx + Rx * 1.08 * Math.cos(a)) + '" y2="' + (cy + Ry * 1.08 * Math.sin(a)) + '"/>'; }).join('');
-    const spokes = nodes.map(nd => {
-      const c = nd.side === 'in' ? col.in : col.out, w = (2 + Math.min(10, 2.3 * Math.sqrt(nd.vs.length))).toFixed(1);
-      const qx = narrow ? nd.x : (nd.x + cx) / 2, qy = narrow ? (nd.y + cy) / 2 : nd.y;
-      const path = nd.side === 'in' ? 'M' + nd.x + ' ' + nd.y + ' Q' + qx + ' ' + qy + ' ' + cx + ' ' + cy : 'M' + cx + ' ' + cy + ' Q' + qx + ' ' + qy + ' ' + nd.x + ' ' + nd.y;
-      return '<path class="hs-base" d="' + path + '" stroke="' + c + '" stroke-width="' + w + '"/><path class="hs-flow" d="' + path + '" stroke-width="' + Math.max(1.5, w / 3) + '"/>';
-    }).join('');
-    const label = nd => {
-      const name = nd.name, tw = nd.tw, c = nd.side === 'in' ? col.in : col.out;
-      return '<g class="hn' + (nd.more ? ' more' : '') + '" data-hgo="' + nd.side + '|' + esc(nd.place) + '" transform="translate(' + nd.x.toFixed(1) + ',' + nd.y.toFixed(1) + ')" tabindex="0">' +
-        '<title>' + esc(nd.place + ': ' + nd.vs.length + ' truck' + (nd.vs.length > 1 ? 's' : '')) + '</title>' +
-        '<rect x="' + (-tw / 2) + '" y="-15" width="' + tw + '" height="30" rx="15" stroke="' + c + '"/>' +
-        '<text x="' + (-tw / 2 + 12) + '" y="4.5">' + esc(name) + '</text>' +
-        '<circle cx="' + (tw / 2 - 15) + '" cy="0" r="11" fill="' + c + '"/><text class="hn-n" x="' + (tw / 2 - 15) + '" y="4">' + nd.vs.length + '</text></g>';
-    };
-    const r = narrow ? 50 : 64, words = hub.split(' ');
-    const hubName = (hub.length > 12 && words.length > 1 ? [words.slice(0, Math.ceil(words.length / 2)).join(' '), words.slice(Math.ceil(words.length / 2)).join(' ')] : [hub])
-      .map((t, i, a) => '<text class="hc-name" x="' + cx + '" y="' + (cy - (a.length > 1 ? 14 : 6) + i * 16) + '">' + esc(t.length > 14 ? t.slice(0, 13) + '…' : t) + '</text>').join('');
-    return '<svg class="hub-svg" viewBox="0 ' + top + ' ' + W + ' ' + (bot - top) + '" role="img" aria-label="' + esc(hub) + ' hub">' +
-      '<defs><radialGradient id="hubGrad" cx="35%" cy="30%"><stop offset="0" stop-color="#4b51a8"/><stop offset="1" stop-color="#1b1e4f"/></radialGradient></defs>' +
-      '<g class="h-web">' + web + '</g>' + spokes + nodes.map(label).join('') +
-      '<circle class="hc-ring" cx="' + cx + '" cy="' + cy + '" r="' + (r + 8) + '"/>' +
-      '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="url(#hubGrad)" stroke="#fff" stroke-width="4"/>' + hubName +
-      '<text class="hc-sub" x="' + cx + '" y="' + (cy + 24) + '">' + (mode === 'load' ? 'Loading' : 'Unloading') + ' here: ' + d.at.length + '</text>' +
-      '<text class="hc-side" x="' + (narrow ? cx : 40) + '" y="' + (top + (narrow ? 22 : 30)) + '" text-anchor="' + (narrow ? 'middle' : 'start') + '">' + (mode === 'load' ? '⬇ COMING TO LOAD' : '⬇ COMING TO UNLOAD') + '</text>' +
-      '<text class="hc-side" x="' + (narrow ? cx : W - 40) + '" y="' + (narrow ? bot - 12 : top + 30) + '" text-anchor="' + (narrow ? 'middle' : 'end') + '">' + (mode === 'load' ? 'LOADED, GOING TO ⬆' : 'AFTER UNLOADING, GOING TO ⬆') + '</text>' +
-      '</svg>';
-  }
   function hubTrucks(vs, progs) {
     return vs.map(v => '<button type="button" class="rdot rd-' + v.cat + '" data-v="' + esc(v.vno) + '" style="--c:' + CAT[v.cat].color + '" aria-label="' + esc(v.vno + ', ' + CAT[v.cat].label) + '">' +
       ICO.truck + '<span>' + esc(shortNo(v.vno)) + (progs.has(v.vno) ? ' 📋' : '') + '</span></button>').join('');
   }
+  /** one part of the flow chart (like the user's drawing): a list of places in yellow / pink rows and the hub box,
+   *  joined by elbow lines with arrows. side 'in' = places → hub, 'out' = hub → places. Lines are drawn after layout. */
+  function hubFlow(side, d, mode) {
+    const load = mode === 'load', gs = side === 'in' ? d.inn : d.out, n = side === 'in' ? d.nIn : d.nOut, c = HUB_COL[mode][side];
+    const s = k => (k === 1 ? '' : 's');
+    const title = side === 'in'
+      ? (load ? '⬇ Coming to load at ' : '⬇ Coming to unload at ') + esc(S.hub)
+      : (load ? '⬆ Loaded at ' : '⬆ After unloading at ') + esc(S.hub) + ', going to';
+    const sub = n + ' truck' + s(n) + (side === 'in' ? ' from ' : ' to ') + gs.length + ' place' + s(gs.length);
+    const listHead = side === 'in' ? (load ? 'Unloaded / now at' : 'Loaded at (origin)') : (load ? 'Going to (unloading point)' : 'Going next to (loading point)');
+    const hubHead = side === 'in' ? (load ? 'Loading point' : 'Unloading point') : (load ? 'Origin hub' : 'Unloading point');
+    const list = '<div class="hf-list">' + (gs.length ? gs.map((g, i) =>
+      '<div class="hf-row ' + (i % 2 ? 'pk' : 'yl') + '" data-hrow="' + side + '|' + esc(g.place) + '" data-n="' + g.vs.length + '">' +
+      '<div class="hf-name">' + ICO.pin + '<b>' + esc(g.place) + '</b><span class="hf-n">' + g.vs.length + '</span></div>' +
+      '<div class="hr-trucks">' + hubTrucks(g.vs, d.progs) + '</div></div>').join('')
+      : '<p class="hf-none">' + (side === 'in' ? 'No truck is on the way here right now.' : load ? 'No loaded truck from here right now.' : 'No truck is leaving from here right now.') + '</p>') + '</div>';
+    const hub = '<div class="hf-hub"><small>' + esc(hubHead) + '</small><b>' + esc(S.hub) + '</b><span>' + (side === 'in' ? '⬅ ' + n + ' coming' : n + ' going ➡') + '</span>' +
+      '<em>' + (load ? 'Loading' : 'Unloading') + ' now: ' + d.at.length + '</em></div>';
+    const heads = side === 'in' ? '<div class="hf-h">' + esc(listHead) + '</div><div></div><div class="hf-h hh">' + esc(hubHead) + '</div>'
+      : '<div class="hf-h hh">' + esc(hubHead) + '</div><div></div><div class="hf-h">' + esc(listHead) + '</div>';
+    return '<section class="hflow hf-' + side + '" style="--c:' + c + '"><h3>' + title + ' <span>' + sub + '</span></h3>' +
+      '<div class="hf-grid">' + heads + (side === 'in' ? list + '<div class="hf-gap"></div>' + hub : hub + '<div class="hf-gap"></div>' + list) +
+      '<svg class="hf-links" aria-hidden="true"></svg></div></section>';
+  }
+  /** elbow lines (rounded corners) from every row to the hub box, or from the hub box to every row, with an arrow at the end */
+  function drawHubLinks() {
+    $$('#hubBody .hf-grid').forEach((gr, gi) => {
+      const svg = $('.hf-links', gr), hub = $('.hf-hub', gr), rows = $$('.hf-row', gr);
+      const into = !!gr.closest('.hf-in'), R = gr.getBoundingClientRect(), H = hub.getBoundingClientRect();
+      svg.setAttribute('width', R.width); svg.setAttribute('height', R.height);
+      svg.setAttribute('viewBox', '0 0 ' + R.width + ' ' + R.height);
+      const n = rows.length, id = 'hfArrow' + gi;
+      const elbow = (x1, y1, mx, x2, y2) => {
+        if (Math.abs(y2 - y1) < 1) return 'M' + x1 + ' ' + y1 + ' H' + x2;
+        const r = Math.min(9, Math.abs(y2 - y1) / 2, Math.abs(mx - x1), Math.abs(x2 - mx)), sy = y2 > y1 ? 1 : -1, sx = x2 > x1 ? 1 : -1;
+        return 'M' + x1 + ' ' + y1 + ' H' + (mx - sx * r) + ' Q' + mx + ' ' + y1 + ' ' + mx + ' ' + (y1 + sy * r) +
+          ' V' + (y2 - sy * r) + ' Q' + mx + ' ' + y2 + ' ' + (mx + sx * r) + ' ' + y2 + ' H' + x2;
+      };
+      svg.innerHTML = '<defs><marker id="' + id + '" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto">' +
+        '<path d="M0 0L10 5L0 10z" fill="var(--c)"/></marker></defs>' + rows.map((row, i) => {
+        const r = row.getBoundingClientRect(), ry = r.top + r.height / 2 - R.top;
+        const hy = H.top - R.top + H.height * (i + 1) / (n + 1);    // the lines meet the hub box spread along its side
+        const w = (1.8 + Math.min(4.5, Math.sqrt(+row.dataset.n) * 1.1)).toFixed(1);
+        const x1 = into ? r.right - R.left : H.right - R.left, x2 = into ? H.left - R.left - 2 : r.left - R.left - 2;
+        const mx = x1 + (x2 - x1) * (n > 1 ? 0.25 + 0.5 * (into ? i : n - 1 - i) / (n - 1) : 0.5); // staggered bends: lines do not lie on each other
+        const p = elbow(x1, into ? ry : hy, mx, x2, into ? hy : ry);
+        return '<path class="hf-l" d="' + p + '" stroke-width="' + w + '" marker-end="url(#' + id + ')"/><path class="hf-dash" d="' + p + '"/>';
+      }).join('');
+    });
+  }
   function renderHub() {
     const body = $('#hubBody'), narrow = body.clientWidth < 640;
     const key = [S.ver, S.hmode, S.hub, S.vehicles.length, narrow].join('|');
-    if (key === S.hubKey) return;
+    if (key === S.hubKey) { drawHubLinks(); return; }
     S.hubKey = key;
     $$('#hubSeg [data-hmode]').forEach(b => b.classList.toggle('on', b.dataset.hmode === S.hmode));
     if (!S.vehicles.length) { body.innerHTML = '<div class="skeleton"></div>'; return; }
@@ -2683,26 +2665,19 @@
     $('#hubChips').innerHTML = hubs.slice(0, narrow ? 6 : 10).map(h => '<button type="button" class="chip' + (h.name === S.hub ? ' on' : '') + '" data-hub="' + esc(h.name) + '">' + esc(h.name) + ' <b>' + h.n + '</b></button>').join('');
     const d = hubData(S.hmode, S.hub), col = HUB_COL[S.hmode], load = S.hmode === 'load';
     const stat = (lbl, n, sub, c) => '<div class="hst" style="--c:' + c + '"><b>' + n + '</b><span>' + esc(lbl) + '</span><small>' + esc(sub) + '</small></div>';
-    const group = (side, g) => '<div class="hrow" data-hrow="' + side + '|' + esc(g.place) + '"><div class="hr-head">' + ICO.pin + '<b>' + esc(g.place) + '</b><span>' + g.vs.length +
-      ' truck' + (g.vs.length > 1 ? 's' : '') + '</span></div><div class="hr-trucks">' + hubTrucks(g.vs, d.progs) + '</div></div>';
-    const col2 = (side, title, gs, n, c, empty) => '<div class="hcol" style="--c:' + c + '"><h3>' + title + ' <span>' + n + ' truck' + (n === 1 ? '' : 's') +
-      ' · ' + gs.length + ' place' + (gs.length === 1 ? '' : 's') + '</span></h3>' + (gs.length ? gs.map(g => group(side, g)).join('') : '<p class="muted">' + empty + '</p>') + '</div>';
     body.innerHTML =
       '<div class="hub-stats">' +
         stat(load ? 'Coming to load' : 'Coming to unload', d.nIn, 'from ' + d.inn.length + ' place' + (d.inn.length === 1 ? '' : 's'), col.in) +
         stat(load ? 'Loading here now' : 'Unloading here now', d.at.length, S.hub, 'var(--navy-3)') +
         stat(load ? 'Loaded, going out' : 'Leaving after unloading', d.nOut, 'to ' + d.out.length + ' place' + (d.out.length === 1 ? '' : 's'), col.out) +
       '</div>' +
-      '<div class="hub-web">' + hubWeb(d, S.hmode, S.hub, narrow) +
-        '<div class="hub-key"><span style="--c:' + col.in + '"><i></i>' + (load ? 'Empty trucks coming to load (📋 = program given)' : 'Loaded trucks coming to unload') + '</span>' +
-        '<span style="--c:' + col.out + '"><i></i>' + (load ? 'Loaded trucks going out' : 'Empty trucks leaving for the next load (📋 = next-load program)') + '</span>' +
-        '<span class="hk-w">Thicker line = more trucks · tap a place to see its trucks</span></div></div>' +
-      (d.at.length ? '<div class="hcol hat" style="--c:var(--navy-3)"><h3>' + (load ? 'Loading at ' : 'Unloading at ') + esc(S.hub) + ' <span>' + d.at.length + ' truck' + (d.at.length > 1 ? 's' : '') + '</span></h3>' +
+      hubFlow('in', d, S.hmode) +
+      (d.at.length ? '<div class="hcol hat" style="--c:var(--navy-3)"><h3>' + (load ? 'Loading at ' : 'Unloading at ') + esc(S.hub) + ' now <span>' + d.at.length + ' truck' + (d.at.length > 1 ? 's' : '') + '</span></h3>' +
         '<div class="hr-trucks">' + hubTrucks(d.at, d.progs) + '</div></div>' : '') +
-      '<div class="hub-cols">' +
-        col2('in', load ? '⬅ Coming to load, from' : '⬅ Coming to unload, from', d.inn, d.nIn, col.in, 'No truck is on the way here right now.') +
-        col2('out', load ? 'Loaded, going to ➡' : 'After unloading, going to ➡', d.out, d.nOut, col.out, load ? 'No loaded truck from here right now.' : 'No truck is leaving from here right now.') +
-      '</div>';
+      hubFlow('out', d, S.hmode) +
+      '<p class="hint hf-key">' + (load ? '📋 = program given to this place. ' : '📋 = next-load program. ') + 'Thicker line = more trucks · point at / tap a truck for its details.</p>';
+    requestAnimationFrame(drawHubLinks);
+    setTimeout(drawHubLinks, 400); // again once the fonts have settled
   }
 
   /** sticky group headings sit right under the header (two rows high on phones) */
