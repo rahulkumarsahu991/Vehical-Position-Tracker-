@@ -2597,9 +2597,27 @@
       return { name: n, n: d.nIn + d.at.length + d.nOut };
     }).filter(h => h.n).sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
   }
-  function hubTrucks(vs, progs) {
-    return vs.map(v => '<button type="button" class="rdot rd-' + v.cat + '" data-v="' + esc(v.vno) + '" style="--c:' + CAT[v.cat].color + '" aria-label="' + esc(v.vno + ', ' + CAT[v.cat].label) + '">' +
-      ICO.truck + '<span>' + esc(shortNo(v.vno)) + (progs.has(v.vno) ? ' 📋' : '') + '</span></button>').join('');
+  /** where a truck is right now, said short: "at hub" / "reached" (already at the row's place) / its current location */
+  function hubNow(v, place) {
+    const k = spellKey(v.cur);
+    if (!k) return '';
+    return k === spellKey(S.hub) ? 'at hub' : place && k === spellKey(place) ? 'reached' : v.cur;
+  }
+  /** a row's trucks by where they are now: "KORAPUT ×3 · MANPUR · +2" */
+  function hubNowLine(vs, place) {
+    const gs = hubGroups(vs.map(v => ({ v: v, now: hubNow(v, place) })).filter(x => x.now), 'now');
+    if (!gs.length) return '';
+    const one = g => esc(g.place) + (g.vs.length > 1 ? ' ×' + g.vs.length : '');
+    return gs.slice(0, 2).map(one).join(' · ') + (gs.length > 2 ? ' · +' + (gs.length - 2) : '');
+  }
+  /** truck pills: 🚚 BA42 (📋 = program given), and with a place given also where it is now */
+  function hubTrucks(vs, progs, place) {
+    return vs.map(v => {
+      const now = place === undefined ? '' : hubNow(v, place);
+      return '<button type="button" class="rdot rd-' + v.cat + '" data-v="' + esc(v.vno) + '" style="--c:' + CAT[v.cat].color + '" aria-label="' + esc(v.vno + ', ' + CAT[v.cat].label + (v.cur ? ', now at ' + v.cur : '')) + '">' +
+        ICO.truck + '<span>' + esc(shortNo(v.vno)) + (progs.has(v.vno) ? ' 📋' : '') + '</span>' +
+        (now ? '<small class="hf-at-now' + (now === 'reached' || now === 'at hub' ? ' ok' : '') + '">' + ICO.pin + esc(now) + '</small>' : '') + '</button>';
+    }).join('');
   }
   /** one side of the flow: slim place rows (📍 name · status bar · count) that open to show their trucks;
    *  the busiest 7, then "+ N more" */
@@ -2613,11 +2631,16 @@
     };
     const load = S.hmode === 'load';
     const empty = side === 'in' ? 'No truck is on the way here right now.' : load ? 'No loaded truck from here right now.' : 'No truck is leaving from here right now.';
-    return (gs.length ? show.map((g, i) =>
-      '<div class="hf-item">' +
+    // coming to load: the place already is where the trucks are now; everywhere else say it under the name
+    const sayNow = !(load && side === 'in');
+    return (gs.length ? show.map((g, i) => {
+      const now = sayNow ? hubNowLine(g.vs, g.place) : '';
+      return '<div class="hf-item">' +
       '<button type="button" class="hf-row ' + (i % 2 ? 'pk' : 'yl') + '" data-hrow="' + side + '|' + esc(g.place) + '" data-n="' + g.vs.length + '" title="Tap to see the trucks">' +
-      ICO.pin + '<b>' + esc(g.place) + '</b>' + bar(g.vs) + '<span class="hf-n">' + g.vs.length + '</span></button>' +
-      '<div class="hf-trucks hr-trucks">' + hubTrucks(g.vs, d.progs) + '</div></div>').join('') +
+      ICO.pin + '<span class="hf-nm"><b>' + esc(g.place) + '</b>' + (now ? '<small class="hf-now" title="Where these trucks are now"><i>now</i> ' + now + '</small>' : '') + '</span>' +
+      bar(g.vs) + '<span class="hf-n">' + g.vs.length + '</span></button>' +
+      '<div class="hf-trucks hr-trucks">' + hubTrucks(g.vs, d.progs, sayNow ? g.place : undefined) + '</div></div>';
+    }).join('') +
       (more ? '<button type="button" class="hf-more" data-hmore="' + side + '">+ ' + more + ' more place' + (more > 1 ? 's' : '') + '</button>' : '')
       : '<p class="hf-none">' + empty + '</p>');
   }
@@ -2627,7 +2650,7 @@
     const s = k => (k === 1 ? '' : 's');
     return '<section class="hflow2" style="--ci:' + col.in + ';--co:' + col.out + '">' +
       '<div class="hf-grid2">' +
-        '<div class="hf-col in"><div class="hf-lh">⬇ ' + (load ? 'Coming to load · from' : 'Coming to unload · from') + ' <span>' + d.nIn + ' truck' + s(d.nIn) + '</span></div>' + hubSide('in', d) + '</div>' +
+        '<div class="hf-col in"><div class="hf-lh">⬇ ' + (load ? 'Coming to load · now at' : 'Coming to unload · from') + ' <span>' + d.nIn + ' truck' + s(d.nIn) + '</span></div>' + hubSide('in', d) + '</div>' +
         '<div class="hf-lane"></div>' +
         '<div class="hf-hubcol"><div class="hf-hub" role="button" tabindex="0" data-hubbox="1" title="Tap to see the trucks here">' +
           '<small>' + (load ? 'Loading point' : 'Unloading point') + '</small><b>' + esc(S.hub) + '</b>' +
@@ -2691,7 +2714,7 @@
         stat(load ? 'Loading here now' : 'Unloading here now', d.at.length, S.hub, 'var(--navy-3)') +
         stat(load ? 'Loaded, going out' : 'Leaving after unloading', d.nOut, 'to ' + d.out.length + ' place' + (d.out.length === 1 ? '' : 's'), col.out) +
       '</div>' + hubFlow(d, S.hmode) +
-      '<p class="hint hf-key">Tap a place to see its trucks · tap the hub for the trucks there · 📋 = program given<span class="hk-lines"> · thicker line = more trucks</span></p>';
+      '<p class="hint hf-key">Tap a place to see its trucks · tap the hub for the trucks there · 📋 = program given · <b>now</b> = where the trucks are right now<span class="hk-lines"> · thicker line = more trucks</span></p>';
     requestAnimationFrame(drawHubLinks);
     setTimeout(drawHubLinks, 400); // again once the fonts have settled
   }

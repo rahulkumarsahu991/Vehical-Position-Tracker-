@@ -1066,6 +1066,10 @@ body.has-bulk main { padding-bottom: 180px; }
 .hf-row:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(22, 26, 51, .12); }
 .hf-row .pin { width: 12px; height: 12px; flex: none; color: #9a5b00; }
 .hf-row b { font: 700 14px/1.15 var(--cond); letter-spacing: .3px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* name + "now KORAPUT ×3 · MANPUR" (where those trucks are right now) */
+.hf-nm { display: grid; min-width: 0; line-height: 1.1; }
+.hf-now { font: 600 10.5px/1.25 var(--font); color: #5b4a12; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hf-now i { font-style: normal; font-weight: 700; font-size: 9px; letter-spacing: .4px; text-transform: uppercase; color: #fff; background: #b45309; border-radius: 4px; padding: 0 4px; margin-right: 2px; }
 .hf-bar { display: flex; gap: 1px; width: 38px; height: 6px; margin-left: auto; flex: none; border-radius: 3px; overflow: hidden; background: rgba(0, 0, 0, .06); }
 .hf-bar i { background: var(--c); min-width: 3px; }
 .hf-n { flex: none; min-width: 22px; text-align: center; font: 700 11.5px var(--font); color: #fff; border-radius: 999px; padding: 1px 7px; }
@@ -1108,6 +1112,13 @@ body.has-bulk main { padding-bottom: 180px; }
 }
 .hflow2 .rdot .truck { width: 22px; height: 13px; }
 .hflow2 .rdot span { background: none; box-shadow: none; padding: 0; font-size: 10.5px; line-height: 15px; }
+/* pill tail: 📍 where the truck is now (green when it already reached / is at the hub) */
+.hflow2 .rdot .hf-at-now {
+  display: inline-block; max-width: 110px; padding-left: 5px; margin-left: 1px; border-left: 1px solid var(--line);
+  font: 600 10px/15px var(--font); color: #9a3412; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.hflow2 .rdot .hf-at-now.ok { color: #15803d; }
+.hflow2 .rdot .hf-at-now .pin { width: 10px; height: 10px; vertical-align: -1px; margin-right: 1px; }
 .hflow2 .rdot:hover, .hflow2 .rdot.on { transform: translateY(-1px); background: #fff; box-shadow: 0 0 0 1.5px var(--c), 0 4px 10px rgba(22, 26, 51, .18); }
 .hflow2 .rdot:hover span, .hflow2 .rdot.on span { background: none; color: var(--ink); }
 @media (prefers-reduced-motion: reduce) { .hh-web, .hf-dash { animation: none; } }
@@ -1146,6 +1157,9 @@ body.has-bulk main { padding-bottom: 180px; }
   .hflow2 .rdot { padding: 1px 6px 1px 4px; gap: 3px; }
   .hflow2 .rdot .truck { width: 18px; height: 11px; }
   .hflow2 .rdot span { font-size: 9.5px; line-height: 13px; }
+  .hf-now { font-size: 9.5px; }
+  .hf-now i { font-size: 8px; padding: 0 3px; }
+  .hflow2 .rdot .hf-at-now { max-width: 92px; font-size: 9.5px; line-height: 13px; padding-left: 4px; }
 }
 
 /* ---------------- inbox (Director → Manager → caller) ---------------- */
