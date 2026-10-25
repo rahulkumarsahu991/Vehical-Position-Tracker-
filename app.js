@@ -90,7 +90,7 @@
     sort: { key: 'cat', dir: 1 },
     pseg: 'noprog', pq: '', ploc: '', sel: new Set(),
     rq: '', rcat: '', // route view: search, one status only
-    hmode: 'load', hub: '', // hub analyzer: loading / unloading point, which hub
+    hmode: 'load', hub: '', hubAll: {}, // hub analyzer: loading / unloading point, which hub, sides showing every place
     drafts: {}, editing: {},
     print: Object.assign({ rep: 'caller', caller: '', orient: 'auto', cols: 'auto' }, store.get(K.print, {})),
     detail: null, pending: false,
@@ -2601,59 +2601,79 @@
     return vs.map(v => '<button type="button" class="rdot rd-' + v.cat + '" data-v="' + esc(v.vno) + '" style="--c:' + CAT[v.cat].color + '" aria-label="' + esc(v.vno + ', ' + CAT[v.cat].label) + '">' +
       ICO.truck + '<span>' + esc(shortNo(v.vno)) + (progs.has(v.vno) ? ' 📋' : '') + '</span></button>').join('');
   }
-  /** one part of the flow chart (like the user's drawing): a list of places in yellow / pink rows and the hub box,
-   *  joined by elbow lines with arrows. side 'in' = places → hub, 'out' = hub → places. Lines are drawn after layout. */
-  function hubFlow(side, d, mode) {
-    const load = mode === 'load', gs = side === 'in' ? d.inn : d.out, n = side === 'in' ? d.nIn : d.nOut, c = HUB_COL[mode][side];
-    const s = k => (k === 1 ? '' : 's');
-    const title = side === 'in'
-      ? (load ? '⬇ Coming to load at ' : '⬇ Coming to unload at ') + esc(S.hub)
-      : (load ? '⬆ Loaded at ' : '⬆ After unloading at ') + esc(S.hub) + ', going to';
-    const sub = n + ' truck' + s(n) + (side === 'in' ? ' from ' : ' to ') + gs.length + ' place' + s(gs.length);
-    const listHead = side === 'in' ? (load ? 'Unloaded / now at' : 'Loaded at (origin)') : (load ? 'Going to (unloading point)' : 'Going next to (loading point)');
-    const hubHead = side === 'in' ? (load ? 'Loading point' : 'Unloading point') : (load ? 'Origin hub' : 'Unloading point');
-    const list = '<div class="hf-list">' + (gs.length ? gs.map((g, i) =>
-      '<div class="hf-row ' + (i % 2 ? 'pk' : 'yl') + '" data-hrow="' + side + '|' + esc(g.place) + '" data-n="' + g.vs.length + '">' +
-      '<div class="hf-name">' + ICO.pin + '<b>' + esc(g.place) + '</b><span class="hf-n">' + g.vs.length + '</span></div>' +
-      '<div class="hr-trucks">' + hubTrucks(g.vs, d.progs) + '</div></div>').join('')
-      : '<p class="hf-none">' + (side === 'in' ? 'No truck is on the way here right now.' : load ? 'No loaded truck from here right now.' : 'No truck is leaving from here right now.') + '</p>') + '</div>';
-    const hub = '<div class="hf-hub"><small>' + esc(hubHead) + '</small><b>' + esc(S.hub) + '</b><span>' + (side === 'in' ? '⬅ ' + n + ' coming' : n + ' going ➡') + '</span>' +
-      '<em>' + (load ? 'Loading' : 'Unloading') + ' now: ' + d.at.length + '</em></div>';
-    const heads = side === 'in' ? '<div class="hf-h">' + esc(listHead) + '</div><div></div><div class="hf-h hh">' + esc(hubHead) + '</div>'
-      : '<div class="hf-h hh">' + esc(hubHead) + '</div><div></div><div class="hf-h">' + esc(listHead) + '</div>';
-    return '<section class="hflow hf-' + side + '" style="--c:' + c + '"><h3>' + title + ' <span>' + sub + '</span></h3>' +
-      '<div class="hf-grid">' + heads + (side === 'in' ? list + '<div class="hf-gap"></div>' + hub : hub + '<div class="hf-gap"></div>' + list) +
-      '<svg class="hf-links" aria-hidden="true"></svg></div></section>';
+  /** one side of the flow: slim place rows (📍 name · status bar · count) that open to show their trucks;
+   *  the busiest 7, then "+ N more" */
+  function hubSide(side, d) {
+    const gs = side === 'in' ? d.inn : d.out, max = 7, all = S.hubAll[side];
+    const show = all || gs.length <= max ? gs : gs.slice(0, max - 1), more = gs.length - show.length;
+    const bar = vs => {
+      const c = {};
+      vs.forEach(v => { c[v.cat] = (c[v.cat] || 0) + 1; });
+      return '<span class="hf-bar">' + CATS.filter(k => c[k.key]).map(k => '<i style="--c:' + k.color + ';flex-grow:' + c[k.key] + '"></i>').join('') + '</span>';
+    };
+    const load = S.hmode === 'load';
+    const empty = side === 'in' ? 'No truck is on the way here right now.' : load ? 'No loaded truck from here right now.' : 'No truck is leaving from here right now.';
+    return (gs.length ? show.map((g, i) =>
+      '<div class="hf-item">' +
+      '<button type="button" class="hf-row ' + (i % 2 ? 'pk' : 'yl') + '" data-hrow="' + side + '|' + esc(g.place) + '" data-n="' + g.vs.length + '" title="Tap to see the trucks">' +
+      ICO.pin + '<b>' + esc(g.place) + '</b>' + bar(g.vs) + '<span class="hf-n">' + g.vs.length + '</span></button>' +
+      '<div class="hf-trucks hr-trucks">' + hubTrucks(g.vs, d.progs) + '</div></div>').join('') +
+      (more ? '<button type="button" class="hf-more" data-hmore="' + side + '">+ ' + more + ' more place' + (more > 1 ? 's' : '') + '</button>' : '')
+      : '<p class="hf-none">' + empty + '</p>');
   }
-  /** elbow lines (rounded corners) from every row to the hub box, or from the hub box to every row, with an arrow at the end */
+  /** the whole picture in one piece: coming from → hub → going to (on a phone: top to bottom) */
+  function hubFlow(d, mode) {
+    const load = mode === 'load', col = HUB_COL[mode];
+    const s = k => (k === 1 ? '' : 's');
+    return '<section class="hflow2" style="--ci:' + col.in + ';--co:' + col.out + '">' +
+      '<div class="hf-grid2">' +
+        '<div class="hf-col in"><div class="hf-lh">⬇ ' + (load ? 'Coming to load · from' : 'Coming to unload · from') + ' <span>' + d.nIn + ' truck' + s(d.nIn) + '</span></div>' + hubSide('in', d) + '</div>' +
+        '<div class="hf-lane"></div>' +
+        '<div class="hf-hubcol"><div class="hf-hub" role="button" tabindex="0" data-hubbox="1" title="Tap to see the trucks here">' +
+          '<small>' + (load ? 'Loading point' : 'Unloading point') + '</small><b>' + esc(S.hub) + '</b>' +
+          '<div class="hf-hc"><span class="ci">⬅ ' + d.nIn + '</span><span class="ca">' + d.at.length + ' ' + (load ? 'loading' : 'unloading') + '</span><span class="co">' + d.nOut + ' ➡</span></div>' +
+          (d.at.length ? '<em>tap: trucks here</em>' : '') + '</div></div>' +
+        '<div class="hf-lane"></div>' +
+        '<div class="hf-col out"><div class="hf-lh">' + (load ? 'Loaded · going to' : 'After unloading · going to') + ' ⬆ <span>' + d.nOut + ' truck' + s(d.nOut) + '</span></div>' + hubSide('out', d) + '</div>' +
+        '<svg class="hf-links" aria-hidden="true"></svg>' +
+      '</div>' +
+      '<div class="hf-at" hidden><div class="hf-lh">' + (load ? 'Loading at ' : 'Unloading at ') + esc(S.hub) + ' now <span>' + d.at.length + ' truck' + s(d.at.length) + '</span></div>' +
+        '<div class="hr-trucks">' + hubTrucks(d.at, d.progs) + '</div></div>' +
+      '</section>';
+  }
+  /** elbow lines with arrows: every "from" row → hub box, hub box → every "to" row (not drawn on phones) */
   function drawHubLinks() {
-    $$('#hubBody .hf-grid').forEach((gr, gi) => {
-      const svg = $('.hf-links', gr), hub = $('.hf-hub', gr), rows = $$('.hf-row', gr);
-      const into = !!gr.closest('.hf-in'), R = gr.getBoundingClientRect(), H = hub.getBoundingClientRect();
-      svg.setAttribute('width', R.width); svg.setAttribute('height', R.height);
-      svg.setAttribute('viewBox', '0 0 ' + R.width + ' ' + R.height);
-      const n = rows.length, id = 'hfArrow' + gi;
-      const elbow = (x1, y1, mx, x2, y2) => {
-        if (Math.abs(y2 - y1) < 1) return 'M' + x1 + ' ' + y1 + ' H' + x2;
-        const r = Math.min(9, Math.abs(y2 - y1) / 2, Math.abs(mx - x1), Math.abs(x2 - mx)), sy = y2 > y1 ? 1 : -1, sx = x2 > x1 ? 1 : -1;
-        return 'M' + x1 + ' ' + y1 + ' H' + (mx - sx * r) + ' Q' + mx + ' ' + y1 + ' ' + mx + ' ' + (y1 + sy * r) +
-          ' V' + (y2 - sy * r) + ' Q' + mx + ' ' + y2 + ' ' + (mx + sx * r) + ' ' + y2 + ' H' + x2;
-      };
-      svg.innerHTML = '<defs><marker id="' + id + '" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto">' +
-        '<path d="M0 0L10 5L0 10z" fill="var(--c)"/></marker></defs>' + rows.map((row, i) => {
+    const gr = $('#hubBody .hf-grid2');
+    if (!gr) return;
+    const svg = $('.hf-links', gr);
+    if (getComputedStyle(svg).display === 'none') return;
+    const R = gr.getBoundingClientRect(), H = $('.hf-hub', gr).getBoundingClientRect();
+    svg.setAttribute('width', R.width); svg.setAttribute('height', R.height);
+    svg.setAttribute('viewBox', '0 0 ' + R.width + ' ' + R.height);
+    const elbow = (x1, y1, mx, x2, y2) => {
+      if (Math.abs(y2 - y1) < 1) return 'M' + x1 + ' ' + y1 + ' H' + x2;
+      const r = Math.min(9, Math.abs(y2 - y1) / 2, Math.abs(mx - x1), Math.abs(x2 - mx)), sy = y2 > y1 ? 1 : -1, sx = x2 > x1 ? 1 : -1;
+      return 'M' + x1 + ' ' + y1 + ' H' + (mx - sx * r) + ' Q' + mx + ' ' + y1 + ' ' + mx + ' ' + (y1 + sy * r) +
+        ' V' + (y2 - sy * r) + ' Q' + mx + ' ' + y2 + ' ' + (mx + sx * r) + ' ' + y2 + ' H' + x2;
+    };
+    const lines = (into) => {
+      const rows = $$((into ? '.hf-col.in' : '.hf-col.out') + ' .hf-row', gr), n = rows.length;
+      return rows.map((row, i) => {
         const r = row.getBoundingClientRect(), ry = r.top + r.height / 2 - R.top;
-        const hy = H.top - R.top + H.height * (i + 1) / (n + 1);    // the lines meet the hub box spread along its side
-        const w = (1.8 + Math.min(4.5, Math.sqrt(+row.dataset.n) * 1.1)).toFixed(1);
+        const hy = H.top - R.top + H.height * (i + 1) / (n + 1);   // spread along the hub box side
+        const w = (1.6 + Math.min(4, Math.sqrt(+row.dataset.n) * 1.05)).toFixed(1);
         const x1 = into ? r.right - R.left : H.right - R.left, x2 = into ? H.left - R.left - 2 : r.left - R.left - 2;
-        const mx = x1 + (x2 - x1) * (n > 1 ? 0.25 + 0.5 * (into ? i : n - 1 - i) / (n - 1) : 0.5); // staggered bends: lines do not lie on each other
+        const mx = x1 + (x2 - x1) * (n > 1 ? 0.25 + 0.5 * (into ? i : n - 1 - i) / (n - 1) : 0.5);
         const p = elbow(x1, into ? ry : hy, mx, x2, into ? hy : ry);
-        return '<path class="hf-l" d="' + p + '" stroke-width="' + w + '" marker-end="url(#' + id + ')"/><path class="hf-dash" d="' + p + '"/>';
+        return '<path class="hf-l ' + (into ? 'in' : 'out') + '" d="' + p + '" stroke-width="' + w + '" marker-end="url(#' + (into ? 'hfArrIn' : 'hfArrOut') + ')"/><path class="hf-dash" d="' + p + '"/>';
       }).join('');
-    });
+    };
+    const mk = (id, c) => '<marker id="' + id + '" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0L10 5L0 10z" fill="' + c + '"/></marker>';
+    svg.innerHTML = '<defs>' + mk('hfArrIn', 'var(--ci)') + mk('hfArrOut', 'var(--co)') + '</defs>' + lines(true) + lines(false);
   }
   function renderHub() {
-    const body = $('#hubBody'), narrow = body.clientWidth < 640;
-    const key = [S.ver, S.hmode, S.hub, S.vehicles.length, narrow].join('|');
+    const body = $('#hubBody'), narrow = body.clientWidth < 760;
+    const key = [S.ver, S.hmode, S.hub, S.vehicles.length, narrow, JSON.stringify(S.hubAll)].join('|');
     if (key === S.hubKey) { drawHubLinks(); return; }
     S.hubKey = key;
     $$('#hubSeg [data-hmode]').forEach(b => b.classList.toggle('on', b.dataset.hmode === S.hmode));
@@ -2670,12 +2690,8 @@
         stat(load ? 'Coming to load' : 'Coming to unload', d.nIn, 'from ' + d.inn.length + ' place' + (d.inn.length === 1 ? '' : 's'), col.in) +
         stat(load ? 'Loading here now' : 'Unloading here now', d.at.length, S.hub, 'var(--navy-3)') +
         stat(load ? 'Loaded, going out' : 'Leaving after unloading', d.nOut, 'to ' + d.out.length + ' place' + (d.out.length === 1 ? '' : 's'), col.out) +
-      '</div>' +
-      hubFlow('in', d, S.hmode) +
-      (d.at.length ? '<div class="hcol hat" style="--c:var(--navy-3)"><h3>' + (load ? 'Loading at ' : 'Unloading at ') + esc(S.hub) + ' now <span>' + d.at.length + ' truck' + (d.at.length > 1 ? 's' : '') + '</span></h3>' +
-        '<div class="hr-trucks">' + hubTrucks(d.at, d.progs) + '</div></div>' : '') +
-      hubFlow('out', d, S.hmode) +
-      '<p class="hint hf-key">' + (load ? '📋 = program given to this place. ' : '📋 = next-load program. ') + 'Thicker line = more trucks · point at / tap a truck for its details.</p>';
+      '</div>' + hubFlow(d, S.hmode) +
+      '<p class="hint hf-key">Tap a place to see its trucks · tap the hub for the trucks there · 📋 = program given<span class="hk-lines"> · thicker line = more trucks</span></p>';
     requestAnimationFrame(drawHubLinks);
     setTimeout(drawHubLinks, 400); // again once the fonts have settled
   }
@@ -2736,21 +2752,28 @@
       rl.addEventListener('click', e => {
         const all = e.target.closest('.rl-all');
         if (all) { const lg = all.closest('.r-legend'); lg.classList.toggle('open'); all.textContent = lg.classList.contains('open') ? 'Fewer colours ▴' : 'All colours ▾'; return; }
-        const go = e.target.closest('[data-hgo]'); // a place in the hub web → its trucks in the list below
-        if (go) {
-          const row = $$('#hubBody [data-hrow]').find(r => r.dataset.hrow === go.dataset.hgo) || $('#hubBody .hub-cols');
-          if (row) { row.scrollIntoView({ behavior: 'smooth', block: 'center' }); row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); }
+        // hub analyzer: a place row opens / closes its trucks (one at a time), "+ N more", the hub box shows its trucks
+        const hrow = e.target.closest('.hf-row');
+        if (hrow) {
+          const it = hrow.closest('.hf-item'), was = it.classList.contains('open');
+          $$('#hubBody .hf-item.open').forEach(x => x.classList.remove('open'));
+          if (!was) it.classList.add('open');
+          drawHubLinks();
           return;
         }
+        const more = e.target.closest('[data-hmore]');
+        if (more) { S.hubAll[more.dataset.hmore] = true; renderHub(); return; }
+        if (e.target.closest('[data-hubbox]')) { const p = $('#hubBody .hf-at'); if (p) { p.hidden = !p.hidden; drawHubLinks(); } return; }
         const d = e.target.closest('.rdot');
         if (!d) return;
         if (hoverable) { hideRoutePop(); openDetail(d.dataset.v); } else showRoutePop(d);
       });
     });
     // hub analyzer controls
-    $('#hubSeg').addEventListener('click', e => { const b = e.target.closest('[data-hmode]'); if (b && b.dataset.hmode !== S.hmode) { S.hmode = b.dataset.hmode; S.hub = ''; renderHub(); } });
-    $('#hubSel').addEventListener('change', e => { S.hub = e.target.value; renderHub(); });
-    $('#hubChips').addEventListener('click', e => { const b = e.target.closest('[data-hub]'); if (b) { S.hub = b.dataset.hub; renderHub(); } });
+    $('#hubSeg').addEventListener('click', e => { const b = e.target.closest('[data-hmode]'); if (b && b.dataset.hmode !== S.hmode) { S.hmode = b.dataset.hmode; S.hub = ''; S.hubAll = {}; renderHub(); } });
+    $('#hubSel').addEventListener('change', e => { S.hub = e.target.value; S.hubAll = {}; renderHub(); });
+    $('#hubChips').addEventListener('click', e => { const b = e.target.closest('[data-hub]'); if (b) { S.hub = b.dataset.hub; S.hubAll = {}; renderHub(); } });
+    $('#hubBody').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('[data-hubbox]')) { e.preventDefault(); e.target.click(); } });
     let hubRt = null;
     window.addEventListener('resize', () => { clearTimeout(hubRt); hubRt = setTimeout(() => { if (S.view === 'hub') renderHub(); }, 200); });
     pop.addEventListener('mouseenter', () => clearTimeout(popTimer));
