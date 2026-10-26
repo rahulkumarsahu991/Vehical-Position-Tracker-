@@ -1423,6 +1423,14 @@ table.pf .ok { color: #15803d; font-weight: 700; }
 }
 .mp-map.leaflet-container { font: inherit; }
 .mp-loading { display: grid; place-items: center; height: 100%; color: var(--muted); font-weight: 600; }
+/* ⛶ full screen (under the overlays: a truck's detail sheet still opens over it) */
+.mp-fs {
+  width: 34px; height: 34px; display: grid; place-items: center; border: 2px solid rgba(0, 0, 0, .2); border-radius: 6px; background: #fff;
+  font: 700 17px/1 var(--font); color: var(--ink); cursor: pointer; box-shadow: none; background-clip: padding-box;
+}
+.mp-map.mp-full { position: fixed; inset: 0; z-index: 50; height: 100vh; height: 100dvh; min-height: 0; border-radius: 0; border: 0; }
+body.map-full { overflow: hidden; }
+body.map-full .view { animation: none; transform: none; }   /* a transformed parent would hold the map inside it */
 .mp-map.mp-busy::after {
   content: "Loading the map…"; position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 1000; pointer-events: none;
   background: rgba(255, 255, 255, .95); color: var(--ink-2); font: 600 12.5px var(--font); padding: 5px 12px; border-radius: 999px; box-shadow: 0 2px 8px rgba(0, 0, 0, .2);
@@ -1521,7 +1529,7 @@ table.pf .ok { color: #15803d; font-weight: 700; }
 @media (max-width: 760px) {
   .route-head .map-seg { width: 100%; }
   .route-head .map-seg button { flex: 1; }
-  .mp-map { height: 62vh; min-height: 360px; border-radius: 14px; }
+  .mp-map { height: 68vh; min-height: 380px; border-radius: 14px; }
   .mp-pick { width: 100%; }
   .mp-pick select { max-width: none; flex: 1; min-width: 0; }
   .mp-sum { font-size: 12px; }

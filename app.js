@@ -2976,47 +2976,44 @@
       .then(() => !!window.L.maplibreGL).catch(() => false);
     return glLib;
   }
-  /** the background maps (layers button, top right):
-   *  Street map — OpenStreetMap's own tiles: quick, but its volunteer servers block some networks / browsers;
-   *  Clean map  — OpenFreeMap (free, commercial use allowed): never blocked, slower the first time;
-   *  Terrain    — OpenTopoMap. */
+  /** the map underneath: OpenFreeMap's clean map (free, no key, no limits, commercial use allowed), drawn by MapLibre.
+   *  On phones it draws at most 2× sharp (3× phones would do 2.25× the work for no visible gain).
+   *  Only a phone without WebGL gets OpenStreetMap's plain tiles instead. */
   const OSM_DATA = 'Data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
-  const streetMap = L => L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' });
-  const cleanMap = L => L.maplibreGL({ style: 'https://tiles.openfreemap.org/styles/liberty',
+  const cleanMap = L => L.maplibreGL({ style: 'https://tiles.openfreemap.org/styles/liberty', pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+    padding: IS_PHONE ? 0.08 : 0.15, fadeDuration: IS_PHONE ? 0 : 300,
     attribution: '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> &copy; <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a> ' + OSM_DATA });
-  const terrainMap = L => L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 17, subdomains: 'abc',
-    attribution: 'Map <a href="https://opentopomap.org" target="_blank" rel="noopener">OpenTopoMap</a> (CC-BY-SA) · ' + OSM_DATA });
-  let LazyClean = null;
-  /** stands in for the clean map in the layers button: MapLibre (about 1 MB) is loaded only when the clean map is shown;
-   *  says "Loading the map…" until it has drawn; falls back to the street map on a phone without WebGL */
-  function lazyClean(L) {
-    return LazyClean || (LazyClean = L.Layer.extend({
-      onAdd(map) {
-        const el = map.getContainer();
-        this._shown = true;
-        el.classList.add('mp-busy');
-        const done = () => el.classList.remove('mp-busy');
-        loadGL().then(ok => {
-          if (!this._shown) return done();
-          this._real = (ok ? cleanMap(L) : streetMap(L)).addTo(map);
-          const gm = ok && this._real.getMaplibreMap && this._real.getMaplibreMap();
-          if (gm) { gm.once('idle', done); setTimeout(done, 20000); } else done();
-        });
-      },
-      onRemove(map) {
-        this._shown = false;
-        map.getContainer().classList.remove('mp-busy');
-        if (this._real) map.removeLayer(this._real);
-        this._real = null;
-      }
-    }));
+  const plainMap = L => L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' });
+  /** put the clean map under the map in #el; says "Loading the map…" until it has drawn (a few seconds the first time) */
+  function addBaseMap(L, map) {
+    const el = map.getContainer(), done = () => el.classList.remove('mp-busy');
+    el.classList.add('mp-busy');
+    loadGL().then(ok => {
+      const base = (ok ? cleanMap(L) : plainMap(L)).addTo(map);
+      const gm = ok && base.getMaplibreMap && base.getMaplibreMap();
+      if (!gm) return done();
+      gm.once('idle', done);
+      setTimeout(done, 20000);
+      // the bridge resizes its box when the map changes size (full screen, turning the phone) but not the drawing in it
+      map.on('resize', () => setTimeout(() => {
+        if (!map.hasLayer(base)) return;
+        base._resizeContainer();
+        gm.resize();
+        base._update();
+      }, 80));
+    });
   }
-  let osmProbe = null;
-  /** does OpenStreetMap give this browser its tiles? (a blocked one gets "403 Access blocked" pictures instead) */
-  function osmWorks() {
-    return osmProbe || (osmProbe = fetch('https://tile.openstreetmap.org/6/45/28.png', { cache: 'no-store', referrerPolicy: 'strict-origin-when-cross-origin' })
-      .then(r => r.ok).catch(() => false));
+  /** ⛶ the map over the whole screen (phones: the back button closes it again) */
+  function mapFull(el, on) {
+    if (el.classList.contains('mp-full') === on) return;
+    el.classList.toggle('mp-full', on);
+    document.body.classList.toggle('map-full', on);
+    const b = el.querySelector('.mp-fs');
+    if (b) { b.textContent = on ? '✕' : '⛶'; b.title = on ? 'Close full screen' : 'Full screen'; }
+    if (on) try { history.pushState({ vpt: 'map' }, ''); } catch (e) { /* ignore */ }
+    const m = Object.values(MAPS).find(x => x.map.getContainer() === el);
+    if (m) setTimeout(() => m.map.invalidateSize(), 60);
   }
   /** a ring in the trucks' status colours with their count in the middle */
   function ringHtml(vs) {
@@ -3027,22 +3024,26 @@
     return '<div class="mk-in mk-ring' + (n > 9 ? ' big' : '') + '" style="background:conic-gradient(' + ring + ')"><b>' + n + '</b></div>';
   }
   const MAPS = {};
-  /** the map in #id (made once): OpenStreetMap tiles, layers for lines, places and trucks */
+  /** the map in #id (made once): the clean map underneath, layers for lines, places and trucks */
   async function mapFor(id) {
-    osmWorks();
     const L = await loadLeaflet();
+    loadGL();   // start fetching the clean map's code at once
     let m = MAPS[id];
     if (!m) {
       const el = $('#' + id);
-      // the map chosen before; else the street map, or the clean map where OpenStreetMap is blocked
-      const pref = store.get('vpt_mapbase', ''), osmOk = await osmWorks();
-      if (MAPS[id]) return mapFor(id);   // made meanwhile by another call
       el.innerHTML = '';
-      const map = L.map(el, { scrollWheelZoom: false, zoomSnap: 0.5, minZoom: 4, maxZoom: 17 }).setView([21.5, 82], 6);
+      const map = L.map(el, { scrollWheelZoom: false, zoomSnap: 0.5, minZoom: 4, maxZoom: 17, tapTolerance: 20 }).setView([21.5, 82], 6);
       map.attributionControl.setPrefix(false);
-      const bases = { 'Street map': streetMap(L), 'Clean map': new (lazyClean(L))(), 'Terrain': terrainMap(L) };
-      (bases[pref] || bases[osmOk ? 'Street map' : 'Clean map']).addTo(map);
-      map.on('baselayerchange', e => store.set('vpt_mapbase', e.name));
+      addBaseMap(L, map);
+      // ⛶ full screen, under the zoom buttons
+      const Fs = L.Control.extend({ options: { position: 'topleft' }, onAdd: () => {
+        const b = L.DomUtil.create('button', 'mp-fs');
+        b.type = 'button'; b.textContent = '⛶'; b.title = 'Full screen';
+        L.DomEvent.disableClickPropagation(b);
+        L.DomEvent.on(b, 'click', () => { if (el.classList.contains('mp-full')) history.back(); else mapFull(el, true); });
+        return b;
+      } });
+      new Fs().addTo(map);
       // the mouse wheel zooms only after a click on the map, so the page still scrolls past it
       map.on('click', () => map.scrollWheelZoom.enable());
       map.on('mouseout', () => map.scrollWheelZoom.disable());
@@ -3052,7 +3053,7 @@
         iconCreateFunction: cl => L.divIcon({ className: 'mk', iconSize: null, html: ringHtml(cl.getAllChildMarkers().flatMap(x => x.options.vs || [])) })
       });
       m = MAPS[id] = { map: map, lines: L.layerGroup().addTo(map), marks: L.layerGroup().addTo(map), trucks: trucks.addTo(map), fit: '' };
-      L.control.layers(bases, { 'Trucks now': m.trucks, 'Route lines': m.lines }, { position: 'topright' }).addTo(map);
+      L.control.layers(null, { 'Trucks now': m.trucks, 'Route lines': m.lines }, { position: 'topright' }).addTo(map);
       el.addEventListener('click', e => { const v = e.target.closest('[data-v]'); if (v) openDetail(v.dataset.v); });
     }
     m.map.invalidateSize();
@@ -3081,7 +3082,8 @@
     if (o.click) line.on('click', o.click);
     m.lines.addLayer(line);
     if (look === 'dim') return rd;
-    m.lines.addLayer(L.polyline(pts, { color: '#fff', weight: look === 'sel' ? 2.2 : 1.4, opacity: .85, dashArray: look === 'sel' ? '3 13' : '2 10', interactive: false, className: 'mp-flow' }));
+    // running dashes: on a phone only on the chosen route / hub lines (dozens of moving lines make a phone stutter)
+    if (!(IS_PHONE && look === 'all')) m.lines.addLayer(L.polyline(pts, { color: '#fff', weight: look === 'sel' ? 2.2 : 1.4, opacity: .85, dashArray: look === 'sel' ? '3 13' : '2 10', interactive: false, className: 'mp-flow' }));
     const i = Math.max(1, Math.round((pts.length - 1) * 0.62)), p = m.map.project(pts[i - 1], 8), q = m.map.project(pts[i], 8);
     const deg = Math.atan2(q.y - p.y, q.x - p.x) * 180 / Math.PI;
     m.lines.addLayer(L.marker(pts[i], { interactive: false, keyboard: false,
@@ -3337,6 +3339,9 @@
     $('#routeModeSeg').addEventListener('click', e => { const b = e.target.closest('[data-rmode]'); if (b) setRouteMode(b.dataset.rmode); });
     $('#hubViewSeg').addEventListener('click', e => { const b = e.target.closest('[data-hview]'); if (b) setHubView(b.dataset.hview); });
     $('#routePick').addEventListener('change', e => { S.rpick = e.target.value; renderRouteMap(); });
+    // full-screen map: the back button / Esc close it (but a detail sheet over it closes first)
+    window.addEventListener('popstate', () => { const f = $('.mp-map.mp-full'); if (f && !(history.state && history.state.vpt === 'map')) mapFull(f, false); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !S.detail && $('.mp-map.mp-full')) history.back(); });
     $('#routeEta').addEventListener('click', e => { if (e.target.closest('[data-rpick]')) { S.rpick = ''; renderRouteMap(); } });
     setRouteMode(S.rmode, true);
     setHubView(S.hview, true);
