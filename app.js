@@ -2947,22 +2947,76 @@
     }, 600);
   }
 
+  const addCss = href => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = href; document.head.appendChild(l); return l; };
+  const addJs = src => new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = () => res(s); s.onerror = () => { s.remove(); rej(new Error(src)); };
+    document.head.appendChild(s);
+  });
   let leaflet = null;
   /** Leaflet + its marker-cluster add-on (trucks in nearby towns merge into one count when zoomed out) */
   function loadLeaflet() {
     if (leaflet) return leaflet;
-    const cdn = 'https://cdnjs.cloudflare.com/ajax/libs/', added = [];
-    const css = href => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = href; document.head.appendChild(l); added.push(l); };
-    const js = src => new Promise((res, rej) => {
-      const s = document.createElement('script');
-      s.src = src; s.onload = res; s.onerror = rej;
-      document.head.appendChild(s); added.push(s);
-    });
-    css(cdn + 'leaflet/1.9.4/leaflet.min.css');
-    css(cdn + 'leaflet.markercluster/1.5.3/MarkerCluster.css');
-    leaflet = js(cdn + 'leaflet/1.9.4/leaflet.min.js').then(() => js(cdn + 'leaflet.markercluster/1.5.3/leaflet.markercluster.js')).then(() => window.L)
-      .catch(() => { leaflet = null; added.forEach(x => x.remove()); throw new Error('map'); });
+    const cdn = 'https://cdnjs.cloudflare.com/ajax/libs/', css = [addCss(cdn + 'leaflet/1.9.4/leaflet.min.css'), addCss(cdn + 'leaflet.markercluster/1.5.3/MarkerCluster.css')];
+    leaflet = addJs(cdn + 'leaflet/1.9.4/leaflet.min.js').then(() => addJs(cdn + 'leaflet.markercluster/1.5.3/leaflet.markercluster.js')).then(() => window.L)
+      .catch(() => { leaflet = null; css.forEach(x => x.remove()); throw new Error('map'); });
     return leaflet;
+  }
+  let glLib = null;
+  /** MapLibre + its Leaflet bridge, which draw OpenFreeMap's map (free, no key, no limits, commercial use allowed);
+   *  false when the phone has no WebGL or it does not load — then the map uses OpenStreetMap's own tiles */
+  function loadGL() {
+    if (glLib) return glLib;
+    let webgl = false;
+    try { const c = document.createElement('canvas'); webgl = !!(c.getContext('webgl2') || c.getContext('webgl')); } catch (e) { /* no WebGL */ }
+    if (!webgl) return (glLib = Promise.resolve(false));
+    const npm = 'https://cdn.jsdelivr.net/npm/';
+    addCss(npm + 'maplibre-gl@5.22.0/dist/maplibre-gl.css');
+    glLib = addJs(npm + 'maplibre-gl@5.22.0/dist/maplibre-gl.js').then(() => addJs(npm + '@maplibre/maplibre-gl-leaflet@0.1.4/leaflet-maplibre-gl.js'))
+      .then(() => !!window.L.maplibreGL).catch(() => false);
+    return glLib;
+  }
+  /** the background maps (layers button, top right):
+   *  Street map — OpenStreetMap's own tiles: quick, but its volunteer servers block some networks / browsers;
+   *  Clean map  — OpenFreeMap (free, commercial use allowed): never blocked, slower the first time;
+   *  Terrain    — OpenTopoMap. */
+  const OSM_DATA = 'Data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
+  const streetMap = L => L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' });
+  const cleanMap = L => L.maplibreGL({ style: 'https://tiles.openfreemap.org/styles/liberty',
+    attribution: '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> &copy; <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a> ' + OSM_DATA });
+  const terrainMap = L => L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 17, subdomains: 'abc',
+    attribution: 'Map <a href="https://opentopomap.org" target="_blank" rel="noopener">OpenTopoMap</a> (CC-BY-SA) · ' + OSM_DATA });
+  let LazyClean = null;
+  /** stands in for the clean map in the layers button: MapLibre (about 1 MB) is loaded only when the clean map is shown;
+   *  says "Loading the map…" until it has drawn; falls back to the street map on a phone without WebGL */
+  function lazyClean(L) {
+    return LazyClean || (LazyClean = L.Layer.extend({
+      onAdd(map) {
+        const el = map.getContainer();
+        this._shown = true;
+        el.classList.add('mp-busy');
+        const done = () => el.classList.remove('mp-busy');
+        loadGL().then(ok => {
+          if (!this._shown) return done();
+          this._real = (ok ? cleanMap(L) : streetMap(L)).addTo(map);
+          const gm = ok && this._real.getMaplibreMap && this._real.getMaplibreMap();
+          if (gm) { gm.once('idle', done); setTimeout(done, 20000); } else done();
+        });
+      },
+      onRemove(map) {
+        this._shown = false;
+        map.getContainer().classList.remove('mp-busy');
+        if (this._real) map.removeLayer(this._real);
+        this._real = null;
+      }
+    }));
+  }
+  let osmProbe = null;
+  /** does OpenStreetMap give this browser its tiles? (a blocked one gets "403 Access blocked" pictures instead) */
+  function osmWorks() {
+    return osmProbe || (osmProbe = fetch('https://tile.openstreetmap.org/6/45/28.png', { cache: 'no-store', referrerPolicy: 'strict-origin-when-cross-origin' })
+      .then(r => r.ok).catch(() => false));
   }
   /** a ring in the trucks' status colours with their count in the middle */
   function ringHtml(vs) {
@@ -2975,16 +3029,20 @@
   const MAPS = {};
   /** the map in #id (made once): OpenStreetMap tiles, layers for lines, places and trucks */
   async function mapFor(id) {
+    osmWorks();
     const L = await loadLeaflet();
     let m = MAPS[id];
     if (!m) {
       const el = $('#' + id);
+      // the map chosen before; else the street map, or the clean map where OpenStreetMap is blocked
+      const pref = store.get('vpt_mapbase', ''), osmOk = await osmWorks();
+      if (MAPS[id]) return mapFor(id);   // made meanwhile by another call
       el.innerHTML = '';
       const map = L.map(el, { scrollWheelZoom: false, zoomSnap: 0.5, minZoom: 4, maxZoom: 17 }).setView([21.5, 82], 6);
       map.attributionControl.setPrefix(false);
-      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
-      }).addTo(map);
+      const bases = { 'Street map': streetMap(L), 'Clean map': new (lazyClean(L))(), 'Terrain': terrainMap(L) };
+      (bases[pref] || bases[osmOk ? 'Street map' : 'Clean map']).addTo(map);
+      map.on('baselayerchange', e => store.set('vpt_mapbase', e.name));
       // the mouse wheel zooms only after a click on the map, so the page still scrolls past it
       map.on('click', () => map.scrollWheelZoom.enable());
       map.on('mouseout', () => map.scrollWheelZoom.disable());
@@ -2994,7 +3052,7 @@
         iconCreateFunction: cl => L.divIcon({ className: 'mk', iconSize: null, html: ringHtml(cl.getAllChildMarkers().flatMap(x => x.options.vs || [])) })
       });
       m = MAPS[id] = { map: map, lines: L.layerGroup().addTo(map), marks: L.layerGroup().addTo(map), trucks: trucks.addTo(map), fit: '' };
-      L.control.layers(null, { 'Trucks now': m.trucks, 'Route lines': m.lines }, { position: 'topright' }).addTo(map);
+      L.control.layers(bases, { 'Trucks now': m.trucks, 'Route lines': m.lines }, { position: 'topright' }).addTo(map);
       el.addEventListener('click', e => { const v = e.target.closest('[data-v]'); if (v) openDetail(v.dataset.v); });
     }
     m.map.invalidateSize();

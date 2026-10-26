@@ -1423,6 +1423,10 @@ table.pf .ok { color: #15803d; font-weight: 700; }
 }
 .mp-map.leaflet-container { font: inherit; }
 .mp-loading { display: grid; place-items: center; height: 100%; color: var(--muted); font-weight: 600; }
+.mp-map.mp-busy::after {
+  content: "Loading the map…"; position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 1000; pointer-events: none;
+  background: rgba(255, 255, 255, .95); color: var(--ink-2); font: 600 12.5px var(--font); padding: 5px 12px; border-radius: 999px; box-shadow: 0 2px 8px rgba(0, 0, 0, .2);
+}
 .mp-note { margin: 8px 2px 0; line-height: 1.45; }
 .mp-map .mk { background: none; border: 0; }
 .mk-in { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); white-space: nowrap; cursor: pointer; }
