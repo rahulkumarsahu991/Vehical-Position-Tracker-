@@ -2930,12 +2930,44 @@
     return best && Math.sqrt(bd) * 111 <= maxKm ? best : null;
   }
   /** where a truck stands on the map: its current town, moved onto its own route's road when the town is on it */
-  function truckAt(v) {
-    const name = v.cur || (v.cat === 'loading' ? v.from : v.cat === 'unloading' ? v.to : '');
-    const ll = name ? placeLL(name) : null;
+  function truckAt(v, m) {   // m: only onto a road that is on this map
+    const ll = truckTown(v);
     if (!ll) return null;
-    const rd = road(placeLL(v.from, true), placeLL(v.to, true));
-    return (rd && snapOn(rd.pts, ll, 30)) || ll;
+    const a = placeLL(v.from, true), b = placeLL(v.to, true), rd = road(a, b);
+    if (!rd || (m && !m.drawn.has(roadKey(a, b)))) return ll;
+    return snapOn(rd.pts, ll, 30) || ll;
+  }
+  /** the town a truck is in now (loading / unloading ones with no current location: their From / To) */
+  function truckTown(v) {
+    const name = v.cur || (v.cat === 'loading' ? v.from : v.cat === 'unloading' ? v.to : '');
+    return name ? placeLL(name) : null;
+  }
+  const kmApart = (a, b) => Math.hypot(a[0] - b[0], (a[1] - b[1]) * Math.cos(a[0] * Math.PI / 180)) * 111;
+  /** where a truck is going next: a loaded one to its To, an empty one to its From (the loading point it heads to) */
+  function truckNext(v) {
+    if (['running', 'loadnd'].includes(v.cat)) return v.to;
+    if (v.cat === 'empty') return v.from;
+    return '';
+  }
+  /** trucks standing away from every road on the map get their own road: from where they are now to where they go
+   *  (target(v) → [lat, lng]), a thinner line in the same colour, so no truck floats alone. Returns the legs drawn. */
+  function legLines(m, vs, target, o) {
+    const legs = {};
+    vs.forEach(v => {
+      const a = truckTown(v), b = target(v);
+      if (!a || !b || kmApart(a, b) < 15) return;
+      const own = road(placeLL(v.from, true), placeLL(v.to, true));
+      if (own && snapOn(own.pts, a, 30) && m.drawn.has(roadKey(placeLL(v.from, true), placeLL(v.to, true)))) return;   // already on a road shown
+      const k = roadKey(a, b);
+      if (m.drawn.has(k)) return;
+      (legs[k] = legs[k] || { a: a, b: b, name: v.cur || '', vs: [] }).vs.push(v);
+    });
+    return Object.values(legs).map(l => {
+      const n = l.vs.length;
+      l.rd = flowLine(m, l.a, l.b, { color: o.color(l.vs[0]), edge: o.edge ? o.edge(l.vs[0]) : '#fff', n: n, look: 'leg',
+        tip: esc((l.name || '?') + ' → ' + o.name(l.vs[0])) + ' · ' + n + ' truck' + (n > 1 ? 's' : '') + ' on the way (from where ' + (n > 1 ? 'they are' : 'it is') + ' now)' });
+      return l;
+    });
   }
 
   let mapT = null;
@@ -3062,6 +3094,7 @@
     }
     m.map.invalidateSize();
     m.lines.clearLayers(); m.marks.clearLayers(); m.trucks.clearLayers();
+    m.drawn = new Set();   // roads on the map now (a → b), so a truck's own road is not drawn twice
     return m;
   }
   /** a gentle curve from a to b, so A → B and B → A do not lie on top of each other */
@@ -3079,7 +3112,8 @@
    *  o.look: 'all' (many routes at once), 'sel' (the chosen route, thick), 'dim' (the others while one is chosen), 'hub' */
   function flowLine(m, a, b, o) {
     const L = window.L, rd = road(a, b), pts = rd ? rd.pts : arc(a, b, 0.14), n = o.n || 1, look = o.look || 'hub';
-    const w = look === 'sel' ? 7 : look === 'dim' ? 3 : look === 'all' ? 2.6 + Math.min(3, Math.sqrt(n) * 0.6) : 3 + Math.min(4, Math.sqrt(n) * 0.9);
+    m.drawn.add(roadKey(a, b));
+    const w = look === 'sel' ? 7 : look === 'leg' ? 4 : look === 'dim' ? 3 : look === 'all' ? 2.6 + Math.min(3, Math.sqrt(n) * 0.6) : 3 + Math.min(4, Math.sqrt(n) * 0.9);
     const tip = o.tip + (rd ? ' · ' + rd.km + ' km · ~' + truckTime(rd.min, rd.km) + ' by truck' : '');
     m.lines.addLayer(L.polyline(pts, { color: o.edge || '#fff', weight: w + 3, opacity: look === 'dim' ? .5 : .95, interactive: false, className: 'mp-edge' }));
     const line = L.polyline(pts, { color: look === 'dim' ? '#9aa0a6' : o.color, weight: w, opacity: look === 'dim' ? .7 : 1, className: 'mp-line' }).bindTooltip(tip, { sticky: true });
@@ -3107,7 +3141,7 @@
     const L = window.L, at = {}, lost = {};
     vs.forEach(v => {
       const name = v.cur || (v.cat === 'loading' ? v.from : v.cat === 'unloading' ? v.to : '');
-      const ll = truckAt(v);
+      const ll = truckAt(v, m);
       if (!ll) { (lost[name || 'No current location'] = lost[name || 'No current location'] || []).push(v); return; }
       const k = ll.join(',');
       (at[k] = at[k] || { ll: ll, name: name, vs: [] }).vs.push(v);
@@ -3247,7 +3281,15 @@
     });
     const seen = new Set();
     const vs = (sel ? sel.vs : g.routes.filter(r => !focus || role(r)).flatMap(r => r.vs).concat(coming))
-      .filter(v => (!S.rcat || v.cat === S.rcat) && !seen.has(v.vno) && seen.add(v.vno)), lost = truckMarks(m, vs);
+      .filter(v => (!S.rcat || v.cat === S.rcat) && !seen.has(v.vno) && seen.add(v.vno));
+    // a truck away from every road shown: its own road from where it is now to where it goes next
+    const focusLL = focus && placeLL(focus.name);
+    legLines(m, vs, v => placeLL(truckNext(v), true), { color: () => '#5b8def', name: v => truckNext(v) }).forEach(l => {
+      if (!l.rd) return;
+      if (some) l.rd.pts.forEach(p => pts.push(p));   // all routes: the zoom keeps to where most of it is
+      if (focusLL && l.b.join() === focusLL.join() && boxes < (narrow ? 4 : 10)) etaBox(m, l.rd, l.name || '?', boxes++);   // coming to the chosen point
+    });
+    const lost = truckMarks(m, vs);
     m.trucks.eachLayer(l => pts.push([l.getLatLng().lat, l.getLatLng().lng]));
     mapFit(m, pts, [S.f.caller, S.rq, S.rcat, sel ? rkey(sel) + (selRoad ? '+road' : '') : '', focus ? '@' + fk : ''].join('|'), !some);
     mapNote(note, lost, missing, vs);
@@ -3288,6 +3330,15 @@
     side(d.inn, true);
     side(d.out, false);
     const seen = new Set(), vs = d.at.concat(...d.inn.map(x => x.vs), ...d.out.map(x => x.vs)).filter(v => !seen.has(v.vno) && seen.add(v.vno));
+    // a truck away from these roads: its own road from where it is now — to the hub (coming), or to where it goes (going)
+    const goes = {};
+    if (hub) d.inn.forEach(gp => gp.vs.forEach(v => { goes[v.vno] = { ll: hub, name: S.hub, into: true }; }));
+    d.out.forEach(gp => { const ll = placeLL(gp.place, !load); if (ll) gp.vs.forEach(v => { goes[v.vno] = goes[v.vno] || { ll: ll, name: gp.place, into: false }; }); });
+    legLines(m, vs.filter(v => goes[v.vno]), v => goes[v.vno].ll, { color: v => (goes[v.vno].into ? col.in : col.out), name: v => goes[v.vno].name }).forEach(l => {
+      if (!l.rd) return;
+      l.rd.pts.forEach(p => pts.push(p));
+      if (goes[l.vs[0].vno].into && boxes < (narrow ? 3 : 6)) etaBox(m, l.rd, l.name || '?', boxes++);   // how long until they reach the hub
+    });
     const lost = truckMarks(m, vs);
     m.trucks.eachLayer(l => pts.push([l.getLatLng().lat, l.getLatLng().lng]));
     mapFit(m, pts, S.hmode + '|' + S.hub, false);
