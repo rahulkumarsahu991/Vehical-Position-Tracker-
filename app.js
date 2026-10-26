@@ -2664,7 +2664,8 @@
         '<div class="hr-trucks">' + hubTrucks(d.at, d.progs) + '</div></div>' +
       '</section>';
   }
-  /** elbow lines with arrows: every "from" row → hub box, hub box → every "to" row (not drawn on phones) */
+  /** elbow lines with arrows: every "from" row → hub box, hub box → every "to" row;
+   *  on a phone (top to bottom): both columns of places join into the hub, the hub forks out to both columns */
   function drawHubLinks() {
     const gr = $('#hubBody .hf-grid2');
     if (!gr) return;
@@ -2673,6 +2674,46 @@
     const R = gr.getBoundingClientRect(), H = $('.hf-hub', gr).getBoundingClientRect();
     svg.setAttribute('width', R.width); svg.setAttribute('height', R.height);
     svg.setAttribute('viewBox', '0 0 ' + R.width + ' ' + R.height);
+    const mk = (id, side) => '<marker id="' + id + '" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="hf-ah ' + side + '" d="M0 0L10 5L0 10z"/></marker>';
+    const defs = '<defs>' + mk('hfArrIn', 'in') + mk('hfArrOut', 'out') + '</defs>';
+    const width = n => (1.6 + Math.min(4, Math.sqrt(n) * 1.05)).toFixed(1);
+    if (getComputedStyle(gr).display !== 'grid') {
+      // phone: down one column, round the corner, across to the middle, down into the hub (and the other way out)
+      const down = (x1, y1, my, x2, y2) => {
+        if (Math.abs(x2 - x1) < 1) return 'M' + x1 + ' ' + y1 + ' V' + y2;
+        const r = Math.min(8, Math.abs(x2 - x1) / 2, my - y1, y2 - my), sx = x2 > x1 ? 1 : -1;
+        return 'M' + x1 + ' ' + y1 + ' V' + (my - r) + ' Q' + x1 + ' ' + my + ' ' + (x1 + sx * r) + ' ' + my +
+          ' H' + (x2 - sx * r) + ' Q' + x2 + ' ' + my + ' ' + x2 + ' ' + (my + r) + ' V' + y2;
+      };
+      const lanes = $$('.hf-lane', gr).map(l => l.getBoundingClientRect()), xc = H.left + H.width / 2 - R.left;
+      const cols = into => {   // each column of places: its centre, how many trucks, where its last place ends
+        const sel = into ? '.hf-col.in' : '.hf-col.out', c = {}, col = $(sel, gr).getBoundingClientRect();
+        // an opened place and "+ more" span both columns: a line has to start below them
+        const wide = Math.max(0, ...$$(sel + ' .hf-item.open, ' + sel + ' .hf-more', gr).map(e => e.getBoundingClientRect().bottom));
+        $$(sel + ' .hf-row', gr).forEach(row => {
+          const r = row.getBoundingClientRect();
+          if (r.width > col.width * 0.7) return;
+          const x = Math.round(r.left + r.width / 2 - R.left), k = c[x] = c[x] || { x: x, n: 0, end: 0 };
+          k.n += +row.dataset.n || 0;
+          k.end = Math.max(k.end, r.bottom, wide);
+        });
+        return Object.values(c);
+      };
+      const path = (p, side, n, k) => '<path class="hf-l ' + side + '" d="' + p + '" stroke-width="' + width(n) + '" marker-end="url(#' + (side === 'in' ? 'hfArrIn' : 'hfArrOut') + ')"/>' +
+        '<path class="hf-dash" d="' + p + '"/>' +
+        [0, 0.7].map(t => '<circle class="hf-mover ' + side + '" r="3.4"><animateMotion dur="1.4s" begin="-' + (t + k * 0.35).toFixed(2) + 's" repeatCount="indefinite" path="' + p + '"/></circle>').join('');
+      let out = defs;
+      if (lanes[0]) {
+        const L = lanes[0], my = L.top + L.height / 2 - R.top, y2 = H.top - R.top - 2;
+        out += cols(true).map((c, k) => path(down(c.x, c.end - R.top, my, xc, y2), 'in', c.n, k)).join('');
+      }
+      if (lanes[1]) {
+        const L = lanes[1], y1 = H.bottom - R.top, my = L.top + L.height / 2 - R.top, y2 = L.bottom - R.top - 2;
+        out += cols(false).map((c, k) => path(down(xc, y1, my, c.x, y2), 'out', c.n, k)).join('');
+      }
+      svg.innerHTML = out;
+      return;
+    }
     const elbow = (x1, y1, mx, x2, y2) => {
       if (Math.abs(y2 - y1) < 1) return 'M' + x1 + ' ' + y1 + ' H' + x2;
       const r = Math.min(9, Math.abs(y2 - y1) / 2, Math.abs(mx - x1), Math.abs(x2 - mx)), sy = y2 > y1 ? 1 : -1, sx = x2 > x1 ? 1 : -1;
@@ -2684,15 +2725,14 @@
       return rows.map((row, i) => {
         const r = row.getBoundingClientRect(), ry = r.top + r.height / 2 - R.top;
         const hy = H.top - R.top + H.height * (i + 1) / (n + 1);   // spread along the hub box side
-        const w = (1.6 + Math.min(4, Math.sqrt(+row.dataset.n) * 1.05)).toFixed(1);
+        const w = width(+row.dataset.n);
         const x1 = into ? r.right - R.left : H.right - R.left, x2 = into ? H.left - R.left - 2 : r.left - R.left - 2;
         const mx = x1 + (x2 - x1) * (n > 1 ? 0.25 + 0.5 * (into ? i : n - 1 - i) / (n - 1) : 0.5);
         const p = elbow(x1, into ? ry : hy, mx, x2, into ? hy : ry);
         return '<path class="hf-l ' + (into ? 'in' : 'out') + '" d="' + p + '" stroke-width="' + w + '" marker-end="url(#' + (into ? 'hfArrIn' : 'hfArrOut') + ')"/><path class="hf-dash" d="' + p + '"/>';
       }).join('');
     };
-    const mk = (id, c) => '<marker id="' + id + '" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0L10 5L0 10z" fill="' + c + '"/></marker>';
-    svg.innerHTML = '<defs>' + mk('hfArrIn', 'var(--ci)') + mk('hfArrOut', 'var(--co)') + '</defs>' + lines(true) + lines(false);
+    svg.innerHTML = defs + lines(true) + lines(false);
   }
   function renderHub() {
     const body = $('#hubBody'), narrow = body.clientWidth < 760;

@@ -1121,7 +1121,13 @@ body.has-bulk main { padding-bottom: 180px; }
 .hflow2 .rdot .hf-at-now .pin { width: 10px; height: 10px; vertical-align: -1px; margin-right: 1px; }
 .hflow2 .rdot:hover, .hflow2 .rdot.on { transform: translateY(-1px); background: #fff; box-shadow: 0 0 0 1.5px var(--c), 0 4px 10px rgba(22, 26, 51, .18); }
 .hflow2 .rdot:hover span, .hflow2 .rdot.on span { background: none; color: var(--ink); }
-@media (prefers-reduced-motion: reduce) { .hh-web, .hf-dash { animation: none; } }
+.hf-ah.in { fill: var(--ci); }
+.hf-ah.out { fill: var(--co); }
+/* little dots running along the phone lines, like trucks on the road */
+.hf-mover { stroke: #fff; stroke-width: 1.5; filter: drop-shadow(0 0 2px rgba(22, 26, 51, .35)); }
+.hf-mover.in { fill: var(--ci); }
+.hf-mover.out { fill: var(--co); }
+@media (prefers-reduced-motion: reduce) { .hh-web, .hf-dash { animation: none; } .hf-mover { display: none; } }
 @media (max-width: 760px) {
   .tabs .t-long { display: none; }
   .tabs .t-short { display: inline; }
@@ -1141,14 +1147,13 @@ body.has-bulk main { padding-bottom: 180px; }
   .hst b { grid-row: auto; font-size: 21px; }
   .hst span { font-size: 11px; }
   .hst small { display: none; }
-  /* phone: from (2 per line) → ⬇ → hub → ⬇ → to (2 per line); no lines */
+  /* phone: from (2 per line) → joining lines → hub → forking lines → to (2 per line), moving dots on the lines */
   .hflow2 { padding: 10px 10px 12px; }
   .hf-grid2 { display: block; }
-  .hf-links, .hk-lines { display: none; }
+  .hk-lines { display: none; }
   .hf-col { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
   .hf-col .hf-lh, .hf-col .hf-more, .hf-col .hf-none, .hf-item.open { grid-column: 1 / -1; }
-  .hf-lane { height: 22px; position: relative; }
-  .hf-lane::after { content: "⬇"; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 15px; color: var(--muted); }
+  .hf-lane { height: 36px; }
   .hf-hub { padding: 9px 10px 8px; }
   .hf-hub b { font-size: 18px; }
   .hf-row { padding: 6px 7px; gap: 5px; }
