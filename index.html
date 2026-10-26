@@ -243,6 +243,10 @@
       <div id="routeSum" class="route-sum"></div>
       <p class="hint route-hint">Each road is one route, A (loading) → B (unloading). Every truck is a vehicle: at the loading point, on the way (grouped by where it is now) or at the unloading point. Tap a status to show only it; point at / tap a truck for its details.</p>
       <div id="routeMapWrap" class="map-wrap" hidden>
+        <div class="mp-bar">
+          <label class="select-wrap mp-pick"><span>Route</span><select id="routePick"></select></label>
+          <div class="mp-sum" id="routeEta"></div>
+        </div>
         <div id="routeMap" class="mp-map"><div class="mp-loading">Loading the map…</div></div>
         <p class="hint mp-note" id="routeMapNote"></p>
       </div>
@@ -353,6 +357,7 @@
 
   <script src="config.js"></script>
   <script src="places.js"></script>
+  <script src="roads.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

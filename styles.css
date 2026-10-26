@@ -1489,11 +1489,38 @@ table.pf .ok { color: #15803d; font-weight: 700; }
 .mp-v span { justify-self: end; font-size: 11px; font-weight: 700; color: var(--c); }
 .mp-v small { grid-column: 2 / 4; font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mp-tip { margin-top: 6px; font-size: 10.5px; color: var(--muted); }
+/* route picker over the map + what the chosen route is (km, time) */
+.mp-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 8px; }
+.mp-pick select { max-width: 340px; }
+.mp-sum { font-size: 12.5px; color: var(--ink-2); }
+.mp-sum b { color: var(--navy); }
+.mp-sum .link { border: 0; background: none; padding: 0 0 0 4px; font: 700 12.5px var(--font); color: #1a73e8; cursor: pointer; text-decoration: underline; }
+/* Google-style box on the chosen road: 🚚 ~8 hr 28 min / 286 km */
+.mp-map .leaflet-tooltip.mp-eta-tip { padding: 0; border: 0; border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, .3); background: #fff; }
+.mp-eta { display: flex; align-items: center; gap: 7px; padding: 5px 10px 5px 7px; --c: #1a73e8; }
+.mp-eta .truck { width: 26px; height: 16px; }
+.mp-eta div { display: grid; line-height: 1.15; }
+.mp-eta b { font: 700 13px var(--font); color: #188038; }
+.mp-eta small { font-size: 11.5px; color: #5f6368; }
+/* Google-style teardrop pins for the chosen route: A orange, B red */
+.mk-pinw { transform: translate(-50%, calc(-100% - 5px)); }
+.mk-pin {
+  width: 28px; height: 28px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: grid; place-items: center;
+  background: var(--orange); border: 2px solid #fff; box-shadow: -1px 3px 7px rgba(0, 0, 0, .35);
+}
+.mk-pin.b { background: #ea4335; }
+.mk-pin.ab { background: linear-gradient(135deg, var(--orange) 50%, #ea4335 50%); }
+.mk-pin i { transform: rotate(45deg); font: 700 13px/1 var(--cond); font-style: normal; color: #fff; }
+.mk-tag small { font: 600 10px var(--font); color: var(--muted); letter-spacing: 0; }
+.mp-edge, .mp-line { stroke-linecap: round; stroke-linejoin: round; }
 @media (prefers-reduced-motion: reduce) { .mp-flow { animation: none; } }
 @media (max-width: 760px) {
   .route-head .map-seg { width: 100%; }
   .route-head .map-seg button { flex: 1; }
   .mp-map { height: 62vh; min-height: 360px; border-radius: 14px; }
+  .mp-pick { width: 100%; }
+  .mp-pick select { max-width: none; flex: 1; min-width: 0; }
+  .mp-sum { font-size: 12px; }
   .mk-hub { padding: 3px 8px 4px; }
   .mk-hub b { font-size: 13px; }
   .mk-hub span { display: none; }   /* the counts are in the tiles above the map */

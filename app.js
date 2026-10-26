@@ -92,6 +92,7 @@
     rq: '', rcat: '', // route view: search, one status only
     hmode: 'load', hub: '', hubAll: {}, // hub analyzer: loading / unloading point, which hub, sides showing every place
     rmode: store.get('vpt_rmode', 'road'), hview: store.get('vpt_hview', 'flow'), // route: road / map · hub: flow / map
+    rpick: '', // the route chosen on the map ('' = all)
     drafts: {}, editing: {},
     print: Object.assign({ rep: 'caller', caller: '', orient: 'auto', cols: 'auto' }, store.get(K.print, {})),
     detail: null, pending: false,
@@ -2830,6 +2831,113 @@
     }
     geoBusy = false;
   }
+  /* ---- roads: the real road between two places, like Google Maps (OSRM — OpenStreetMap's free route finder).
+   *  Today's routes come with the site (roads.js); a new pair is asked for once and kept in this browser. */
+  const ROADS = window.VPT_ROADS || {};
+  const ROAD_KEY = 'vpt_roads_v1';
+  const roadMem = store.get(ROAD_KEY, {});
+  Object.keys(roadMem).forEach(k => { if (!roadMem[k][0] && Date.now() - roadMem[k][1] > 7 * 864e5) delete roadMem[k]; });
+  const roadPts = {};   // decoded once per pair
+  /** Google's "encoded polyline" (5 decimals) ⇄ [[lat, lng], …] */
+  function polyDecode(s) {
+    const out = [];
+    let i = 0, lat = 0, lng = 0;
+    while (i < s.length) {
+      for (let k = 0; k < 2; k++) {
+        let r = 0, sh = 0, b;
+        do { b = s.charCodeAt(i++) - 63; r |= (b & 31) << sh; sh += 5; } while (b >= 32);
+        const d = r & 1 ? ~(r >> 1) : r >> 1;
+        if (k) lng += d; else lat += d;
+      }
+      out.push([lat / 1e5, lng / 1e5]);
+    }
+    return out;
+  }
+  function polyEncode(pts) {
+    let o = '', pl = 0, pg = 0;
+    const e = v => { v = v < 0 ? ~(v << 1) : v << 1; let s = ''; while (v >= 32) { s += String.fromCharCode((32 | (v & 31)) + 63); v >>= 5; } return s + String.fromCharCode(v + 63); };
+    pts.forEach(p => { const la = Math.round(p[0] * 1e5), lo = Math.round(p[1] * 1e5); o += e(la - pl) + e(lo - pg); pl = la; pg = lo; });
+    return o;
+  }
+  /** fewer points, same shape (Douglas–Peucker, tol in degrees: 0.0012 ≈ 130 m) */
+  function simplify(pts, tol) {
+    if (pts.length < 3) return pts;
+    const keep = new Uint8Array(pts.length), st = [[0, pts.length - 1]];
+    keep[0] = keep[pts.length - 1] = 1;
+    while (st.length) {
+      const [s, e] = st.pop(), y1 = pts[s][0], x1 = pts[s][1], dx = pts[e][1] - x1, dy = pts[e][0] - y1, L = dx * dx + dy * dy;
+      let md = 0, mi = -1;
+      for (let i = s + 1; i < e; i++) {
+        const t = L ? Math.max(0, Math.min(1, ((pts[i][1] - x1) * dx + (pts[i][0] - y1) * dy) / L)) : 0;
+        const d = Math.hypot(pts[i][1] - x1 - t * dx, pts[i][0] - y1 - t * dy);
+        if (d > md) { md = d; mi = i; }
+      }
+      if (md > tol) { keep[mi] = 1; st.push([s, mi], [mi, e]); }
+    }
+    return pts.filter((p, i) => keep[i]);
+  }
+  const roadKey = (a, b) => a.join(',') + '>' + b.join(',');
+  /** the road a → b as { pts, km, min } (min = car time from OSRM), or null — then asked for once, the map redraws when it comes */
+  function road(a, b) {
+    if (!a || !b || a.join() === b.join()) return null;
+    const k = roadKey(a, b), r = ROADS[k] || roadMem[k];
+    if (!r) { roadAsk(k, a, b); return null; }
+    if (!r[0]) return null;   // no road found between them
+    return roadPts[k] || (roadPts[k] = { pts: polyDecode(r[0]), km: r[1], min: r[2] });
+  }
+  const roadQ = [];
+  let roadBusy = false, roadAsked = 0;
+  function roadAsk(k, a, b) {
+    if (roadAsked >= 40 || roadQ.some(x => x[0] === k)) return;
+    roadQ.push([k, a, b]);
+    roadRun();
+  }
+  async function roadRun() {
+    if (roadBusy) return;
+    roadBusy = true;
+    while (roadQ.length) {
+      const [k, a, b] = roadQ.shift();
+      roadAsked++;
+      try {
+        const r = await fetch('https://router.project-osrm.org/route/v1/driving/' + a[1] + ',' + a[0] + ';' + b[1] + ',' + b[0] + '?overview=full&geometries=polyline');
+        const j = r.ok ? await r.json() : null;
+        if (j) {
+          const rt = j.code === 'Ok' && j.routes[0];
+          roadMem[k] = rt ? [polyEncode(simplify(polyDecode(rt.geometry), 0.0012)), Math.round(rt.distance / 1000), Math.round(rt.duration / 60)] : [0, Date.now()];
+          store.set(ROAD_KEY, roadMem);
+          if (rt) mapSoon();
+        }
+      } catch (e) { /* offline / busy: asked again next time */ }
+      await new Promise(res => setTimeout(res, 1100));
+    }
+    roadBusy = false;
+  }
+  /** a loaded lorry is much slower than OSRM's car: 1.4 × the car time, and never faster than 45 km/h on average */
+  function truckTime(min, km) {
+    const m = Math.round(Math.max(min * 1.4, (km || 0) * 60 / 45)), h = Math.floor(m / 60);
+    return ((h ? h + ' hr ' : '') + (m % 60 || !h ? (m % 60) + ' min' : '')).trim();
+  }
+  /** the point on a road nearest to p, if it is within maxKm (a truck in a town on the road stands on the road) */
+  function snapOn(pts, p, maxKm) {
+    let best = null, bd = Infinity;
+    const kx = Math.cos(p[0] * Math.PI / 180);
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      const ax = (a[1] - p[1]) * kx, ay = a[0] - p[0], dx = (b[1] - a[1]) * kx, dy = b[0] - a[0], L = dx * dx + dy * dy;
+      const t = L ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L)) : 0, x = ax + t * dx, y = ay + t * dy, d = x * x + y * y;
+      if (d < bd) { bd = d; best = [+(a[0] + t * (b[0] - a[0])).toFixed(4), +(a[1] + t * (b[1] - a[1])).toFixed(4)]; }
+    }
+    return best && Math.sqrt(bd) * 111 <= maxKm ? best : null;
+  }
+  /** where a truck stands on the map: its current town, moved onto its own route's road when the town is on it */
+  function truckAt(v) {
+    const name = v.cur || (v.cat === 'loading' ? v.from : v.cat === 'unloading' ? v.to : '');
+    const ll = name ? placeLL(name) : null;
+    if (!ll) return null;
+    const rd = road(placeLL(v.from, true), placeLL(v.to, true));
+    return (rd && snapOn(rd.pts, ll, 30)) || ll;
+  }
+
   let mapT = null;
   function mapSoon() {
     clearTimeout(mapT);
@@ -2903,14 +3011,30 @@
     return pts;
   }
   /** a line with white dashes running along it (the way the trucks go) and an arrow two thirds of the way */
-  function flowLine(m, pts, color, n, tip, light) {   // light: many lines on one map (Route) — thinner, see-through
-    const L = window.L, w = light ? 1.8 + Math.min(3.2, Math.sqrt(n) * 0.7) : 2.4 + Math.min(5, Math.sqrt(n) * 1.1);
-    m.lines.addLayer(L.polyline(pts, { color: color, weight: w, opacity: light ? .55 : .85, className: 'mp-line' }).bindTooltip(tip, { sticky: true }));
-    m.lines.addLayer(L.polyline(pts, { color: '#fff', weight: light ? 1.2 : 1.6, opacity: light ? .8 : 1, dashArray: '2 10', interactive: false, className: 'mp-flow' }));
-    const i = Math.round(pts.length * 0.62), p = m.map.project(pts[i - 1], 6), q = m.map.project(pts[i], 6);
+  /** a line a → b along the real road (a gentle curve until the road is known), Google style: coloured with an edge,
+   *  white dashes running the way the trucks go, an arrow two thirds along. Returns the road ({ pts, km, min }) or null.
+   *  o.look: 'all' (many routes at once), 'sel' (the chosen route, thick), 'dim' (the others while one is chosen), 'hub' */
+  function flowLine(m, a, b, o) {
+    const L = window.L, rd = road(a, b), pts = rd ? rd.pts : arc(a, b, 0.14), n = o.n || 1, look = o.look || 'hub';
+    const w = look === 'sel' ? 7 : look === 'dim' ? 3 : look === 'all' ? 2.6 + Math.min(3, Math.sqrt(n) * 0.6) : 3 + Math.min(4, Math.sqrt(n) * 0.9);
+    const tip = o.tip + (rd ? ' · ' + rd.km + ' km · ~' + truckTime(rd.min, rd.km) + ' by truck' : '');
+    m.lines.addLayer(L.polyline(pts, { color: o.edge || '#fff', weight: w + 3, opacity: look === 'dim' ? .5 : .95, interactive: false, className: 'mp-edge' }));
+    const line = L.polyline(pts, { color: look === 'dim' ? '#9aa0a6' : o.color, weight: w, opacity: look === 'dim' ? .7 : 1, className: 'mp-line' }).bindTooltip(tip, { sticky: true });
+    if (o.click) line.on('click', o.click);
+    m.lines.addLayer(line);
+    if (look === 'dim') return rd;
+    m.lines.addLayer(L.polyline(pts, { color: '#fff', weight: look === 'sel' ? 2.2 : 1.4, opacity: .85, dashArray: look === 'sel' ? '3 13' : '2 10', interactive: false, className: 'mp-flow' }));
+    const i = Math.max(1, Math.round((pts.length - 1) * 0.62)), p = m.map.project(pts[i - 1], 8), q = m.map.project(pts[i], 8);
     const deg = Math.atan2(q.y - p.y, q.x - p.x) * 180 / Math.PI;
     m.lines.addLayer(L.marker(pts[i], { interactive: false, keyboard: false,
-      icon: L.divIcon({ className: 'mk', iconSize: null, html: '<i class="mk-arrow" style="--c:' + color + ';transform:translate(-50%,-50%) rotate(' + deg.toFixed(0) + 'deg)"></i>' }) }));
+      icon: L.divIcon({ className: 'mk', iconSize: null, html: '<i class="mk-arrow" style="--c:' + (o.edge && look === 'sel' ? o.edge : o.color) + ';transform:translate(-50%,-50%) rotate(' + deg.toFixed(0) + 'deg)"></i>' }) }));
+    return rd;
+  }
+  /** Google-style box on the road: 🚚 8 hr 28 min / 286 km */
+  function etaBox(m, rd) {
+    const L = window.L, mid = rd.pts[Math.floor(rd.pts.length / 2)];
+    m.lines.addLayer(L.tooltip({ permanent: true, direction: 'right', offset: [10, 0], className: 'mp-eta-tip', interactive: false })
+      .setLatLng(mid).setContent('<div class="mp-eta">' + ICO.truck + '<div><b>~' + esc(truckTime(rd.min, rd.km)) + '</b><small>' + rd.km + ' km</small></div></div>'));
   }
   /** trucks at their current location (loading / unloading ones at From / To when the location is empty):
    *  one truck = a small lorry with its number, more = a ring in their status colours with the count */
@@ -2918,7 +3042,7 @@
     const L = window.L, at = {}, lost = {};
     vs.forEach(v => {
       const name = v.cur || (v.cat === 'loading' ? v.from : v.cat === 'unloading' ? v.to : '');
-      const ll = name ? placeLL(name) : null;
+      const ll = truckAt(v);
       if (!ll) { (lost[name || 'No current location'] = lost[name || 'No current location'] || []).push(v); return; }
       const k = ll.join(',');
       (at[k] = at[k] || { ll: ll, name: name, vs: [] }).vs.push(v);
@@ -2952,39 +3076,58 @@
       (nl.length || ps.length || auto.length ? ' Tell us where these are and they will be fixed.' : '');
   }
   /** zoom to where most of it is: a few far places (Bangalore, Gujarat) stay a zoom-out away */
-  function mapFit(m, pts, key) {
+  function mapFit(m, pts, key, trim) {
     key += '|' + (m.map.getContainer().clientWidth < 600);   // phone ⇄ computer size: fit again
     if (m.fit === key || !pts.length) return;
     m.fit = key;
     const cut = (xs, p) => xs.slice().sort((a, b) => a - b)[Math.min(xs.length - 1, Math.max(0, Math.round((xs.length - 1) * p)))];
-    const lat = pts.map(p => p[0]), lng = pts.map(p => p[1]), edge = pts.length > 12 ? 0.06 : 0;
+    const lat = pts.map(p => p[0]), lng = pts.map(p => p[1]), edge = trim !== false && pts.length > 12 ? 0.06 : 0;
     m.map.fitBounds([[cut(lat, edge), cut(lng, edge)], [cut(lat, 1 - edge), cut(lng, 1 - edge)]], { padding: [28, 28], maxZoom: 9 });
   }
 
-  /** Route tab on the map: every route as a curved line A → B, the places as pins, the trucks where they are now */
+  /** Route tab on the map, like Google Maps: every route along its real road (pick one to see it alone with its
+   *  time and km), A / B pins, the trucks on the road where they are now */
   async function renderRouteMap() {
     const note = $('#routeMapNote');
     let m;
     try { m = await mapFor('routeMap'); } catch (e) { note.innerHTML = '<b>The map could not load.</b> Check the internet and open Map again.'; return; }
     if (S.view !== 'route' || S.rmode !== 'map') return;
     const L = window.L, g = routeGroups(), ends = {}, pts = [], missing = [];
+    const rkey = r => r.from + '→' + r.to;
+    const sel = g.routes.find(r => rkey(r) === S.rpick) || null;
+    $('#routePick').innerHTML = '<option value="">All routes (' + g.routes.length + ')</option>' +
+      g.routes.map(r => '<option value="' + esc(rkey(r)) + '"' + (sel === r ? ' selected' : '') + '>' + esc(r.from + ' → ' + r.to) + ' (' + r.vs.length + ')</option>').join('');
     const end = (name, ll, role, n) => {
       const k = ll.join(','), e = ends[k] = ends[k] || { ll: ll, name: name, roles: {}, n: 0 };
       e.roles[role] = 1; e.n += n;
     };
-    g.routes.forEach(r => {
-      const a = placeLL(r.from), b = placeLL(r.to), n = r.vs.length;
+    let selRoad = null;
+    // the others first (under), the chosen one last (on top)
+    g.routes.filter(r => r !== sel).concat(sel ? [sel] : []).forEach(r => {
+      const a = placeLL(r.from), b = placeLL(r.to), n = r.vs.length, on = r === sel;
       if (r.from && !a) missing.push(r.from);
       if (r.to && !b) missing.push(r.to);
-      if (a) { end(r.from, a, 'A', n); pts.push(a); }
-      if (b) { end(r.to, b, 'B', n); pts.push(b); }
-      if (a && b && a.join() !== b.join()) flowLine(m, arc(a, b, 0.14), '#3b3f8f', n, esc(r.from + ' → ' + r.to) + ' · ' + n + ' vehicle' + (n > 1 ? 's' : ''), true);
+      if (!sel || on) {
+        if (a) { end(r.from, a, 'A', n); pts.push(a); }
+        if (b) { end(r.to, b, 'B', n); pts.push(b); }
+      }
+      if (!a || !b || a.join() === b.join()) return;
+      const rd = flowLine(m, a, b, { color: on ? '#1a73e8' : '#4285f4', edge: on ? '#0b3d91' : '#fff', n: n, look: sel ? (on ? 'sel' : 'dim') : 'all',
+        tip: esc(r.from + ' → ' + r.to) + ' · ' + n + ' vehicle' + (n > 1 ? 's' : ''), click: () => { S.rpick = rkey(r); renderRouteMap(); } });
+      if (on) { selRoad = rd; if (rd) { etaBox(m, rd); rd.pts.forEach(p => pts.push(p)); } }
     });
+    $('#routeEta').innerHTML = sel
+      ? '<b>' + esc(sel.from + ' → ' + sel.to) + '</b>' + (selRoad ? ' · ' + selRoad.km + ' km · ~' + esc(truckTime(selRoad.min, selRoad.km)) + ' by truck' : '') +
+        ' · ' + sel.vs.length + ' truck' + (sel.vs.length > 1 ? 's' : '') + ' <button type="button" class="link" data-rpick="">Show all routes</button>'
+      : 'Tap a route line (or pick it above) to see it alone with its time and km.';
     const major = new Set(Object.keys(ends).sort((x, y) => ends[y].n - ends[x].n).slice(0, m.map.getContainer().clientWidth < 600 ? 6 : 12));
     Object.keys(ends).forEach(k => {
       const e = ends[k], role = e.roles.A && e.roles.B ? 'ab' : e.roles.A ? 'a' : 'b';
-      const mk = L.marker(e.ll, { icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in mk-end ' + role + '"><i>' + (role === 'b' ? 'B' : 'A') + '</i></div>' }), zIndexOffset: 500 });
-      mk.bindTooltip(esc(e.name), { permanent: true, direction: 'right', offset: [12, 0], className: 'mk-lbl' + (major.has(k) ? ' major' : '') });
+      // the chosen route: Google-style pins (A orange, B red); all routes: small round A / B
+      const html = sel ? '<div class="mk-in mk-pinw"><div class="mk-pin ' + role + '"><i>' + (role === 'b' ? 'B' : 'A') + '</i></div></div>'
+        : '<div class="mk-in mk-end ' + role + '"><i>' + (role === 'b' ? 'B' : 'A') + '</i></div>';
+      const mk = L.marker(e.ll, { icon: L.divIcon({ className: 'mk', iconSize: null, html: html }), zIndexOffset: 500 });   // under the trucks: a count at A / B stays readable
+      mk.bindTooltip(esc(e.name), { permanent: true, direction: 'right', offset: sel ? [14, -16] : [12, 0], className: 'mk-lbl' + (sel || major.has(k) ? ' major' : '') });
       mk.bindPopup(() => {
         const vs = g.routes.filter(r => spellKey(r.from) === spellKey(e.name) || spellKey(r.to) === spellKey(e.name)).flatMap(r => r.vs)
           .filter(v => [v.cur, v.cat === 'loading' ? v.from : '', v.cat === 'unloading' ? v.to : ''].some(x => spellKey(x) === spellKey(e.name)));
@@ -2992,9 +3135,9 @@
       }, { maxWidth: 290, className: 'mp-pop' });
       m.marks.addLayer(mk);
     });
-    const vs = g.routes.flatMap(r => r.vs).filter(v => !S.rcat || v.cat === S.rcat), lost = truckMarks(m, vs);
+    const vs = (sel ? sel.vs : g.routes.flatMap(r => r.vs)).filter(v => !S.rcat || v.cat === S.rcat), lost = truckMarks(m, vs);
     m.trucks.eachLayer(l => pts.push([l.getLatLng().lat, l.getLatLng().lng]));
-    mapFit(m, pts, [S.f.caller, S.rq, S.rcat].join('|'));
+    mapFit(m, pts, [S.f.caller, S.rq, S.rcat, sel ? rkey(sel) + (selRoad ? '+road' : '') : ''].join('|'), !sel);
     mapNote(note, lost, missing, vs);
   }
 
@@ -3018,8 +3161,10 @@
       if (!ll) { missing.push(gp.place); return; }
       pts.push(ll);
       const c = into ? col.in : col.out, n = gp.vs.length;
-      if (hub && ll.join() !== hub.join()) flowLine(m, into ? arc(ll, hub, 0.12) : arc(hub, ll, 0.12), c, n, esc(into ? gp.place + ' → ' + S.hub : S.hub + ' → ' + gp.place) + ' · ' + n + ' truck' + (n > 1 ? 's' : ''));
-      const mk = L.marker(ll, { icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in mk-tag" style="--c:' + c + '">' + esc(gp.place) + '<b>' + n + '</b></div>' }), zIndexOffset: 800 });
+      const rd = hub && ll.join() !== hub.join() ? flowLine(m, into ? ll : hub, into ? hub : ll, { color: c, n: n, look: 'hub',
+        tip: esc(into ? gp.place + ' → ' + S.hub : S.hub + ' → ' + gp.place) + ' · ' + n + ' truck' + (n > 1 ? 's' : '') }) : null;
+      const mk = L.marker(ll, { icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in mk-tag" style="--c:' + c + '">' + esc(gp.place) +
+        (rd ? '<small>' + rd.km + ' km</small>' : '') + '<b>' + n + '</b></div>' }), zIndexOffset: 800 });
       mk.bindPopup(() => mapPopup(gp.place, gp.vs, into ? (load ? 'Coming to load' : 'Coming to unload') : (load ? 'Loaded, going here' : 'Going here next')), { maxWidth: 290, className: 'mp-pop' });
       m.marks.addLayer(mk);
     });
@@ -3133,6 +3278,8 @@
     // road / flow ⇄ map
     $('#routeModeSeg').addEventListener('click', e => { const b = e.target.closest('[data-rmode]'); if (b) setRouteMode(b.dataset.rmode); });
     $('#hubViewSeg').addEventListener('click', e => { const b = e.target.closest('[data-hview]'); if (b) setHubView(b.dataset.hview); });
+    $('#routePick').addEventListener('change', e => { S.rpick = e.target.value; renderRouteMap(); });
+    $('#routeEta').addEventListener('click', e => { if (e.target.closest('[data-rpick]')) { S.rpick = ''; renderRouteMap(); } });
     setRouteMode(S.rmode, true);
     setHubView(S.hview, true);
     $('#hubChips').addEventListener('click', e => { const b = e.target.closest('[data-hub]'); if (b) { S.hub = b.dataset.hub; S.hubAll = {}; renderHub(); } });
