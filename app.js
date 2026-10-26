@@ -91,6 +91,7 @@
     pseg: 'noprog', pq: '', ploc: '', sel: new Set(),
     rq: '', rcat: '', // route view: search, one status only
     hmode: 'load', hub: '', hubAll: {}, // hub analyzer: loading / unloading point, which hub, sides showing every place
+    rmode: store.get('vpt_rmode', 'road'), hview: store.get('vpt_hview', 'flow'), // route: road / map · hub: flow / map
     drafts: {}, editing: {},
     print: Object.assign({ rep: 'caller', caller: '', orient: 'auto', cols: 'auto' }, store.get(K.print, {})),
     detail: null, pending: false,
@@ -2515,7 +2516,7 @@
   }
   function renderRoutes() {
     const key = [S.ver, S.f.caller, S.rq, S.rcat, S.vehicles.length].join('|');
-    if (key === S.routeKey) return;
+    if (key === S.routeKey) { if (S.rmode === 'map' && MAPS.routeMap) MAPS.routeMap.map.invalidateSize(); return; }
     S.routeKey = key;
     const list = $('#routeList');
     if (!S.vehicles.length) { list.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div>'; return; }
@@ -2533,6 +2534,7 @@
     list.innerHTML = (g.routes.length ? g.routes.map((r, i) => { r.k = i; return routeCard(r); }).join('')
       : '<div class="empty"><b>No route found</b>' + (S.rq || S.rcat ? 'Clear the search / status to see all routes.' : '') + '</div>') +
       (g.noRoute ? '<p class="hint">' + g.noRoute + ' vehicle' + (g.noRoute > 1 ? 's have' : ' has') + ' no From / To in the Calling Sheet, so ' + (g.noRoute > 1 ? 'they are' : 'it is') + ' not on a route.</p>' : '');
+    if (S.rmode === 'map') renderRouteMap();
   }
 
   /* =====================================================================
@@ -2741,7 +2743,7 @@
   function renderHub() {
     const body = $('#hubBody'), narrow = body.clientWidth < 760;
     const key = [S.ver, S.hmode, S.hub, S.vehicles.length, narrow, JSON.stringify(S.hubAll)].join('|');
-    if (key === S.hubKey) { drawHubLinks(); return; }
+    if (key === S.hubKey) { drawHubLinks(); if (S.hview === 'map' && MAPS.hubMap) MAPS.hubMap.map.invalidateSize(); return; }
     S.hubKey = key;
     $$('#hubSeg [data-hmode]').forEach(b => b.classList.toggle('on', b.dataset.hmode === S.hmode));
     if (!S.vehicles.length) { body.innerHTML = '<div class="skeleton"></div>'; return; }
@@ -2761,6 +2763,295 @@
       '<p class="hint hf-key">Tap a place to see its trucks · tap the hub for the trucks there · 📋 = program given · <b>now</b> = where the trucks are right now<span class="hk-lines"> · thicker line = more trucks</span></p>';
     requestAnimationFrame(drawHubLinks);
     setTimeout(drawHubLinks, 400); // again once the fonts have settled
+    if (S.hview === 'map') renderHubMap(d);
+  }
+
+  /* =====================================================================
+   *  Map — Route and Hub Analyzer on a real map (OpenStreetMap through Leaflet, loaded only when
+   *  the map is opened). The Calling Sheet has place names, not GPS, so a vehicle stands at its
+   *  current location's town. Where each place is comes from places.js; a name missing there is
+   *  looked up once on OpenStreetMap (one name a second at most) and remembered in this browser.
+   * ===================================================================== */
+  const PLACES = window.VPT_PLACES || {};
+  const placeIdx = {};   // spellKey → [lat, lng]: "KESKAL" / "KESKAAL" find the same point
+  Object.keys(PLACES).forEach(k => { placeIdx[spellKey(k)] = PLACES[k]; });
+  const GEO_KEY = 'vpt_geo_v1';
+  const geoMem = store.get(GEO_KEY, {});
+  Object.keys(geoMem).forEach(n => { if (!geoMem[n].ll && Date.now() - geoMem[n].t > 14 * 864e5) delete geoMem[n]; }); // ask again after two weeks
+  /** [lat, lng] of a place name, or null. loose: only look in what is known (for free text such as programs) */
+  function placeLL(name, loose) {
+    const n = up(name), k = spellKey(n);
+    if (!k || n === '—') return null;
+    if (PLACES[n]) return PLACES[n];
+    if (placeIdx[k]) return placeIdx[k];
+    if (geoMem[n]) return geoMem[n].ll;
+    // a known place inside a longer name: "BHANDARA STM", "GADCHIROULI LAHERI M", "KONSARI LOADING"
+    const w = n.split(/[^A-Z0-9]+/).filter(Boolean);
+    for (let len = Math.min(3, w.length); len >= 1; len--) {
+      for (let i = 0; i + len <= w.length; i++) {
+        const sk = spellKey(w.slice(i, i + len).join(''));
+        if (sk.length >= 3 && placeIdx[sk]) return placeIdx[sk];
+      }
+    }
+    if (!loose) geoAsk(n);
+    return null;
+  }
+  const geoQ = [];
+  let geoBusy = false, geoAsked = 0;
+  // not places: never looked up (OpenStreetMap would find some office / garage somewhere)
+  const NOT_PLACE = /\b(OFFICE|GARAGE|WORKSHOP|HOME|YARD|PARKING|DEPOT|PLANT|SITE|AGRO|ARGO|PUMP|SERVICE|STAND|HOTEL|DHABA|REPAIR)\b/;
+  // what OpenStreetMap may answer with: a town / village / area, not a shop or a building
+  const GEO_KINDS = ['city', 'town', 'village', 'hamlet', 'suburb', 'quarter', 'neighbourhood', 'municipality', 'city_district', 'county', 'district', 'state_district', 'locality', 'industrial'];
+  function geoAsk(n) {
+    if (geoQ.includes(n) || geoAsked >= 25 || !/[A-Z]{3}/.test(n) || NOT_PLACE.test(n)) return;
+    geoQ.push(n);
+    geoRun();
+  }
+  async function geoRun() {
+    if (geoBusy) return;
+    geoBusy = true;
+    while (geoQ.length) {
+      const n = geoQ.shift();
+      geoAsked++;
+      try {
+        // only around where the fleet runs (Maharashtra → Jharkhand, Telangana / Andhra → Chhattisgarh)
+        const r = await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&countrycodes=in&viewbox=75.5,24,89,15.5&bounded=1&q=' + encodeURIComponent(n));
+        const j = r.ok ? await r.json() : null;
+        if (j) {
+          // many villages share a name: take the one nearest the middle of the fleet's area (Raipur side)
+          const far = x => Math.hypot(x.lat - 20.8, x.lon - 81);
+          const hit = j.filter(x => GEO_KINDS.includes(x.addresstype)).sort((a, b) => far(a) - far(b))[0];
+          geoMem[n] = { ll: hit ? [+(+hit.lat).toFixed(4), +(+hit.lon).toFixed(4)] : null, t: Date.now() };
+          store.set(GEO_KEY, geoMem);
+          if (hit) mapSoon();
+        }
+      } catch (e) { /* offline: asked again next time */ }
+      await new Promise(res => setTimeout(res, 1200));
+    }
+    geoBusy = false;
+  }
+  let mapT = null;
+  function mapSoon() {
+    clearTimeout(mapT);
+    mapT = setTimeout(() => {
+      if (S.view === 'route' && S.rmode === 'map') renderRouteMap();
+      else if (S.view === 'hub' && S.hview === 'map' && S.hub) renderHubMap(hubData(S.hmode, S.hub));
+    }, 600);
+  }
+
+  let leaflet = null;
+  /** Leaflet + its marker-cluster add-on (trucks in nearby towns merge into one count when zoomed out) */
+  function loadLeaflet() {
+    if (leaflet) return leaflet;
+    const cdn = 'https://cdnjs.cloudflare.com/ajax/libs/', added = [];
+    const css = href => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = href; document.head.appendChild(l); added.push(l); };
+    const js = src => new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = src; s.onload = res; s.onerror = rej;
+      document.head.appendChild(s); added.push(s);
+    });
+    css(cdn + 'leaflet/1.9.4/leaflet.min.css');
+    css(cdn + 'leaflet.markercluster/1.5.3/MarkerCluster.css');
+    leaflet = js(cdn + 'leaflet/1.9.4/leaflet.min.js').then(() => js(cdn + 'leaflet.markercluster/1.5.3/leaflet.markercluster.js')).then(() => window.L)
+      .catch(() => { leaflet = null; added.forEach(x => x.remove()); throw new Error('map'); });
+    return leaflet;
+  }
+  /** a ring in the trucks' status colours with their count in the middle */
+  function ringHtml(vs) {
+    const c = {}, n = vs.length;
+    vs.forEach(v => { c[v.cat] = (c[v.cat] || 0) + 1; });
+    let deg = 0;
+    const ring = CATS.filter(x => c[x.key]).map(x => { const a = deg; deg += c[x.key] / n * 360; return x.color + ' ' + a.toFixed(1) + 'deg ' + deg.toFixed(1) + 'deg'; }).join(',');
+    return '<div class="mk-in mk-ring' + (n > 9 ? ' big' : '') + '" style="background:conic-gradient(' + ring + ')"><b>' + n + '</b></div>';
+  }
+  const MAPS = {};
+  /** the map in #id (made once): OpenStreetMap tiles, layers for lines, places and trucks */
+  async function mapFor(id) {
+    const L = await loadLeaflet();
+    let m = MAPS[id];
+    if (!m) {
+      const el = $('#' + id);
+      el.innerHTML = '';
+      const map = L.map(el, { scrollWheelZoom: false, zoomSnap: 0.5, minZoom: 4, maxZoom: 17 }).setView([21.5, 82], 6);
+      map.attributionControl.setPrefix(false);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
+      }).addTo(map);
+      // the mouse wheel zooms only after a click on the map, so the page still scrolls past it
+      map.on('click', () => map.scrollWheelZoom.enable());
+      map.on('mouseout', () => map.scrollWheelZoom.disable());
+      map.on('zoomend', () => el.classList.toggle('mp-near', map.getZoom() >= 7.5));
+      const trucks = L.markerClusterGroup({
+        maxClusterRadius: 38, showCoverageOnHover: false, spiderfyOnMaxZoom: true, zoomToBoundsOnClick: true,
+        iconCreateFunction: cl => L.divIcon({ className: 'mk', iconSize: null, html: ringHtml(cl.getAllChildMarkers().flatMap(x => x.options.vs || [])) })
+      });
+      m = MAPS[id] = { map: map, lines: L.layerGroup().addTo(map), marks: L.layerGroup().addTo(map), trucks: trucks.addTo(map), fit: '' };
+      L.control.layers(null, { 'Trucks now': m.trucks, 'Route lines': m.lines }, { position: 'topright' }).addTo(map);
+      el.addEventListener('click', e => { const v = e.target.closest('[data-v]'); if (v) openDetail(v.dataset.v); });
+    }
+    m.map.invalidateSize();
+    m.lines.clearLayers(); m.marks.clearLayers(); m.trucks.clearLayers();
+    return m;
+  }
+  /** a gentle curve from a to b, so A → B and B → A do not lie on top of each other */
+  function arc(a, b, bend) {
+    const dy = b[0] - a[0], dx = b[1] - a[1], c = [(a[0] + b[0]) / 2 + dx * bend, (a[1] + b[1]) / 2 - dy * bend], pts = [];
+    for (let i = 0; i <= 24; i++) {
+      const t = i / 24, u = 1 - t;
+      pts.push([u * u * a[0] + 2 * u * t * c[0] + t * t * b[0], u * u * a[1] + 2 * u * t * c[1] + t * t * b[1]]);
+    }
+    return pts;
+  }
+  /** a line with white dashes running along it (the way the trucks go) and an arrow two thirds of the way */
+  function flowLine(m, pts, color, n, tip, light) {   // light: many lines on one map (Route) — thinner, see-through
+    const L = window.L, w = light ? 1.8 + Math.min(3.2, Math.sqrt(n) * 0.7) : 2.4 + Math.min(5, Math.sqrt(n) * 1.1);
+    m.lines.addLayer(L.polyline(pts, { color: color, weight: w, opacity: light ? .55 : .85, className: 'mp-line' }).bindTooltip(tip, { sticky: true }));
+    m.lines.addLayer(L.polyline(pts, { color: '#fff', weight: light ? 1.2 : 1.6, opacity: light ? .8 : 1, dashArray: '2 10', interactive: false, className: 'mp-flow' }));
+    const i = Math.round(pts.length * 0.62), p = m.map.project(pts[i - 1], 6), q = m.map.project(pts[i], 6);
+    const deg = Math.atan2(q.y - p.y, q.x - p.x) * 180 / Math.PI;
+    m.lines.addLayer(L.marker(pts[i], { interactive: false, keyboard: false,
+      icon: L.divIcon({ className: 'mk', iconSize: null, html: '<i class="mk-arrow" style="--c:' + color + ';transform:translate(-50%,-50%) rotate(' + deg.toFixed(0) + 'deg)"></i>' }) }));
+  }
+  /** trucks at their current location (loading / unloading ones at From / To when the location is empty):
+   *  one truck = a small lorry with its number, more = a ring in their status colours with the count */
+  function truckMarks(m, vs) {
+    const L = window.L, at = {}, lost = {};
+    vs.forEach(v => {
+      const name = v.cur || (v.cat === 'loading' ? v.from : v.cat === 'unloading' ? v.to : '');
+      const ll = name ? placeLL(name) : null;
+      if (!ll) { (lost[name || 'No current location'] = lost[name || 'No current location'] || []).push(v); return; }
+      const k = ll.join(',');
+      (at[k] = at[k] || { ll: ll, name: name, vs: [] }).vs.push(v);
+    });
+    Object.keys(at).forEach(k => {
+      const g = at[k], n = g.vs.length;
+      const v = g.vs[0], html = n === 1 ? '<div class="mk-in mk-one" style="--c:' + CAT[v.cat].color + '">' + ICO.truck + '<span>' + esc(shortNo(v.vno)) + '</span></div>' : ringHtml(g.vs);
+      const mk = L.marker(g.ll, { icon: L.divIcon({ className: 'mk', iconSize: null, html: html }), zIndexOffset: 1000 + n, riseOnHover: true, vs: g.vs });
+      mk.bindTooltip(esc(g.name) + ' · ' + n + ' truck' + (n > 1 ? 's' : '') + ' now', { direction: 'top', offset: [0, -16] });
+      mk.bindPopup(() => mapPopup(g.name, g.vs, 'Here now'), { maxWidth: 290, className: 'mp-pop' });
+      m.trucks.addLayer(mk);
+    });
+    return lost;
+  }
+  function mapPopup(title, vs, sub) {
+    return '<div class="mp-h">' + ICO.pin + '<b>' + esc(title) + '</b><span>' + vs.length + ' truck' + (vs.length > 1 ? 's' : '') + (sub ? ' · ' + esc(sub) : '') + '</span></div>' +
+      '<div class="mp-list">' + vs.map(v => '<button type="button" class="mp-v" data-v="' + esc(v.vno) + '" style="--c:' + CAT[v.cat].color + '">' + ICO.truck +
+        '<b>' + esc(shortNo(v.vno)) + '</b><span>' + esc(CAT[v.cat].label) + '</span><small>' + esc((v.from || '?') + ' → ' + (v.to || '?')) +
+        (v.cur ? ' · now ' + esc(v.cur) : '') + '</small></button>').join('') + '</div><div class="mp-tip">Tap a truck for its details</div>';
+  }
+  /** what could not go on the map (so nobody wonders where a truck went) and what was placed by itself */
+  function mapNote(el, lost, places, vs) {
+    const nl = Object.keys(lost).map(k => esc(k) + ' (' + lost[k].length + ')');
+    const ps = [...new Set(places)].filter(p => !lost[p]).map(esc);
+    const auto = [...new Set(vs.flatMap(v => [v.cur, v.from, v.to]).map(up))]
+      .filter(n => n && geoMem[n] && geoMem[n].ll && !PLACES[n] && !placeIdx[spellKey(n)]).map(esc);
+    el.innerHTML = '<b>Map:</b> trucks stand at their current location from the Calling Sheet (town, not GPS). ' +
+      (nl.length ? '<br><b>Not on the map</b> — place not known: ' + nl.join(', ') + '.' : '') +
+      (ps.length ? '<br><b>Route place not found:</b> ' + ps.join(', ') + '.' : '') +
+      (auto.length ? '<br><b>Found by itself on OpenStreetMap</b> (check they are right): ' + auto.join(', ') + '.' : '') +
+      (nl.length || ps.length || auto.length ? ' Tell us where these are and they will be fixed.' : '');
+  }
+  /** zoom to where most of it is: a few far places (Bangalore, Gujarat) stay a zoom-out away */
+  function mapFit(m, pts, key) {
+    key += '|' + (m.map.getContainer().clientWidth < 600);   // phone ⇄ computer size: fit again
+    if (m.fit === key || !pts.length) return;
+    m.fit = key;
+    const cut = (xs, p) => xs.slice().sort((a, b) => a - b)[Math.min(xs.length - 1, Math.max(0, Math.round((xs.length - 1) * p)))];
+    const lat = pts.map(p => p[0]), lng = pts.map(p => p[1]), edge = pts.length > 12 ? 0.06 : 0;
+    m.map.fitBounds([[cut(lat, edge), cut(lng, edge)], [cut(lat, 1 - edge), cut(lng, 1 - edge)]], { padding: [28, 28], maxZoom: 9 });
+  }
+
+  /** Route tab on the map: every route as a curved line A → B, the places as pins, the trucks where they are now */
+  async function renderRouteMap() {
+    const note = $('#routeMapNote');
+    let m;
+    try { m = await mapFor('routeMap'); } catch (e) { note.innerHTML = '<b>The map could not load.</b> Check the internet and open Map again.'; return; }
+    if (S.view !== 'route' || S.rmode !== 'map') return;
+    const L = window.L, g = routeGroups(), ends = {}, pts = [], missing = [];
+    const end = (name, ll, role, n) => {
+      const k = ll.join(','), e = ends[k] = ends[k] || { ll: ll, name: name, roles: {}, n: 0 };
+      e.roles[role] = 1; e.n += n;
+    };
+    g.routes.forEach(r => {
+      const a = placeLL(r.from), b = placeLL(r.to), n = r.vs.length;
+      if (r.from && !a) missing.push(r.from);
+      if (r.to && !b) missing.push(r.to);
+      if (a) { end(r.from, a, 'A', n); pts.push(a); }
+      if (b) { end(r.to, b, 'B', n); pts.push(b); }
+      if (a && b && a.join() !== b.join()) flowLine(m, arc(a, b, 0.14), '#3b3f8f', n, esc(r.from + ' → ' + r.to) + ' · ' + n + ' vehicle' + (n > 1 ? 's' : ''), true);
+    });
+    const major = new Set(Object.keys(ends).sort((x, y) => ends[y].n - ends[x].n).slice(0, m.map.getContainer().clientWidth < 600 ? 6 : 12));
+    Object.keys(ends).forEach(k => {
+      const e = ends[k], role = e.roles.A && e.roles.B ? 'ab' : e.roles.A ? 'a' : 'b';
+      const mk = L.marker(e.ll, { icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in mk-end ' + role + '"><i>' + (role === 'b' ? 'B' : 'A') + '</i></div>' }), zIndexOffset: 500 });
+      mk.bindTooltip(esc(e.name), { permanent: true, direction: 'right', offset: [12, 0], className: 'mk-lbl' + (major.has(k) ? ' major' : '') });
+      mk.bindPopup(() => {
+        const vs = g.routes.filter(r => spellKey(r.from) === spellKey(e.name) || spellKey(r.to) === spellKey(e.name)).flatMap(r => r.vs)
+          .filter(v => [v.cur, v.cat === 'loading' ? v.from : '', v.cat === 'unloading' ? v.to : ''].some(x => spellKey(x) === spellKey(e.name)));
+        return mapPopup(e.name, vs, (role === 'ab' ? 'Loading + unloading point' : role === 'a' ? 'Loading point' : 'Unloading point'));
+      }, { maxWidth: 290, className: 'mp-pop' });
+      m.marks.addLayer(mk);
+    });
+    const vs = g.routes.flatMap(r => r.vs).filter(v => !S.rcat || v.cat === S.rcat), lost = truckMarks(m, vs);
+    m.trucks.eachLayer(l => pts.push([l.getLatLng().lat, l.getLatLng().lng]));
+    mapFit(m, pts, [S.f.caller, S.rq, S.rcat].join('|'));
+    mapNote(note, lost, missing, vs);
+  }
+
+  /** Hub Analyzer on the map: places trucks come from → hub → places they go to, and the trucks where they are now */
+  async function renderHubMap(d) {
+    const note = $('#hubMapNote');
+    let m;
+    try { m = await mapFor('hubMap'); } catch (e) { note.innerHTML = '<b>The map could not load.</b> Check the internet and open Map again.'; return; }
+    if (S.view !== 'hub' || S.hview !== 'map') return;
+    const L = window.L, col = HUB_COL[S.hmode], load = S.hmode === 'load', hub = placeLL(S.hub), pts = [], missing = [];
+    if (!hub) missing.push(S.hub);
+    else {
+      pts.push(hub);
+      const mk = L.marker(hub, { icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in mk-hub"><small>' + (load ? 'Loading point' : 'Unloading point') + '</small><b>' + esc(S.hub) + '</b>' +
+        '<span><i style="background:' + col.in + '">⬅ ' + d.nIn + '</i><i>' + d.at.length + ' here</i><i style="background:' + col.out + '">' + d.nOut + ' ➡</i></span></div>' }), zIndexOffset: 2000 });
+      mk.bindPopup(() => mapPopup(S.hub, d.at, load ? 'Loading here now' : 'Unloading here now'), { maxWidth: 290, className: 'mp-pop' });
+      m.marks.addLayer(mk);
+    }
+    const side = (gs, into) => gs.forEach(gp => {
+      const ll = placeLL(gp.place, !into && !load); // programs are free text: only places already known
+      if (!ll) { missing.push(gp.place); return; }
+      pts.push(ll);
+      const c = into ? col.in : col.out, n = gp.vs.length;
+      if (hub && ll.join() !== hub.join()) flowLine(m, into ? arc(ll, hub, 0.12) : arc(hub, ll, 0.12), c, n, esc(into ? gp.place + ' → ' + S.hub : S.hub + ' → ' + gp.place) + ' · ' + n + ' truck' + (n > 1 ? 's' : ''));
+      const mk = L.marker(ll, { icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in mk-tag" style="--c:' + c + '">' + esc(gp.place) + '<b>' + n + '</b></div>' }), zIndexOffset: 800 });
+      mk.bindPopup(() => mapPopup(gp.place, gp.vs, into ? (load ? 'Coming to load' : 'Coming to unload') : (load ? 'Loaded, going here' : 'Going here next')), { maxWidth: 290, className: 'mp-pop' });
+      m.marks.addLayer(mk);
+    });
+    side(d.inn, true);
+    side(d.out, false);
+    const seen = new Set(), vs = d.at.concat(...d.inn.map(x => x.vs), ...d.out.map(x => x.vs)).filter(v => !seen.has(v.vno) && seen.add(v.vno));
+    const lost = truckMarks(m, vs);
+    m.trucks.eachLayer(l => pts.push([l.getLatLng().lat, l.getLatLng().lng]));
+    mapFit(m, pts, S.hmode + '|' + S.hub);
+    mapNote(note, lost, missing, vs);
+  }
+  /** road ⇄ map on the Route tab (quiet: only set the buttons, the view draws itself when shown) */
+  function setRouteMode(mode, quiet) {
+    S.rmode = mode === 'map' ? 'map' : 'road';
+    store.set('vpt_rmode', S.rmode);
+    $$('#routeModeSeg [data-rmode]').forEach(b => b.classList.toggle('on', b.dataset.rmode === S.rmode));
+    $('#view-route').classList.toggle('is-map', S.rmode === 'map');
+    $('#routeMapWrap').hidden = S.rmode !== 'map';
+    if (quiet) return;
+    hideRoutePop();
+    if (S.rmode === 'map') renderRouteMap();
+  }
+  /** flow ⇄ map on the Hub Analyzer */
+  function setHubView(mode, quiet) {
+    S.hview = mode === 'map' ? 'map' : 'flow';
+    store.set('vpt_hview', S.hview);
+    $$('#hubViewSeg [data-hview]').forEach(b => b.classList.toggle('on', b.dataset.hview === S.hview));
+    $('#view-hub').classList.toggle('is-map', S.hview === 'map');
+    $('#hubMapWrap').hidden = S.hview !== 'map';
+    if (quiet) return;
+    if (S.hview === 'map' && S.hub) renderHubMap(hubData(S.hmode, S.hub));
+    else drawHubLinks();
   }
 
   /** sticky group headings sit right under the header (two rows high on phones) */
@@ -2839,6 +3130,11 @@
     // hub analyzer controls
     $('#hubSeg').addEventListener('click', e => { const b = e.target.closest('[data-hmode]'); if (b && b.dataset.hmode !== S.hmode) { S.hmode = b.dataset.hmode; S.hub = ''; S.hubAll = {}; renderHub(); } });
     $('#hubSel').addEventListener('change', e => { S.hub = e.target.value; S.hubAll = {}; renderHub(); });
+    // road / flow ⇄ map
+    $('#routeModeSeg').addEventListener('click', e => { const b = e.target.closest('[data-rmode]'); if (b) setRouteMode(b.dataset.rmode); });
+    $('#hubViewSeg').addEventListener('click', e => { const b = e.target.closest('[data-hview]'); if (b) setHubView(b.dataset.hview); });
+    setRouteMode(S.rmode, true);
+    setHubView(S.hview, true);
     $('#hubChips').addEventListener('click', e => { const b = e.target.closest('[data-hub]'); if (b) { S.hub = b.dataset.hub; S.hubAll = {}; renderHub(); } });
     $('#hubBody').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('[data-hubbox]')) { e.preventDefault(); e.target.click(); } });
     let hubRt = null;

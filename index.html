@@ -234,10 +234,18 @@
           <svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
           <input id="rq" type="search" placeholder="Search route / vehicle / place" autocomplete="off">
         </label>
+        <div class="seg map-seg" id="routeModeSeg" role="tablist" aria-label="Show as">
+          <button type="button" data-rmode="road" class="on">🛣️ Road</button>
+          <button type="button" data-rmode="map">🗺️ Map</button>
+        </div>
         <div class="route-legend" id="routeLegend"></div>
       </div>
       <div id="routeSum" class="route-sum"></div>
-      <p class="hint">Each road is one route, A (loading) → B (unloading). Every truck is a vehicle: at the loading point, on the way (grouped by where it is now) or at the unloading point. Tap a status to show only it; point at / tap a truck for its details.</p>
+      <p class="hint route-hint">Each road is one route, A (loading) → B (unloading). Every truck is a vehicle: at the loading point, on the way (grouped by where it is now) or at the unloading point. Tap a status to show only it; point at / tap a truck for its details.</p>
+      <div id="routeMapWrap" class="map-wrap" hidden>
+        <div id="routeMap" class="mp-map"><div class="mp-loading">Loading the map…</div></div>
+        <p class="hint mp-note" id="routeMapNote"></p>
+      </div>
       <div id="routeList" class="route-list"></div>
     </section>
 
@@ -262,10 +270,18 @@
           <button type="button" data-hmode="load" class="on">Loading point</button>
           <button type="button" data-hmode="unload">Unloading point</button>
         </div>
+        <div class="seg map-seg" id="hubViewSeg" role="tablist" aria-label="Show as">
+          <button type="button" data-hview="flow" class="on">🕸️ Flow</button>
+          <button type="button" data-hview="map">🗺️ Map</button>
+        </div>
         <label class="select-wrap hub-pick"><span>Hub</span><select id="hubSel"></select></label>
       </div>
       <div class="hub-chips" id="hubChips"></div>
       <div id="hubBody"></div>
+      <div id="hubMapWrap" class="map-wrap" hidden>
+        <div id="hubMap" class="mp-map"><div class="mp-loading">Loading the map…</div></div>
+        <p class="hint mp-note" id="hubMapNote"></p>
+      </div>
     </section>
   </main>
 
@@ -336,6 +352,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="config.js"></script>
+  <script src="places.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
