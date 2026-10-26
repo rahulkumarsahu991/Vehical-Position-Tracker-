@@ -1506,6 +1506,11 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 .mp-pick select { max-width: 340px; }
 .mp-sum { font-size: 12.5px; color: var(--ink-2); }
 .mp-sum b { color: var(--navy); }
+.mp-sum .ms-in { color: #1a73e8; font-weight: 700; }
+.mp-sum .ms-out { color: #188038; font-weight: 700; }
+.mp-pop .mp-lit { width: 100%; justify-content: center; margin-top: 8px; }
+.mk-pinw.focus .mk-pin { width: 34px; height: 34px; box-shadow: -1px 3px 9px rgba(0, 0, 0, .4), 0 0 0 4px rgba(26, 115, 232, .25); }
+.mk-pinw.focus .mk-pin i { font-size: 15px; }
 .mp-sum .link { border: 0; background: none; padding: 0 0 0 4px; font: 700 12.5px var(--font); color: #1a73e8; cursor: pointer; text-decoration: underline; }
 /* Google-style box on the chosen road: 🚚 ~8 hr 28 min / 286 km */
 .mp-map .leaflet-tooltip.mp-eta-tip { padding: 0; border: 0; border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, .3); background: #fff; }

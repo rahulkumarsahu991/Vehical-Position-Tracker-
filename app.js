@@ -92,7 +92,7 @@
     rq: '', rcat: '', // route view: search, one status only
     hmode: 'load', hub: '', hubAll: {}, // hub analyzer: loading / unloading point, which hub, sides showing every place
     rmode: store.get('vpt_rmode', 'road'), hview: store.get('vpt_hview', 'flow'), // route: road / map · hub: flow / map
-    rpick: '', // the route chosen on the map ('' = all)
+    rpick: '', rplace: '', // on the map: the route chosen, or the loading / unloading point whose routes light up ('' = all)
     drafts: {}, editing: {},
     print: Object.assign({ rep: 'caller', caller: '', orient: 'auto', cols: 'auto' }, store.get(K.print, {})),
     detail: null, pending: false,
@@ -3054,7 +3054,11 @@
       });
       m = MAPS[id] = { map: map, lines: L.layerGroup().addTo(map), marks: L.layerGroup().addTo(map), trucks: trucks.addTo(map), fit: '' };
       L.control.layers(null, { 'Trucks now': m.trucks, 'Route lines': m.lines }, { position: 'topright' }).addTo(map);
-      el.addEventListener('click', e => { const v = e.target.closest('[data-v]'); if (v) openDetail(v.dataset.v); });
+      el.addEventListener('click', e => {
+        const v = e.target.closest('[data-v]'), p = e.target.closest('[data-rplace]');
+        if (v) openDetail(v.dataset.v);
+        if (p) { map.closePopup(); S.rpick = ''; S.rplace = p.dataset.rplace; renderRouteMap(); }   // light up every route to / from this point
+      });
     }
     m.map.invalidateSize();
     m.lines.clearLayers(); m.marks.clearLayers(); m.trucks.clearLayers();
@@ -3091,10 +3095,11 @@
     return rd;
   }
   /** Google-style box on the road: 🚚 8 hr 28 min / 286 km */
-  function etaBox(m, rd) {
-    const L = window.L, mid = rd.pts[Math.floor(rd.pts.length / 2)];
-    m.lines.addLayer(L.tooltip({ permanent: true, direction: 'right', offset: [10, 0], className: 'mp-eta-tip', interactive: false })
-      .setLatLng(mid).setContent('<div class="mp-eta">' + ICO.truck + '<div><b>~' + esc(truckTime(rd.min, rd.km)) + '</b><small>' + rd.km + ' km</small></div></div>'));
+  function etaBox(m, rd, from, i) {   // from: the place it starts at, i: which box — several boxes stand at different spots
+    const L = window.L, at = [0.5, 0.3, 0.7, 0.18, 0.42, 0.6, 0.25, 0.8, 0.36, 0.52][(i || 0) % 10];
+    const mid = rd.pts[Math.floor((rd.pts.length - 1) * (i === undefined ? 0.5 : at))];
+    m.lines.addLayer(L.tooltip({ permanent: true, direction: i % 2 ? 'left' : 'right', offset: [i % 2 ? -10 : 10, 0], className: 'mp-eta-tip', interactive: false })
+      .setLatLng(mid).setContent('<div class="mp-eta">' + ICO.truck + '<div><b>~' + esc(truckTime(rd.min, rd.km)) + '</b><small>' + (from ? esc(from) + ' · ' : '') + rd.km + ' km</small></div></div>'));
   }
   /** trucks at their current location (loading / unloading ones at From / To when the location is empty):
    *  one truck = a small lorry with its number, more = a ring in their status colours with the count */
@@ -3142,62 +3147,109 @@
     m.fit = key;
     const cut = (xs, p) => xs.slice().sort((a, b) => a - b)[Math.min(xs.length - 1, Math.max(0, Math.round((xs.length - 1) * p)))];
     const lat = pts.map(p => p[0]), lng = pts.map(p => p[1]), edge = trim !== false && pts.length > 12 ? 0.06 : 0;
-    m.map.fitBounds([[cut(lat, edge), cut(lng, edge)], [cut(lat, 1 - edge), cut(lng, 1 - edge)]], { padding: [28, 28], maxZoom: 9 });
+    m.map.fitBounds([[cut(lat, edge), cut(lng, edge)], [cut(lat, 1 - edge), cut(lng, 1 - edge)]], { paddingTopLeft: [30, 72], paddingBottomRight: [30, 30], maxZoom: 9 });   // room on top for the hub box / pins
   }
 
-  /** Route tab on the map, like Google Maps: every route along its real road (pick one to see it alone with its
-   *  time and km), A / B pins, the trucks on the road where they are now */
+  /** Route tab on the map, like Google Maps: every route along its real road. Pick a route to see it alone with its
+   *  time and km — or pick a loading / unloading point (or tap its pin) to light up every route coming to it (blue,
+   *  with time and km) and going out from it (green). A / B pins, the trucks on the road where they are now. */
   async function renderRouteMap() {
     const note = $('#routeMapNote');
     let m;
     try { m = await mapFor('routeMap'); } catch (e) { note.innerHTML = '<b>The map could not load.</b> Check the internet and open Map again.'; return; }
     if (S.view !== 'route' || S.rmode !== 'map') return;
-    const L = window.L, g = routeGroups(), ends = {}, pts = [], missing = [];
+    const L = window.L, g = routeGroups(), ends = {}, pts = [], missing = [], narrow = m.map.getContainer().clientWidth < 600;
     const rkey = r => r.from + '→' + r.to;
-    const sel = g.routes.find(r => rkey(r) === S.rpick) || null;
+    // every From / To once (spellings merged): how many vehicles come to it, how many leave from it
+    const byPoint = {};
+    g.routes.forEach(r => [[r.to, 'in'], [r.from, 'out']].forEach(([name, k]) => {
+      if (!name) return;
+      const p = byPoint[spellKey(name)] = byPoint[spellKey(name)] || { spell: {}, in: 0, out: 0 };
+      p.spell[name] = (p.spell[name] || 0) + r.vs.length;
+      p[k] += r.vs.length;
+    }));
+    const points = Object.values(byPoint).map(p => Object.assign(p, { name: Object.keys(p.spell).sort((a, b) => p.spell[b] - p.spell[a])[0] }))
+      .sort((a, b) => b.in + b.out - a.in - a.out);
+    const focus = S.rplace ? points.find(p => spellKey(p.name) === spellKey(S.rplace)) || null : null, fk = focus ? spellKey(focus.name) : '';
+    const sel = focus ? null : g.routes.find(r => rkey(r) === S.rpick) || null;
     $('#routePick').innerHTML = '<option value="">All routes (' + g.routes.length + ')</option>' +
       g.routes.map(r => '<option value="' + esc(rkey(r)) + '"' + (sel === r ? ' selected' : '') + '>' + esc(r.from + ' → ' + r.to) + ' (' + r.vs.length + ')</option>').join('');
-    const end = (name, ll, role, n) => {
+    $('#placePick').innerHTML = '<option value="">All loading / unloading points</option>' +
+      points.map(p => '<option value="' + esc(p.name) + '"' + (focus === p ? ' selected' : '') + '>' + esc(p.name) + ' — ' + p.in + ' coming · ' + p.out + ' going</option>').join('');
+    const role = r => !fk ? '' : spellKey(r.to) === fk ? 'in' : spellKey(r.from) === fk ? 'out' : '';
+    const lit = r => r === sel || !!role(r), some = !!(sel || focus);
+    const end = (name, ll, kind, n) => {
       const k = ll.join(','), e = ends[k] = ends[k] || { ll: ll, name: name, roles: {}, n: 0 };
-      e.roles[role] = 1; e.n += n;
+      e.roles[kind] = 1; e.n += n;
     };
-    let selRoad = null;
-    // the others first (under), the chosen one last (on top)
-    g.routes.filter(r => r !== sel).concat(sel ? [sel] : []).forEach(r => {
-      const a = placeLL(r.from), b = placeLL(r.to), n = r.vs.length, on = r === sel;
+    let selRoad = null, boxes = 0;
+    const sum = { in: [0, 0], out: [0, 0] };   // routes, vehicles
+    // the dimmed ones first (under), then going out, then coming in / the chosen one (on top); busiest first
+    const rank = r => (r === sel || role(r) === 'in' ? 3 : role(r) === 'out' ? 2 : 1);
+    g.routes.slice().sort((x, y) => rank(x) - rank(y) || y.vs.length - x.vs.length).forEach(r => {
+      const a = placeLL(r.from), b = placeLL(r.to), n = r.vs.length, on = lit(r), rl = role(r);
       if (r.from && !a) missing.push(r.from);
       if (r.to && !b) missing.push(r.to);
-      if (!sel || on) {
+      if (rl) { sum[rl][0]++; sum[rl][1] += n; }
+      if (!some || on) {
         if (a) { end(r.from, a, 'A', n); pts.push(a); }
         if (b) { end(r.to, b, 'B', n); pts.push(b); }
       }
       if (!a || !b || a.join() === b.join()) return;
-      const rd = flowLine(m, a, b, { color: on ? '#1a73e8' : '#4285f4', edge: on ? '#0b3d91' : '#fff', n: n, look: sel ? (on ? 'sel' : 'dim') : 'all',
-        tip: esc(r.from + ' → ' + r.to) + ' · ' + n + ' vehicle' + (n > 1 ? 's' : ''), click: () => { S.rpick = rkey(r); renderRouteMap(); } });
-      if (on) { selRoad = rd; if (rd) { etaBox(m, rd); rd.pts.forEach(p => pts.push(p)); } }
+      const rd = flowLine(m, a, b, { color: rl === 'out' ? '#188038' : on ? '#1a73e8' : '#4285f4', edge: rl === 'out' ? '#0b5d1e' : on ? '#0b3d91' : '#fff', n: n,
+        look: some ? (on ? 'sel' : 'dim') : 'all', tip: esc(r.from + ' → ' + r.to) + ' · ' + n + ' vehicle' + (n > 1 ? 's' : ''),
+        click: () => { S.rplace = ''; S.rpick = rkey(r); renderRouteMap(); } });
+      if (!rd || !on) return;
+      rd.pts.forEach(p => pts.push(p));
+      if (r === sel) { selRoad = rd; etaBox(m, rd); }
+      else if (rl === 'in' && boxes < (narrow ? 4 : 10)) etaBox(m, rd, r.from, boxes++);   // time and km on the busiest roads coming in
     });
-    $('#routeEta').innerHTML = sel
-      ? '<b>' + esc(sel.from + ' → ' + sel.to) + '</b>' + (selRoad ? ' · ' + selRoad.km + ' km · ~' + esc(truckTime(selRoad.min, selRoad.km)) + ' by truck' : '') +
-        ' · ' + sel.vs.length + ' truck' + (sel.vs.length > 1 ? 's' : '') + ' <button type="button" class="link" data-rpick="">Show all routes</button>'
-      : 'Tap a route line (or pick it above) to see it alone with its time and km.';
-    const major = new Set(Object.keys(ends).sort((x, y) => ends[y].n - ends[x].n).slice(0, m.map.getContainer().clientWidth < 600 ? 6 : 12));
+    // a loading point also has empty trucks driving to it to load (their From is it): a road from where each group is now
+    const coming = [];
+    if (focus) {
+      const to = placeLL(focus.name);
+      if (to && !ends[to.join(',')]) { end(focus.name, to, 'B', 0); pts.push(to); }   // its pin, even when no route starts / ends here
+      hubData('load', focus.name).inn.forEach(gp => {
+        const a = placeLL(gp.place), n = gp.vs.length;
+        if (!a || !to || a.join() === to.join()) return;
+        coming.push(...gp.vs);
+        sum.in[0]++; sum.in[1] += n;
+        const rd = flowLine(m, a, to, { color: '#1a73e8', edge: '#0b3d91', n: n, look: 'sel',
+          tip: esc(gp.place + ' → ' + focus.name) + ' · ' + n + ' empty truck' + (n > 1 ? 's' : '') + ' coming to load' });
+        if (rd) { rd.pts.forEach(p => pts.push(p)); if (boxes < (narrow ? 4 : 10)) etaBox(m, rd, gp.place, boxes++); }
+      });
+      // those empty trucks are on routes starting here, but they are not going out
+      sum.out[1] -= coming.filter(v => spellKey(v.from) === fk).length;
+    }
+    const s = k => (k === 1 ? '' : 's'), all = ' <button type="button" class="link" data-rpick="">Show all routes</button>';
+    $('#routeEta').innerHTML = focus
+      ? '<b>' + esc(focus.name) + '</b> · <span class="ms-in">● ' + sum.in[0] + ' route' + s(sum.in[0]) + ' coming in · ' + sum.in[1] + ' truck' + s(sum.in[1]) + '</span>' +
+        ' · <span class="ms-out">● ' + sum.out[0] + ' going out · ' + sum.out[1] + ' truck' + s(sum.out[1]) + '</span>' + all
+      : sel
+        ? '<b>' + esc(sel.from + ' → ' + sel.to) + '</b>' + (selRoad ? ' · ' + selRoad.km + ' km · ~' + esc(truckTime(selRoad.min, selRoad.km)) + ' by truck' : '') +
+          ' · ' + sel.vs.length + ' truck' + s(sel.vs.length) + all
+        : 'Pick a loading / unloading point (or tap its pin) to light up every route coming to it — or tap a route line to see it alone.';
+    const major = new Set(Object.keys(ends).sort((x, y) => ends[y].n - ends[x].n).slice(0, narrow ? 6 : 12));
     Object.keys(ends).forEach(k => {
-      const e = ends[k], role = e.roles.A && e.roles.B ? 'ab' : e.roles.A ? 'a' : 'b';
-      // the chosen route: Google-style pins (A orange, B red); all routes: small round A / B
-      const html = sel ? '<div class="mk-in mk-pinw"><div class="mk-pin ' + role + '"><i>' + (role === 'b' ? 'B' : 'A') + '</i></div></div>'
-        : '<div class="mk-in mk-end ' + role + '"><i>' + (role === 'b' ? 'B' : 'A') + '</i></div>';
+      const e = ends[k], kind = e.roles.A && e.roles.B ? 'ab' : e.roles.A ? 'a' : 'b', big = sel || (focus && spellKey(e.name) === fk);
+      // the chosen route / point: Google-style pins (A orange, B red); otherwise small round A / B
+      const html = big ? '<div class="mk-in mk-pinw' + (focus ? ' focus' : '') + '"><div class="mk-pin ' + kind + '"><i>' + (kind === 'b' ? 'B' : 'A') + '</i></div></div>'
+        : '<div class="mk-in mk-end ' + kind + '"><i>' + (kind === 'b' ? 'B' : 'A') + '</i></div>';
       const mk = L.marker(e.ll, { icon: L.divIcon({ className: 'mk', iconSize: null, html: html }), zIndexOffset: 500 });   // under the trucks: a count at A / B stays readable
-      mk.bindTooltip(esc(e.name), { permanent: true, direction: 'right', offset: sel ? [14, -16] : [12, 0], className: 'mk-lbl' + (sel || major.has(k) ? ' major' : '') });
+      mk.bindTooltip(esc(e.name), { permanent: true, direction: 'right', offset: big ? [14, -16] : [12, 0], className: 'mk-lbl' + (some || major.has(k) ? ' major' : '') });
       mk.bindPopup(() => {
         const vs = g.routes.filter(r => spellKey(r.from) === spellKey(e.name) || spellKey(r.to) === spellKey(e.name)).flatMap(r => r.vs)
           .filter(v => [v.cur, v.cat === 'loading' ? v.from : '', v.cat === 'unloading' ? v.to : ''].some(x => spellKey(x) === spellKey(e.name)));
-        return mapPopup(e.name, vs, (role === 'ab' ? 'Loading + unloading point' : role === 'a' ? 'Loading point' : 'Unloading point'));
+        return mapPopup(e.name, vs, (kind === 'ab' ? 'Loading + unloading point' : kind === 'a' ? 'Loading point' : 'Unloading point')) +
+          (focus && spellKey(e.name) === fk ? '' : '<button type="button" class="btn sm navy mp-lit" data-rplace="' + esc(e.name) + '">Show every route to / from here</button>');
       }, { maxWidth: 290, className: 'mp-pop' });
       m.marks.addLayer(mk);
     });
-    const vs = (sel ? sel.vs : g.routes.flatMap(r => r.vs)).filter(v => !S.rcat || v.cat === S.rcat), lost = truckMarks(m, vs);
+    const seen = new Set();
+    const vs = (sel ? sel.vs : g.routes.filter(r => !focus || role(r)).flatMap(r => r.vs).concat(coming))
+      .filter(v => (!S.rcat || v.cat === S.rcat) && !seen.has(v.vno) && seen.add(v.vno)), lost = truckMarks(m, vs);
     m.trucks.eachLayer(l => pts.push([l.getLatLng().lat, l.getLatLng().lng]));
-    mapFit(m, pts, [S.f.caller, S.rq, S.rcat, sel ? rkey(sel) + (selRoad ? '+road' : '') : ''].join('|'), !sel);
+    mapFit(m, pts, [S.f.caller, S.rq, S.rcat, sel ? rkey(sel) + (selRoad ? '+road' : '') : '', focus ? '@' + fk : ''].join('|'), !some);
     mapNote(note, lost, missing, vs);
   }
 
@@ -3216,13 +3268,18 @@
       mk.bindPopup(() => mapPopup(S.hub, d.at, load ? 'Loading here now' : 'Unloading here now'), { maxWidth: 290, className: 'mp-pop' });
       m.marks.addLayer(mk);
     }
+    // every road into the hub and out of it lit up (thick, dark edge, running dashes); time and km on the busiest roads in
+    let boxes = 0;
+    const narrow = m.map.getContainer().clientWidth < 600, EDGE = { '#0e9fb8': '#075e6e', '#16a34a': '#0b5d2a' };
     const side = (gs, into) => gs.forEach(gp => {
       const ll = placeLL(gp.place, !into && !load); // programs are free text: only places already known
       if (!ll) { missing.push(gp.place); return; }
       pts.push(ll);
       const c = into ? col.in : col.out, n = gp.vs.length;
-      const rd = hub && ll.join() !== hub.join() ? flowLine(m, into ? ll : hub, into ? hub : ll, { color: c, n: n, look: 'hub',
+      const rd = hub && ll.join() !== hub.join() ? flowLine(m, into ? ll : hub, into ? hub : ll, { color: c, edge: EDGE[c], n: n, look: 'sel',
         tip: esc(into ? gp.place + ' → ' + S.hub : S.hub + ' → ' + gp.place) + ' · ' + n + ' truck' + (n > 1 ? 's' : '') }) : null;
+      if (rd) rd.pts.forEach(p => pts.push(p));
+      if (rd && into && boxes < (narrow ? 3 : 6)) etaBox(m, rd, gp.place, boxes++);
       const mk = L.marker(ll, { icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in mk-tag" style="--c:' + c + '">' + esc(gp.place) +
         (rd ? '<small>' + rd.km + ' km</small>' : '') + '<b>' + n + '</b></div>' }), zIndexOffset: 800 });
       mk.bindPopup(() => mapPopup(gp.place, gp.vs, into ? (load ? 'Coming to load' : 'Coming to unload') : (load ? 'Loaded, going here' : 'Going here next')), { maxWidth: 290, className: 'mp-pop' });
@@ -3233,7 +3290,7 @@
     const seen = new Set(), vs = d.at.concat(...d.inn.map(x => x.vs), ...d.out.map(x => x.vs)).filter(v => !seen.has(v.vno) && seen.add(v.vno));
     const lost = truckMarks(m, vs);
     m.trucks.eachLayer(l => pts.push([l.getLatLng().lat, l.getLatLng().lng]));
-    mapFit(m, pts, S.hmode + '|' + S.hub);
+    mapFit(m, pts, S.hmode + '|' + S.hub, false);
     mapNote(note, lost, missing, vs);
   }
   /** road ⇄ map on the Route tab (quiet: only set the buttons, the view draws itself when shown) */
@@ -3338,11 +3395,12 @@
     // road / flow ⇄ map
     $('#routeModeSeg').addEventListener('click', e => { const b = e.target.closest('[data-rmode]'); if (b) setRouteMode(b.dataset.rmode); });
     $('#hubViewSeg').addEventListener('click', e => { const b = e.target.closest('[data-hview]'); if (b) setHubView(b.dataset.hview); });
-    $('#routePick').addEventListener('change', e => { S.rpick = e.target.value; renderRouteMap(); });
+    $('#routePick').addEventListener('change', e => { S.rpick = e.target.value; S.rplace = ''; renderRouteMap(); });
+    $('#placePick').addEventListener('change', e => { S.rplace = e.target.value; S.rpick = ''; renderRouteMap(); });
     // full-screen map: the back button / Esc close it (but a detail sheet over it closes first)
     window.addEventListener('popstate', () => { const f = $('.mp-map.mp-full'); if (f && !(history.state && history.state.vpt === 'map')) mapFull(f, false); });
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && !S.detail && $('.mp-map.mp-full')) history.back(); });
-    $('#routeEta').addEventListener('click', e => { if (e.target.closest('[data-rpick]')) { S.rpick = ''; renderRouteMap(); } });
+    $('#routeEta').addEventListener('click', e => { if (e.target.closest('[data-rpick]')) { S.rpick = ''; S.rplace = ''; renderRouteMap(); } });
     setRouteMode(S.rmode, true);
     setHubView(S.hview, true);
     $('#hubChips').addEventListener('click', e => { const b = e.target.closest('[data-hub]'); if (b) { S.hub = b.dataset.hub; S.hubAll = {}; renderHub(); } });
