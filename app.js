@@ -2398,8 +2398,9 @@
     return m ? m[1] + m[2].slice(0, 2) : String(vno).slice(-4);
   }
   function routeZone(v) {
-    if (v.cur && v.from && v.cur === v.from) return 'start';
-    if (v.cur && v.to && v.cur === v.to) return 'end';
+    const now = spellKey(v.cur);   // "KESKAL" / "Keskal " / "KESKAAL" are the same place
+    if (now && now === spellKey(v.to)) return 'end';
+    if (now && now === spellKey(v.from)) return 'start';
     if (v.cat === 'loading') return 'start';
     if (v.cat === 'unloading') return 'end';
     return 'way';
@@ -2433,18 +2434,21 @@
       });
       return order.map(k => ({ place: k, vs: m[k] }));
     };
-    const cl = { start: clusters('start'), way: clusters('way'), end: clusters('end') };
+    const way = clusters('way');
     let n = 0; // trucks pop in one after another
     const dot = v => '<button type="button" class="rdot rd-' + v.cat + (S.rcat && v.cat !== S.rcat ? ' dim' : '') + '" data-v="' + esc(v.vno) + '" style="--c:' + CAT[v.cat].color + ';--i:' + (n++) + '"' +
       ' aria-label="' + esc(v.vno + ', ' + CAT[v.cat].label + (v.cur ? ', now at ' + v.cur : '')) + '">' + ICO.truck + '<span>' + esc(shortNo(v.vno)) + '</span></button>';
     // a stop on the way is at least as wide as its place name, so the name stays on one line
     const tagW = c => Math.min(170, 30 + c.place.length * 7 + (c.vs.length > 1 ? 18 : 0));
-    const zone = z => '<div class="rz rz-' + z + '">' + cl[z].map(c =>
-      '<div class="rc"' + (z === 'way' ? ' style="--tw:' + tagW(c) + 'px"' : '') + '><div class="rc-dots" style="--rows:' + Math.min(c.vs.length, 4) + '">' + c.vs.map(dot).join('') + '</div>' +
-      (z === 'way' ? '<div class="rc-place"><span>' + ICO.pin + esc(c.place) + (c.vs.length > 1 ? ' <b>×' + c.vs.length + '</b>' : '') + '</span></div>'
-        // at A / B: the name stands under the pin on a computer; on a phone the group says where it is
-        : '<div class="rc-place se"><span>' + (z === 'start' ? ICO.load + 'At loading point · ' + esc(r.from || '?') : ICO.flag + 'At unloading point · ' + esc(r.to || '?')) +
-          (c.vs.length > 1 ? ' <b>×' + c.vs.length + '</b>' : '') + '</span></div>') + '</div>').join('') + '</div>';
+    const zone = '<div class="rz rz-way">' + way.map(c =>
+      '<div class="rc" style="--tw:' + tagW(c) + 'px"><div class="rc-dots" style="--rows:' + Math.min(c.vs.length, 4) + '">' + c.vs.map(dot).join('') + '</div>' +
+      '<div class="rc-place"><span>' + ICO.pin + esc(c.place) + (c.vs.length > 1 ? ' <b>×' + c.vs.length + '</b>' : '') + '</span></div></div>').join('') + '</div>';
+    // trucks that have reached A / B stand right on that pin, not on a stop before it
+    const at = z => {
+      const vs = clusters(z).flatMap(c => c.vs);
+      return vs.length ? '<div class="r-at"><div class="rc-dots" style="--rows:' + Math.min(vs.length, 4) + '">' + vs.map(dot).join('') + '</div></div>' : '';
+    };
+    const here = z => zones[z].length ? ' · ' + zones[z].length + ' here' : '';
     const items = [...new Set(r.vs.map(v => v.item).filter(Boolean))];
     return '<article class="route" style="--k:' + Math.min(r.k || 0, 12) + '">' +
       // the route name on a green highway signboard
@@ -2456,9 +2460,9 @@
       '<div class="r-bar">' + CATS.filter(c => counts[c.key]).map(c => '<i style="--c:' + c.color + ';flex-grow:' + counts[c.key] + '" title="' +
         esc(c.label + ': ' + counts[c.key]) + '"></i>').join('') + '</div></div>' +
       '<div class="r-track-wrap"><div class="r-track"><div class="r-road"></div>' +
-      '<div class="r-end r-from"><span class="node"><i>A</i></span><b>' + esc(r.from || '?') + '</b><small>' + ICO.load + 'Loading point</small></div>' +
-      zone('start') + zone('way') + zone('end') +
-      '<div class="r-end r-to"><span class="node"><i>B</i></span><b>' + esc(r.to || '?') + '</b><small>' + ICO.flag + 'Unloading point</small></div>' +
+      '<div class="r-end r-from">' + at('start') + '<span class="node"><i>A</i></span><b>' + esc(r.from || '?') + '</b><small>' + ICO.load + 'Loading point' + here('start') + '</small></div>' +
+      zone +
+      '<div class="r-end r-to">' + at('end') + '<span class="node"><i>B</i></span><b>' + esc(r.to || '?') + '</b><small>' + ICO.flag + 'Unloading point' + here('end') + '</small></div>' +
       '</div></div>' +
       // colour guide: every status, how many of this route's vehicles have it
       '<div class="r-legend"><span class="rl-t">Colour guide</span>' + CATS.map(c =>
