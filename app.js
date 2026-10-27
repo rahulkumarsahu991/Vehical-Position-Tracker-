@@ -2435,14 +2435,14 @@
     const A = placeLL(r.from, true), B = placeLL(r.to, true), ok = A && B && A.join() !== B.join(), rd = ok ? roadKnown(A, B) : null;
     const byPlace = {};
     clusters('way').forEach(v => {
-      const ll = v.cur && placeLL(v.cur, true), k = ll ? ll.join() : spellKey(v.cur) || '—';   // same point on the map = same stop (GADHCHIROLI / GADCHIROLI)
+      const ll = v.cur && placeOn(v.cur, A, B, true), k = ll ? ll.join() : spellKey(v.cur) || '—';   // same point on the map = same stop (GADHCHIROLI / GADCHIROLI)
       const c = byPlace[k] = byPlace[k] || { spell: {}, vs: [] };
       c.vs.push(v);
       if (v.cur) c.spell[v.cur] = (c.spell[v.cur] || 0) + 1;
     });
     const way = Object.values(byPlace).map(c => {
       const place = Object.keys(c.spell).sort((x, y) => c.spell[y] - c.spell[x])[0] || '—';
-      const p = ok && place !== '—' ? placeLL(place, true) : null;
+      const p = ok && place !== '—' ? placeOn(place, A, B, true) : null;
       if (!p) return { place: place, vs: c.vs, at: -1, km: null };
       const dA = kmApart(A, p), dB = kmApart(p, B), ab = kmApart(A, B), at = dA / (dA + dB || 1);
       const onRoad = rd ? alongLine(rd.pts, p) : null, near = !!onRoad && onRoad.off <= 25;
@@ -2788,7 +2788,12 @@
    * ===================================================================== */
   const PLACES = window.VPT_PLACES || {};
   const placeIdx = {};   // spellKey → [lat, lng]: "KESKAL" / "KESKAAL" find the same point
-  Object.keys(PLACES).forEach(k => { placeIdx[spellKey(k)] = PLACES[k]; });
+  const placeAlts = {};  // spellKey → every different point under it: SELUR (Gadchiroli) and SALUR (Andhra) are both "SLR"
+  Object.keys(PLACES).forEach(k => {
+    const s = spellKey(k), p = PLACES[k], l = placeAlts[s] = placeAlts[s] || [];
+    placeIdx[s] = p;
+    if (!l.some(q => q.join() === p.join())) l.push(p);
+  });
   const GEO_KEY = 'vpt_geo_v1';
   const geoMem = store.get(GEO_KEY, {});
   Object.keys(geoMem).forEach(n => { if (!geoMem[n].ll && Date.now() - geoMem[n].t > 14 * 864e5) delete geoMem[n]; }); // ask again after two weeks
@@ -2809,6 +2814,16 @@
     }
     if (!loose) geoAsk(n);
     return null;
+  }
+  /** a place on the way from a to b: its own point, unless that is far off the way and another place of nearly the same
+   *  name is on it — "SELUR" on Vizag → Shree Cement is Salur (Andhra), on Konsari → Raipur it is Selur (Gadchiroli) */
+  function placeOn(name, a, b, loose) {
+    const own = placeLL(name, loose), alts = placeAlts[spellKey(name)];
+    if (!own || !alts || alts.length < 2 || !a || !b || a.join() === b.join()) return own;
+    const way = Math.max(60, kmApart(a, b) * 0.25), off = p => alongLine([a, b], p).off;
+    if (off(own) <= way) return own;
+    const best = alts.reduce((x, p) => (off(p) < off(x) ? p : x), own);
+    return off(best) <= way ? best : own;
   }
   const geoQ = [];
   let geoBusy = false, geoAsked = 0;
@@ -2973,7 +2988,9 @@
   /** the town a truck is in now (loading / unloading ones with no current location: their From / To) */
   function truckTown(v) {
     const name = v.cur || (v.cat === 'loading' ? v.from : v.cat === 'unloading' ? v.to : '');
-    return name ? placeLL(name) : null;
+    if (!name) return null;
+    placeLL(name);   // looks a new name up on OpenStreetMap
+    return placeOn(name, placeLL(v.from, true), placeLL(v.to, true), true);
   }
   const kmApart = (a, b) => Math.hypot(a[0] - b[0], (a[1] - b[1]) * Math.cos(a[0] * Math.PI / 180)) * 111;
   /** where a truck is going next: a loaded one to its To, an empty one to its From (the loading point it heads to) */
