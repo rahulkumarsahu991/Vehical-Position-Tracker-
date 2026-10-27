@@ -97,3 +97,9 @@ window.VPT_PLACES = {
   "DM AGRO": [21.0748, 80.9543], "DM ARGO": [21.0748, 80.9543],  // Banhardi, Rajnandgaon (plus code 3XF3+WP, PIN 491441)
   "KHAPSHI": [16.9364, 74.0181]                                  // Kapshi, Shahuwadi, Kolhapur (Maharashtra)
 };
+
+/* A place far off the straight way from A to B that is still right on that route (the lorries' road goes round
+ * there): no "current location galat hai" for it on that route. "FROM > TO": ["PLACE", …] */
+window.VPT_ROUTE_OK = {
+  "SOMINI > KAKINADA": ["KONDAGAON"]          // told by the office, 27 Oct 2026
+};

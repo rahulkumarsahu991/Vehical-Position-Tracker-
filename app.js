@@ -2447,7 +2447,7 @@
       const dA = kmApart(A, p), dB = kmApart(p, B), ab = kmApart(A, B), at = dA / (dA + dB || 1);
       const onRoad = rd ? alongLine(rd.pts, p) : null, near = !!onRoad && onRoad.off <= 25;
       return { place: place, vs: c.vs, at: at, km: Math.round(at * (rd ? rd.km : ab * 1.25) / 5) * 5, about: true,   // grows with the order
-        off: !near && alongLine([A, B], p).off > Math.max(60, ab * 0.25) };
+        off: !near && alongLine([A, B], p).off > Math.max(60, ab * 0.25) && !routeOk(r.from, r.to, place) };
     }).sort((x, y) => x.at - y.at);
     let n = 0; // trucks pop in one after another
     const dot = v => '<button type="button" class="rdot rd-' + v.cat + (S.rcat && v.cat !== S.rcat ? ' dim' : '') + '" data-v="' + esc(v.vno) + '" style="--c:' + CAT[v.cat].color + ';--i:' + (n++) + '"' +
@@ -2815,6 +2815,13 @@
     if (!loose) geoAsk(n);
     return null;
   }
+  /** the office said this place is right on this route although it is far off the straight way (places.js VPT_ROUTE_OK) */
+  const ROUTE_OK = {};
+  Object.keys(window.VPT_ROUTE_OK || {}).forEach(k => {
+    const [f, t] = k.split('>').map(spellKey);
+    window.VPT_ROUTE_OK[k].forEach(p => { ROUTE_OK[f + '>' + t + ':' + spellKey(p)] = true; });
+  });
+  const routeOk = (from, to, place) => !!ROUTE_OK[spellKey(from) + '>' + spellKey(to) + ':' + spellKey(place)];
   /** a place on the way from a to b: its own point, unless that is far off the way and another place of nearly the same
    *  name is on it — "SELUR" on Vizag → Shree Cement is Salur (Andhra), on Konsari → Raipur it is Selur (Gadchiroli) */
   function placeOn(name, a, b, loose) {
