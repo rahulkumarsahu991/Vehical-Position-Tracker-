@@ -82,5 +82,15 @@ window.VPT_PLACES = {
   "SEONI": [22.0869, 79.5435], "KANHIWADA": [22.2122, 79.7398], "BALAGHAT": [21.8129, 80.1838], "JABALPUR": [23.1702, 79.9325],
   "SATNA": [24.5854, 80.8322], "MAIHAR": [24.2620, 80.7612],
   "BANGLORE": [12.9716, 77.5946], "BANGALORE": [12.9716, 77.5946], "KARNATAK": [15.3173, 75.7139], "KARNATAKA": [15.3173, 75.7139],
-  "GUJRAT": [23.0225, 72.5714], "GUJARAT": [23.0225, 72.5714]
+  "GUJRAT": [23.0225, 72.5714], "GUJARAT": [23.0225, 72.5714],
+
+  // ---- told by the office (27 Oct 2026): sheet name = where it is
+  "WARSHA": [20.6238, 79.9626],                                  // Desaiganj (Wadsa), Gadchiroli
+  "SACHIYAN": [21.0950, 80.9843],                                // Pendri, Rajnandgaon
+  "KUMHARA": [25.5992, 85.1849],                                 // Kumhrar, Patna (Bihar)
+  "SHIVAY MOTORS": [21.6567, 82.1601],                           // Baloda Bazar
+  "TILAI": [21.0971, 81.0302],                                   // (approx) Gathula, Rajnandgaon
+  "TOLAGAON": [21.0505, 80.8695],                                // (approx) Dongargaon, Rajnandgaon
+  "BHARITOLA": [20.3747, 80.7252],                               // (approx) Manpur
+  "CHOTEDONGER": [19.7167, 81.2500], "CHOTTE DONGAR": [19.7167, 81.2500]   // (approx) Narayanpur
 };
