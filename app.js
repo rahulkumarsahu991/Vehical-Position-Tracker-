@@ -3121,7 +3121,8 @@
     if (!m) {
       const el = $('#' + id);
       el.innerHTML = '';
-      const map = L.map(el, { scrollWheelZoom: false, zoomSnap: 0.5, minZoom: 4, maxZoom: 17, tapTolerance: 20 }).setView([21.5, 82], 6);
+      // the mouse wheel zooms in / out around the cursor, half a level per notch
+      const map = L.map(el, { scrollWheelZoom: true, wheelPxPerZoomLevel: 120, wheelDebounceTime: 30, zoomSnap: 0.5, minZoom: 4, maxZoom: 17, tapTolerance: 20 }).setView([21.5, 82], 6);
       map.attributionControl.setPrefix(false);
       addBaseMap(L, map);
       // ⛶ full screen, under the zoom buttons
@@ -3133,9 +3134,6 @@
         return b;
       } });
       new Fs().addTo(map);
-      // the mouse wheel zooms only after a click on the map, so the page still scrolls past it
-      map.on('click', () => map.scrollWheelZoom.enable());
-      map.on('mouseout', () => map.scrollWheelZoom.disable());
       map.on('zoomend', () => el.classList.toggle('mp-near', map.getZoom() >= 7.5));
       map.on('zoomend moveend', () => MAPS[id] && declutterSoon(MAPS[id]));
       const trucks = L.markerClusterGroup({
