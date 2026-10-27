@@ -881,7 +881,11 @@ body.has-bulk main { padding-bottom: 180px; }
 .rc-place b { color: var(--muted); font-weight: 600; }
 /* km from A along the real road (or "off route" for a place far from it) */
 .rc-place em { display: block; font: 600 10px/1.2 var(--font); font-style: normal; color: var(--muted); margin-top: 1px; }
-.rc-place em.off { color: #b45309; }
+/* a stop far off the way from A to B: the current location is probably wrong — red, blinking */
+.rc-place em.off { color: #dc2626; font-weight: 800; animation: off-blink 1s steps(2, jump-none) infinite; }
+.rc.off .rc-place span { border-color: #f5a3a3; box-shadow: 0 0 0 2px rgba(220, 38, 38, .25), 0 2px 4px rgba(22, 26, 51, .12); }
+.rc.off::after { border-color: #dc2626; animation: off-blink 1s steps(2, jump-none) infinite; }
+@keyframes off-blink { 50% { opacity: .2; } }
 /* a vehicle: a little lorry in its status colour, with its short number (BA42) */
 .rdot {
   position: relative; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 2px 3px; border: 0; border-radius: 8px;
@@ -946,7 +950,7 @@ body.has-bulk main { padding-bottom: 180px; }
 .rl-all { display: none; border: 0; background: none; padding: 0; cursor: pointer; color: var(--navy-3); font: 700 11.5px var(--font); }
 
 @media (prefers-reduced-motion: reduce) {
-  .route, .rdot, .rpop, .r-road::after, .rdot .truck, .r-end .node { animation: none; }
+  .route, .rdot, .rpop, .r-road::after, .rdot .truck, .r-end .node, .rc-place em.off, .rc.off::after { animation: none; }
   .rh-lane { animation: none; transform: translateX(40%); }
   .rh-lane.l2 { transform: translateX(15%); }
   .rh-lane.l3 { transform: translateX(70%); }
@@ -1013,6 +1017,8 @@ body.has-bulk main { padding-bottom: 180px; }
     background: #fff; border: 1px solid #e6e9f2; border-top: 3px solid #f5b041; border-radius: 12px; box-shadow: 0 1px 4px rgba(22, 26, 51, .07);
   }
   .rc::after { bottom: auto; top: 50%; left: -19px; margin: -6px 0 0 -6px; }   /* on the road */
+  .rc.off { border-top-color: #dc2626; background: #fff5f5; }
+  .rc.off .rc-place span { box-shadow: none; }
   .rc::before { bottom: auto; top: 50%; left: -13px; width: 13px; height: 2px; margin: -1px 0 0; } /* stem from the road to the card */
   .rc-place { display: block; position: static; order: -1; flex: 1 1 auto; text-align: left; font-size: 13px; color: var(--ink); }
   .rc-place span { background: none; border: 0; box-shadow: none; padding: 0; border-radius: 0; }

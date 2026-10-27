@@ -2453,11 +2453,11 @@
     const dot = v => '<button type="button" class="rdot rd-' + v.cat + (S.rcat && v.cat !== S.rcat ? ' dim' : '') + '" data-v="' + esc(v.vno) + '" style="--c:' + CAT[v.cat].color + ';--i:' + (n++) + '"' +
       ' aria-label="' + esc(v.vno + ', ' + CAT[v.cat].label + (v.cur ? ', now at ' + v.cur : '')) + '">' + ICO.truck + '<span>' + esc(shortNo(v.vno)) + '</span></button>';
     // a stop on the way is at least as wide as its place name, so the name stays on one line
-    const tagW = c => Math.min(170, 30 + c.place.length * 7 + (c.vs.length > 1 ? 18 : 0));
+    const tagW = c => Math.max(c.off ? 150 : 0, Math.min(170, 30 + c.place.length * 7 + (c.vs.length > 1 ? 18 : 0)));   // room for the warning too
     const zone = '<div class="rz rz-way">' + way.map(c =>
-      '<div class="rc" style="--tw:' + tagW(c) + 'px"><div class="rc-dots" style="--rows:' + Math.min(c.vs.length, 4) + '">' + c.vs.map(dot).join('') + '</div>' +
+      '<div class="rc' + (c.off ? ' off' : '') + '" style="--tw:' + tagW(c) + 'px"><div class="rc-dots" style="--rows:' + Math.min(c.vs.length, 4) + '">' + c.vs.map(dot).join('') + '</div>' +
       '<div class="rc-place"><span>' + ICO.pin + esc(c.place) + (c.vs.length > 1 ? ' <b>×' + c.vs.length + '</b>' : '') +
-        (c.off ? '<em class="off">off route</em>' : c.km !== null ? '<em>' + (c.about ? '≈ ' : '') + c.km + ' km</em>' : '') + '</span></div></div>').join('') + '</div>';
+        (c.off ? '<em class="off" title="This place is far off the way from A to B — check the current location in the Calling Sheet">⚠ Current location galat hai</em>' : c.km !== null ? '<em>' + (c.about ? '≈ ' : '') + c.km + ' km</em>' : '') + '</span></div></div>').join('') + '</div>';
     // trucks that have reached A / B stand right on that pin, not on a stop before it
     const at = z => {
       const vs = clusters(z);
