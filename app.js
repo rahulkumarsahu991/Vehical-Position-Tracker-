@@ -3221,16 +3221,22 @@
         (v.cur ? ' · now ' + esc(v.cur) : '') + '</small></button>').join('') + '</div><div class="mp-tip">Tap a truck for its details</div>';
   }
   /** what could not go on the map (so nobody wonders where a truck went) and what was placed by itself */
-  function mapNote(el, lost, places, vs) {
+  function mapNote(el, lost, places, vs, key) {
     const nl = Object.keys(lost).map(k => esc(k) + ' (' + lost[k].length + ')');
     const ps = [...new Set(places)].filter(p => !lost[p]).map(esc);
     const auto = [...new Set(vs.flatMap(v => [v.cur, v.from, v.to]).map(up))]
       .filter(n => n && geoMem[n] && geoMem[n].ll && !PLACES[n] && !placeIdx[spellKey(n)]).map(esc);
-    el.innerHTML = '<b>Map:</b> trucks stand at their current location from the Calling Sheet (town, not GPS). ' +
+    el.innerHTML = (key ? mapKey(key) : '') + '<b>Map:</b> trucks stand at their current location from the Calling Sheet (town, not GPS). ' +
       (nl.length ? '<br><b>Not on the map</b> — place not known: ' + nl.join(', ') + '.' : '') +
       (ps.length ? '<br><b>Route place not found:</b> ' + ps.join(', ') + '.' : '') +
       (auto.length ? '<br><b>Found by itself on OpenStreetMap</b> (check they are right): ' + auto.join(', ') + '.' : '') +
       (nl.length || ps.length || auto.length ? ' Tell us where these are and they will be fixed.' : '');
+  }
+  /** what the colours on the map mean, in one line under it: [[colour, words, 'line' | 'ring' | 'tip'], …] */
+  function mapKey(items) {
+    const ring = 'conic-gradient(#16a34a 0 50%, #7c3aed 0 75%, #dc2626 0)';
+    return '<span class="mp-key">' + items.map(([c, t, kind]) =>
+      '<span>' + (kind === 'ring' ? '<i class="ring" style="background:' + ring + '"></i>' : kind === 'tip' ? '👆' : '<i class="ln" style="--c:' + c + '"></i>') + esc(t) + '</span>').join('') + '</span>';
   }
   /** no label on top of another: the hub label first, then place tags (busiest first), time boxes, place names.
    *  A tag that would sit on one already shown shrinks to its count (the full tag shows on hover / tap or when
@@ -3377,7 +3383,9 @@
     const lost = truckMarks(m, vs);
     m.trucks.eachLayer(l => pts.push([l.getLatLng().lat, l.getLatLng().lng]));
     mapFit(m, pts, [S.f.caller, S.rq, S.rcat, sel ? rkey(sel) + (selRoad ? '+road' : '') : '', focus ? '@' + fk : ''].join('|'), !some);
-    mapNote(note, lost, missing, vs);
+    mapNote(note, lost, missing, vs, focus ? [['#1a73e8', 'coming in'], ['#188038', 'going out'], ['#9aa0a6', 'other routes'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a number for its trucks', 'tip']]
+      : sel ? [['#1a73e8', 'this route'], ['#9aa0a6', 'other routes'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a truck for details', 'tip']]
+      : [['#4285f4', 'route (from A to B)'], ['#5b8def', 'a truck’s own way'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a pin: every route there · tap a line: that route', 'tip']]);
     declutterSoon(m);
   }
 
@@ -3393,7 +3401,7 @@
       pts.push(hub);
       // a slim one-line hub label (the counts are in the tiles above the map)
       const mk = L.marker(hub, { icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in mk-hub" title="' + (load ? 'Loading point' : 'Unloading point') + '">' +
-        '<i class="mk-hub-k">' + (load ? 'L' : 'U') + '</i><b>' + esc(S.hub) + '</b><span>' + d.at.length + ' here</span></div>' }), zIndexOffset: 2000 });
+        '<i class="mk-hub-k">' + (load ? 'Loading' : 'Unloading') + '</i><b>' + esc(S.hub) + '</b><span>' + d.at.length + ' here</span></div>' }), zIndexOffset: 2000 });
       mk.bindPopup(() => mapPopup(S.hub, d.at, load ? 'Loading here now' : 'Unloading here now'), { maxWidth: 290, className: 'mp-pop' });
       m.marks.addLayer(mk);
     }
@@ -3426,7 +3434,8 @@
     const lost = truckMarks(m, vs);
     m.trucks.eachLayer(l => pts.push([l.getLatLng().lat, l.getLatLng().lng]));
     mapFit(m, pts, S.hmode + '|' + S.hub, false);
-    mapNote(note, lost, missing, vs);
+    mapNote(note, lost, missing, vs, [[col.in, load ? 'empty trucks coming to load' : 'loaded trucks coming to unload'], [col.out, load ? 'loaded, going out' : 'leaving after unloading'],
+      ['', 'trucks now (colour = status)', 'ring'], ['', 'thicker line = more trucks · tap a place for its trucks', 'tip']]);
     declutterSoon(m);
   }
   /** road ⇄ map on the Route tab (quiet: only set the buttons, the view draws itself when shown) */

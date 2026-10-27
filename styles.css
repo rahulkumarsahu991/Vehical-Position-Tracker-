@@ -1483,7 +1483,12 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
   --c: var(--navy); display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 4px; border-radius: 999px; border: 2px solid var(--navy);
   background: linear-gradient(180deg, #ffe58a, #ffd450); box-shadow: 0 4px 10px rgba(27, 30, 79, .3); transform: translate(-50%, calc(-100% - 10px));
 }
-.mk-hub .mk-hub-k { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; background: var(--navy); color: #ffd450; font: 700 11px/1 var(--cond); font-style: normal; }
+.mk-hub .mk-hub-k { border-radius: 999px; padding: 2px 6px; background: var(--navy); color: #ffd450; font: 700 9.5px/1.2 var(--font); font-style: normal; letter-spacing: .3px; text-transform: uppercase; }
+/* what the colours mean, under the map */
+.mp-key { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 6px; color: var(--ink-2); font-size: 12px; }
+.mp-key span { display: inline-flex; align-items: center; gap: 5px; }
+.mp-key i.ln { width: 20px; height: 5px; border-radius: 3px; background: var(--c); box-shadow: 0 0 0 1px rgba(0, 0, 0, .12); }
+.mp-key i.ring { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 4px rgba(255, 255, 255, 0); -webkit-mask: radial-gradient(circle, transparent 3px, #000 3.5px); mask: radial-gradient(circle, transparent 3px, #000 3.5px); }
 .mk-hub b { font: 700 14px/1 var(--cond); letter-spacing: .4px; color: var(--navy); }
 .mk-hub span { font: 700 10.5px var(--font); color: #fff; background: var(--navy-3); border-radius: 999px; padding: 1px 7px; }
 /* a place tag: name + km · time, count; shrunk to just the count when another label is in the way */
