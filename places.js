@@ -92,5 +92,8 @@ window.VPT_PLACES = {
   "TILAI": [21.0971, 81.0302],                                   // (approx) Gathula, Rajnandgaon
   "TOLAGAON": [21.0505, 80.8695],                                // (approx) Dongargaon, Rajnandgaon
   "BHARITOLA": [20.3747, 80.7252],                               // (approx) Manpur
-  "CHOTEDONGER": [19.7167, 81.2500], "CHOTTE DONGAR": [19.7167, 81.2500]   // (approx) Narayanpur
+  "CHOTEDONGER": [19.7167, 81.2500], "CHOTTE DONGAR": [19.7167, 81.2500],  // (approx) Narayanpur
+  "OFFICE": [21.0971, 81.0302],                                  // the office: Rajnandgaon
+  "DM AGRO": [21.0748, 80.9543], "DM ARGO": [21.0748, 80.9543],  // Banhardi, Rajnandgaon (plus code 3XF3+WP, PIN 491441)
+  "KHAPSHI": [16.9364, 74.0181]                                  // Kapshi, Shahuwadi, Kolhapur (Maharashtra)
 };
