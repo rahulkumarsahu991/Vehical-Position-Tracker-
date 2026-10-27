@@ -2426,17 +2426,29 @@
   function routeCard(r) {
     const zones = { start: [], way: [], end: [] }, counts = {};
     r.vs.forEach(v => { zones[routeZone(v)].push(v); counts[v.cat] = (counts[v.cat] || 0) + 1; });
-    // vehicles at the same place stand together; on the way, one group per current location
-    const clusters = z => {
-      const m = {}, order = [];
-      zones[z].sort((a, b) => CAT[a.cat].i - CAT[b.cat].i).forEach(v => {
-        const k = z === 'way' ? v.cur || '—' : z;
-        if (!m[k]) { m[k] = []; order.push(k); }
-        m[k].push(v);
-      });
-      return order.map(k => ({ place: k, vs: m[k] }));
-    };
-    const way = clusters('way');
+    // vehicles at the same place stand together
+    const clusters = z => zones[z].sort((a, b) => CAT[a.cat].i - CAT[b.cat].i);
+    // on the way: one stop per current location (VIZIANAGRAM / VIZIANAGARAM are one), in the order a truck going
+    // from A to B meets them — by how far each is from A compared with B (the lorries' own road, e.g. Vizag → Koraput →
+    // Jagdalpur, is often not the fastest car road) and about how many km from A that is.
+    // A place far off the way between A and B says "off route".
+    const A = placeLL(r.from, true), B = placeLL(r.to, true), ok = A && B && A.join() !== B.join(), rd = ok ? roadKnown(A, B) : null;
+    const byPlace = {};
+    clusters('way').forEach(v => {
+      const ll = v.cur && placeLL(v.cur, true), k = ll ? ll.join() : spellKey(v.cur) || '—';   // same point on the map = same stop (GADHCHIROLI / GADCHIROLI)
+      const c = byPlace[k] = byPlace[k] || { spell: {}, vs: [] };
+      c.vs.push(v);
+      if (v.cur) c.spell[v.cur] = (c.spell[v.cur] || 0) + 1;
+    });
+    const way = Object.values(byPlace).map(c => {
+      const place = Object.keys(c.spell).sort((x, y) => c.spell[y] - c.spell[x])[0] || '—';
+      const p = ok && place !== '—' ? placeLL(place, true) : null;
+      if (!p) return { place: place, vs: c.vs, at: -1, km: null };
+      const dA = kmApart(A, p), dB = kmApart(p, B), ab = kmApart(A, B), at = dA / (dA + dB || 1);
+      const onRoad = rd ? alongLine(rd.pts, p) : null, near = !!onRoad && onRoad.off <= 25;
+      return { place: place, vs: c.vs, at: at, km: Math.round(at * (rd ? rd.km : ab * 1.25) / 5) * 5, about: true,   // grows with the order
+        off: !near && alongLine([A, B], p).off > Math.max(60, ab * 0.25) };
+    }).sort((x, y) => x.at - y.at);
     let n = 0; // trucks pop in one after another
     const dot = v => '<button type="button" class="rdot rd-' + v.cat + (S.rcat && v.cat !== S.rcat ? ' dim' : '') + '" data-v="' + esc(v.vno) + '" style="--c:' + CAT[v.cat].color + ';--i:' + (n++) + '"' +
       ' aria-label="' + esc(v.vno + ', ' + CAT[v.cat].label + (v.cur ? ', now at ' + v.cur : '')) + '">' + ICO.truck + '<span>' + esc(shortNo(v.vno)) + '</span></button>';
@@ -2444,10 +2456,11 @@
     const tagW = c => Math.min(170, 30 + c.place.length * 7 + (c.vs.length > 1 ? 18 : 0));
     const zone = '<div class="rz rz-way">' + way.map(c =>
       '<div class="rc" style="--tw:' + tagW(c) + 'px"><div class="rc-dots" style="--rows:' + Math.min(c.vs.length, 4) + '">' + c.vs.map(dot).join('') + '</div>' +
-      '<div class="rc-place"><span>' + ICO.pin + esc(c.place) + (c.vs.length > 1 ? ' <b>×' + c.vs.length + '</b>' : '') + '</span></div></div>').join('') + '</div>';
+      '<div class="rc-place"><span>' + ICO.pin + esc(c.place) + (c.vs.length > 1 ? ' <b>×' + c.vs.length + '</b>' : '') +
+        (c.off ? '<em class="off">off route</em>' : c.km !== null ? '<em>' + (c.about ? '≈ ' : '') + c.km + ' km</em>' : '') + '</span></div></div>').join('') + '</div>';
     // trucks that have reached A / B stand right on that pin, not on a stop before it
     const at = z => {
-      const vs = clusters(z).flatMap(c => c.vs);
+      const vs = clusters(z);
       return vs.length ? '<div class="r-at"><div class="rc-dots" style="--rows:' + Math.min(vs.length, 4) + '">' + vs.map(dot).join('') + '</div></div>' : '';
     };
     const here = z => zones[z].length ? ' · ' + zones[z].length + ' here' : '';
@@ -2884,6 +2897,26 @@
     if (!r) { roadAsk(k, a, b); return null; }
     if (!r[0]) return null;   // no road found between them
     return roadPts[k] || (roadPts[k] = { pts: polyDecode(r[0]), km: r[1], min: r[2] });
+  }
+  /** the road a → b only when it is already known (roads.js / this browser): the road view never goes asking */
+  function roadKnown(a, b) {
+    if (!a || !b || a.join() === b.join()) return null;
+    const k = roadKey(a, b), r = ROADS[k] || roadMem[k];
+    if (!r || !r[0]) return null;
+    return roadPts[k] || (roadPts[k] = { pts: polyDecode(r[0]), km: r[1], min: r[2] });
+  }
+  /** the point of a line nearest to p: how far along the line it is (along / total, km) and how far p is from it (off, km) */
+  function alongLine(pts, p) {
+    const kx = Math.cos(p[0] * Math.PI / 180);
+    let along = 0, off = Infinity, run = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      const ax = (a[1] - p[1]) * kx, ay = a[0] - p[0], dx = (b[1] - a[1]) * kx, dy = b[0] - a[0], L = dx * dx + dy * dy, seg = Math.sqrt(L) * 111;
+      const t = L ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L)) : 0, x = ax + t * dx, y = ay + t * dy, d = Math.sqrt(x * x + y * y) * 111;
+      if (d < off) { off = d; along = run + t * seg; }
+      run += seg;
+    }
+    return { along: along, total: run, off: off };
   }
   const roadQ = [];
   let roadBusy = false, roadAsked = 0;

@@ -879,6 +879,9 @@ body.has-bulk main { padding-bottom: 180px; }
 }
 .rc-place .pin, .rl-key .pin { width: 11px; height: 11px; margin-right: 2px; vertical-align: -1px; color: var(--orange-d); }
 .rc-place b { color: var(--muted); font-weight: 600; }
+/* km from A along the real road (or "off route" for a place far from it) */
+.rc-place em { display: block; font: 600 10px/1.2 var(--font); font-style: normal; color: var(--muted); margin-top: 1px; }
+.rc-place em.off { color: #b45309; }
 /* a vehicle: a little lorry in its status colour, with its short number (BA42) */
 .rdot {
   position: relative; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 2px 3px; border: 0; border-radius: 8px;
@@ -1013,6 +1016,7 @@ body.has-bulk main { padding-bottom: 180px; }
   .rc::before { bottom: auto; top: 50%; left: -13px; width: 13px; height: 2px; margin: -1px 0 0; } /* stem from the road to the card */
   .rc-place { display: block; position: static; order: -1; flex: 1 1 auto; text-align: left; font-size: 13px; color: var(--ink); }
   .rc-place span { background: none; border: 0; box-shadow: none; padding: 0; border-radius: 0; }
+  .rc-place em { display: inline; margin: 0 0 0 6px; font-size: 11px; }
   .rc-place .pin, .rc-place .ico { width: 13px; height: 13px; vertical-align: -2px; margin-right: 4px; color: var(--orange-d); }
   .rc-dots { display: flex; flex-wrap: wrap; gap: 6px 8px; }
   .route, .rdot { animation: none; }  /* cards and trucks show at once on a phone */
