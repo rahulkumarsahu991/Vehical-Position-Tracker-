@@ -1478,14 +1478,22 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 }
 .mk-tag b { background: var(--c); color: #fff; border-radius: 999px; padding: 0 6px; font: 700 11px var(--font); }
 .mk-tag::after, .mk-hub::after { content: ""; position: absolute; left: 50%; bottom: -8px; margin-left: -6px; border: 6px solid transparent; border-top-color: var(--c); border-bottom: 0; }
+/* the hub: one slim line — L / U · name · "8 here" */
 .mk-hub {
-  --c: var(--navy); display: grid; justify-items: center; gap: 2px; padding: 5px 10px 6px; border-radius: 12px; border: 2px solid var(--navy);
-  background: linear-gradient(180deg, #ffe58a, #ffd450); box-shadow: 0 6px 16px rgba(27, 30, 79, .3); transform: translate(-50%, calc(-100% - 10px));
+  --c: var(--navy); display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 4px; border-radius: 999px; border: 2px solid var(--navy);
+  background: linear-gradient(180deg, #ffe58a, #ffd450); box-shadow: 0 4px 10px rgba(27, 30, 79, .3); transform: translate(-50%, calc(-100% - 10px));
 }
-.mk-hub small { font: 700 8.5px var(--font); letter-spacing: .8px; text-transform: uppercase; color: #7a5a00; }
-.mk-hub b { font: 700 15px/1 var(--cond); letter-spacing: .4px; color: var(--navy); }
-.mk-hub span { display: flex; gap: 3px; }
-.mk-hub span i { font: 700 10px var(--font); font-style: normal; color: #fff; background: var(--navy-3); border-radius: 999px; padding: 0 6px; }
+.mk-hub .mk-hub-k { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; background: var(--navy); color: #ffd450; font: 700 11px/1 var(--cond); font-style: normal; }
+.mk-hub b { font: 700 14px/1 var(--cond); letter-spacing: .4px; color: var(--navy); }
+.mk-hub span { font: 700 10.5px var(--font); color: #fff; background: var(--navy-3); border-radius: 999px; padding: 1px 7px; }
+/* a place tag: name + km · time, count; shrunk to just the count when another label is in the way */
+.mk-tag .t { display: inline-flex; align-items: baseline; gap: 5px; }
+.mk-tag.mk-small { padding: 1px; border-radius: 999px; gap: 0; box-shadow: 0 1px 4px rgba(22, 26, 51, .25); }
+.mk-tag.mk-small .t { display: none; }
+.mk-tag.mk-small::after { bottom: -7px; margin-left: -4px; border-width: 4px; }
+.leaflet-marker-icon:hover .mk-tag.mk-small { padding: 2px 3px 2px 8px; border-radius: 8px; gap: 5px; z-index: 5; }
+.leaflet-marker-icon:hover .mk-tag.mk-small .t { display: inline-flex; }
+.mk-off { visibility: hidden; }
 /* lines: white dashes run along them the way the trucks go, an arrow two thirds along */
 .mp-line { stroke-linecap: round; }
 .mp-flow { animation: hub-flow 1.1s linear infinite; }
@@ -1548,8 +1556,8 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
   .mp-pick { width: 100%; }
   .mp-pick select { max-width: none; flex: 1; min-width: 0; }
   .mp-sum { font-size: 12px; }
-  .mk-hub { padding: 3px 8px 4px; }
-  .mk-hub b { font-size: 13px; }
-  .mk-hub span { display: none; }   /* the counts are in the tiles above the map */
+  .mk-hub { padding: 2px 3px; }
+  .mk-hub b { font-size: 12.5px; }
+  .mk-tag small { display: none; }   /* phones: km / time in the tag's window (tap) — the tags stay short */
 }
 @media print { .map-wrap { display: none !important; } }
