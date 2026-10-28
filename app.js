@@ -2423,41 +2423,124 @@
     routes.sort((a, b) => b.vs.length - a.vs.length || a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
     return { routes: routes, noRoute: noRoute };
   }
+  /* ---- a route's ways: OSRM's road, its other ways, and the way through a town where trucks stand ---- */
+  const LANES = [['#1a73e8', '#0b3d91'], ['#9334e6', '#5b1d9e'], ['#0f9d58', '#0b5d36'], ['#e8710a', '#9a4a05']];   // colour, edge
+  const ON_WAY = 25;   // km: a town this near a way is on it
+  /** every way a lorry may take from A to B: OSRM's road and its other ways, plus the way through a town where trucks
+   *  stand that is on none of them — when that is not much longer (Konsari → Vizianagaram: via Narayanpur, via Aheri ·
+   *  Bijapur and, where the trucks are, via Kanker · Keshkal). stops: points, busiest first.
+   *  side: stops just off a way (a short trip off the road and back) — no way of their own, not "galat" either */
+  function routeWays(A, B, stops, sure) {   // sure: places the office said are on this route (VPT_ROUTE_OK): a way through each, however long
+    const alts = roadAlts(A, B), main = roadKnown(A, B), side = new Set();
+    if (!main) return { ways: [], side: side };
+    const ways = [main], ab = kmApart(A, B);
+    const sample = pts => { const step = Math.max(1, Math.floor(pts.length / 40)); return pts.filter((q, i) => i % step === 0); };
+    const offAll = pts => sample(pts).filter(q => !ways.some(x => alongLine(x.pts, q).off <= 5));   // the part on none of the ways
+    // OSRM's other ways — not one that is nearly the same road
+    alts.forEach(w => { if (ways.length < LANES.length && offAll(w.pts).length >= sample(w.pts).length * 0.15) ways.push(w); });
+    const best = Math.min(...ways.map(w => w.km)), told = new Set((sure || []).map(p => p.join()));
+    (sure || []).concat(stops).forEach(p => {
+      const ok = told.has(p.join());
+      if (ways.some(w => alongLine(w.pts, p).off <= ON_WAY) || (!ok && kmApart(A, p) + kmApart(p, B) > ab * 1.6 + 40)) return;   // on a way already / far off: nothing to ask
+      const r1 = road(A, p), r2 = road(p, B);   // asked for once
+      if (!r1 || !r2 || r1.km + r2.km > best * (ok ? 2.2 : 1.35) + 30) return;   // a long way round: the current location is probably wrong
+      // out to the town and back on the same road (a short trip off the way): no way of its own
+      const o1 = offAll(r1.pts), o2 = offAll(r2.pts);
+      const back = o1.length + o2.length < 4 || o2.filter(q => alongLine(r1.pts, q).off <= 3).length >= o2.length * 0.6;
+      if (back || ways.length >= LANES.length) side.add(p.join());
+      else ways.push({ pts: r1.pts.concat(r2.pts.slice(1)), km: r1.km + r2.km, min: r1.min + r2.min, via: true });
+    });
+    return { ways: ways, side: side };
+  }
+  // towns a way is called by: one name per point; no states, plants or offices
+  let townList = null;
+  function towns() {
+    if (townList) return townList;
+    const seen = {};
+    townList = Object.keys(PLACES).filter(n => /^[A-Z]{4,}$/.test(n) && !NOT_PLACE.test(n) && !/^(NAME|PLACE|EMAMI|SOMINI|TELANGANA|KARNATAKA?|GUJA?RAT|GUJRAT)$/.test(n))
+      .filter(n => !seen[PLACES[n].join()] && (seen[PLACES[n].join()] = 1)).map(n => ({ n: n.charAt(0) + n.slice(1).toLowerCase(), p: PLACES[n] }));
+    return townList;
+  }
+  const nameMem = {};
+  /** "Kanker · Keshkal": the towns on each way that the other ways do not pass (just one way: two towns along it) */
+  function wayNames(ways, A, B) {
+    const key = A.join() + '>' + B.join() + '|' + ways.map(w => w.km + ':' + w.pts.length).join(',');
+    if (nameMem[key]) return nameMem[key];
+    const T = towns().filter(t => kmApart(t.p, A) > 30 && kmApart(t.p, B) > 30);
+    nameMem[key] = ways.map((w, i) => {
+      const la = w.pts.map(q => q[0]), lo = w.pts.map(q => q[1]);
+      const box = [Math.min(...la) - .1, Math.max(...la) + .1, Math.min(...lo) - .1, Math.max(...lo) + .1];   // a quick test first
+      const near = T.filter(t => t.p[0] > box[0] && t.p[0] < box[1] && t.p[1] > box[2] && t.p[1] < box[3]).map(t => ({ n: t.n, p: t.p, o: alongLine(w.pts, t.p) }));
+      const on6 = near.filter(t => t.o.off <= 6), on = on6.length ? on6 : near.filter(t => t.o.off <= 15);   // few known towns there: a bit wider
+      let pick = ways.length < 2 ? [] : on.map(t => Object.assign(t, { far: Math.min(...ways.filter((x, j) => j !== i).map(x => alongLine(x.pts, t.p).off)) }))
+        .filter(t => t.far > 15).sort((x, y) => y.far - x.far).slice(0, 2);
+      if (!pick.length) pick = [0.35, 0.7].map(f => on.slice().sort((x, y) => Math.abs(x.o.along / x.o.total - f) - Math.abs(y.o.along / y.o.total - f))[0])
+        .filter((t, k, l) => t && l.indexOf(t) === k);
+      return pick.sort((x, y) => x.o.along - y.o.along).map(t => t.n).join(' · ');
+    });
+    return nameMem[key];
+  }
+  const truckMin = w => Math.max(w.min * 1.4, w.km * 60 / 45);   // as truckTime
+  /** a route for the Road view / the map: its ways as lanes — the one with most trucks on it first, then the quickest —
+   *  each with its name, km, truck time and colour; every stop on the way (trucks grouped by where they are now, one
+   *  stop per point: GADHCHIROLI / GADCHIROLI are one) on its lane, ≈ km from A, or marked off route */
+  function routeLanes(r) {
+    const A = placeLL(r.from, true), B = placeLL(r.to, true), ok = !!(A && B && A.join() !== B.join()), byPlace = {};
+    r.vs.filter(v => routeZone(v) === 'way').sort((a, b) => CAT[a.cat].i - CAT[b.cat].i).forEach(v => {
+      const ll = v.cur && placeOn(v.cur, A, B, true), k = ll ? ll.join() : spellKey(v.cur) || '—';
+      const c = byPlace[k] = byPlace[k] || { spell: {}, vs: [] };
+      c.vs.push(v);
+      if (v.cur) c.spell[v.cur] = (c.spell[v.cur] || 0) + 1;
+    });
+    const stops = Object.values(byPlace).map(c => {
+      const place = Object.keys(c.spell).sort((x, y) => c.spell[y] - c.spell[x])[0] || '—';
+      return { place: place, vs: c.vs, p: ok && place !== '—' ? placeOn(place, A, B, true) : null, at: -1, km: null, lane: 0 };
+    });
+    const sure = (ROUTE_VIA[spellKey(r.from) + '>' + spellKey(r.to)] || []).map(n => ok && placeOn(n, A, B, true)).filter(Boolean);
+    const W = ok ? routeWays(A, B, stops.filter(c => c.p).sort((x, y) => y.vs.length - x.vs.length).map(c => c.p), sure) : { ways: [], side: new Set() };
+    const ways = W.ways, ab = ok ? kmApart(A, B) : 0;
+    stops.forEach(c => { c.o = c.p ? ways.map(w => alongLine(w.pts, c.p)) : []; c.on = c.o.map(o => o.off <= ON_WAY); });
+    // trucks on each way; a way through a town counts only the trucks on none of OSRM's ways (Kanker, Keshkal) —
+    // a truck on the main road and on that way too stays on the main road
+    const onOsrm = c => c.on.some((x, j) => x && !ways[j].via);
+    const weight = ways.map((w, i) => stops.reduce((s, c) => s + (c.on[i] && !(w.via && onOsrm(c)) ? c.vs.length : 0), 0));
+    const order = ways.map((w, i) => i).sort((x, y) => weight[y] - weight[x] || truckMin(ways[x]) - truckMin(ways[y]));
+    const names = ways.length ? wayNames(ways, A, B) : [];
+    const quick = ways.length > 1 ? ways.reduce((x, y) => (truckMin(y) < truckMin(x) ? y : x)) : null;
+    const lanes = order.map((i, li) => ({ w: ways[i], name: names[i], main: !i, col: LANES[li][0], edge: LANES[li][1], quick: ways[i] === quick, n: 0 }));
+    if (!lanes.length) lanes.push({ w: null, name: '', n: 0 });
+    stops.forEach(c => {
+      if (!c.p) return;
+      const near = order.findIndex(i => c.on[i]);
+      // on no way: beside the one it is nearest to, in the order of how far it is from A compared with B
+      const li = near >= 0 ? near : ways.length ? order.indexOf(c.o.indexOf(c.o.reduce((x, y) => (y.off < x.off ? y : x)))) : 0;
+      const w = lanes[li].w, o = ways.length ? c.o[order[li]] : null, dA = kmApart(A, c.p), dB = kmApart(c.p, B);
+      c.lane = li;
+      c.at = near >= 0 ? o.along / (o.total || 1) : dA / (dA + dB || 1);
+      c.km = Math.round(c.at * (w ? w.km : ab * 1.25) / 5) * 5;   // grows with the order
+      c.about = true;
+      c.off = near < 0 && !W.side.has(c.p.join()) && alongLine([A, B], c.p).off > Math.max(60, ab * 0.25) && !routeOk(r.from, r.to, c.place);
+    });
+    stops.forEach(c => { if (c.p) lanes[c.lane].n += c.vs.length; });   // place not known: shown on the first lane, not counted on it
+    lanes.forEach((l, i) => { l.stops = stops.filter(c => c.lane === i).sort((x, y) => x.at - y.at); });
+    return { A: A, B: B, lanes: lanes };
+  }
   function routeCard(r) {
     const zones = { start: [], way: [], end: [] }, counts = {};
     r.vs.forEach(v => { zones[routeZone(v)].push(v); counts[v.cat] = (counts[v.cat] || 0) + 1; });
     // vehicles at the same place stand together
     const clusters = z => zones[z].sort((a, b) => CAT[a.cat].i - CAT[b.cat].i);
-    // on the way: one stop per current location (VIZIANAGRAM / VIZIANAGARAM are one), in the order a truck going
-    // from A to B meets them — by how far each is from A compared with B (the lorries' own road, e.g. Vizag → Koraput →
-    // Jagdalpur, is often not the fastest car road) and about how many km from A that is.
-    // A place far off the way between A and B says "off route".
-    const A = placeLL(r.from, true), B = placeLL(r.to, true), ok = A && B && A.join() !== B.join(), rd = ok ? roadKnown(A, B) : null;
-    const byPlace = {};
-    clusters('way').forEach(v => {
-      const ll = v.cur && placeOn(v.cur, A, B, true), k = ll ? ll.join() : spellKey(v.cur) || '—';   // same point on the map = same stop (GADHCHIROLI / GADCHIROLI)
-      const c = byPlace[k] = byPlace[k] || { spell: {}, vs: [] };
-      c.vs.push(v);
-      if (v.cur) c.spell[v.cur] = (c.spell[v.cur] || 0) + 1;
-    });
-    const way = Object.values(byPlace).map(c => {
-      const place = Object.keys(c.spell).sort((x, y) => c.spell[y] - c.spell[x])[0] || '—';
-      const p = ok && place !== '—' ? placeOn(place, A, B, true) : null;
-      if (!p) return { place: place, vs: c.vs, at: -1, km: null };
-      const dA = kmApart(A, p), dB = kmApart(p, B), ab = kmApart(A, B), at = dA / (dA + dB || 1);
-      const onRoad = rd ? alongLine(rd.pts, p) : null, near = !!onRoad && onRoad.off <= 25;
-      return { place: place, vs: c.vs, at: at, km: Math.round(at * (rd ? rd.km : ab * 1.25) / 5) * 5, about: true,   // grows with the order
-        off: !near && alongLine([A, B], p).off > Math.max(60, ab * 0.25) && !routeOk(r.from, r.to, place) };
-    }).sort((x, y) => x.at - y.at);
+    // the ways from A to B, one lane each; the trucks on the way on the lane of the way they are on
+    const R = routeLanes(r), multi = R.lanes.length > 1, lit = multi ? (S.rlane || {})[r.from + '→' + r.to] : undefined;   // a way tapped to light it up
     let n = 0; // trucks pop in one after another
     const dot = v => '<button type="button" class="rdot rd-' + v.cat + (S.rcat && v.cat !== S.rcat ? ' dim' : '') + '" data-v="' + esc(v.vno) + '" style="--c:' + CAT[v.cat].color + ';--i:' + (n++) + '"' +
       ' aria-label="' + esc(v.vno + ', ' + CAT[v.cat].label + (v.cur ? ', now at ' + v.cur : '')) + '">' + ICO.truck + '<span>' + esc(shortNo(v.vno)) + '</span></button>';
     // a stop on the way is at least as wide as its place name, so the name stays on one line
     const tagW = c => Math.max(c.off ? 150 : 0, Math.min(170, 30 + c.place.length * 7 + (c.vs.length > 1 ? 18 : 0)));   // room for the warning too
-    const zone = '<div class="rz rz-way">' + way.map(c =>
+    const zone = way => '<div class="rz rz-way">' + way.map(c =>
       '<div class="rc' + (c.off ? ' off' : '') + '" style="--tw:' + tagW(c) + 'px"><div class="rc-dots" style="--rows:' + Math.min(c.vs.length, 4) + '">' + c.vs.map(dot).join('') + '</div>' +
       '<div class="rc-place"><span>' + ICO.pin + esc(c.place) + (c.vs.length > 1 ? ' <b>×' + c.vs.length + '</b>' : '') +
-        (c.off ? '<em class="off" title="This place is far off the way from A to B — check the current location in the Calling Sheet">⚠ Current location galat hai</em>' : c.km !== null ? '<em>' + (c.about ? '≈ ' : '') + c.km + ' km</em>' : '') + '</span></div></div>').join('') + '</div>';
+        (c.off ? '<em class="off" title="This place is on none of the roads from A to B — check the current location in the Calling Sheet">⚠ Current location galat hai</em>' : c.km !== null ? '<em>' + (c.about ? '≈ ' : '') + c.km + ' km</em>' : '') + '</span></div></div>').join('') + '</div>';
     // trucks that have reached A / B stand right on that pin, not on a stop before it
     const at = z => {
       const vs = clusters(z);
@@ -2474,10 +2557,23 @@
       // how this route's trucks split by status, as one coloured bar
       '<div class="r-bar">' + CATS.filter(c => counts[c.key]).map(c => '<i style="--c:' + c.color + ';flex-grow:' + counts[c.key] + '" title="' +
         esc(c.label + ': ' + counts[c.key]) + '"></i>').join('') + '</div></div>' +
-      '<div class="r-track-wrap"><div class="r-track"><div class="r-road"></div>' +
-      '<div class="r-end r-from">' + at('start') + '<span class="node"><i>A</i></span><b>' + esc(r.from || '?') + '</b><small>' + ICO.load + 'Loading point' + here('start') + '</small></div>' +
-      zone +
-      '<div class="r-end r-to">' + at('end') + '<span class="node"><i>B</i></span><b>' + esc(r.to || '?') + '</b><small>' + ICO.flag + 'Unloading point' + here('end') + '</small></div>' +
+      '<div class="r-track-wrap"><div class="r-ways' + (multi ? ' multi' : '') + (R.lanes[lit] ? ' r-picked' : '') + '" data-route="' + esc(r.from + '→' + r.to) + '">' +
+      (multi ? '<div class="r-ways-t">🛣️ <b>' + R.lanes.length + ' possible routes</b> from A to B (real roads, like Google Maps) · tap one to highlight it' +
+        '<button type="button" class="link" data-rmap="' + esc(r.from + '→' + r.to) + '">See them on the map</button></div>' : '') +
+      R.lanes.map((l, i) => '<div class="r-lane' + (l.stops.length ? '' : ' r-bare') + (i === lit ? ' on' : '') + '" style="--lc:' + (l.col || '#c3c8dc') + '">' +
+        // the way's name, km and truck time ("Fastest" on the quickest of several)
+        (l.w ? '<' + (multi ? 'button type="button" data-lane="' + i + '"' : 'div') + ' class="r-lane-h">' + (multi ? '<i class="rw-no">' + (i + 1) + '</i>' : ICO.road) +
+          '<b>' + (l.name ? 'via ' + esc(l.name) : multi ? (l.main ? 'Main road' : 'Other road') : 'Road') + '</b><span>' + l.w.km + ' km · ≈ ' + esc(truckTime(l.w.min, l.w.km)) + ' by truck</span>' +
+          (multi ? '<span class="rw-n">' + (l.n ? l.n + ' truck' + (l.n > 1 ? 's' : '') + ' on it' : 'no truck on it now') + '</span>' : '') +
+          (l.quick ? '<em>Fastest</em>' : '') + '</' + (multi ? 'button' : 'div') + '>' : '') +
+        '<div class="r-track"><div class="r-road"></div>' +
+        // A / B with their trucks on the first lane; the other lanes start and end at a small A / B
+        (i ? '<div class="r-end r-from r-ghost"><span class="node"><i>A</i></span></div>'
+          : '<div class="r-end r-from">' + at('start') + '<span class="node"><i>A</i></span><b>' + esc(r.from || '?') + '</b><small>' + ICO.load + 'Loading point' + here('start') + '</small></div>') +
+        zone(l.stops) +
+        (i ? '<div class="r-end r-to r-ghost"><span class="node"><i>B</i></span></div>'
+          : '<div class="r-end r-to">' + at('end') + '<span class="node"><i>B</i></span><b>' + esc(r.to || '?') + '</b><small>' + ICO.flag + 'Unloading point' + here('end') + '</small></div>') +
+        '</div></div>').join('') +
       '</div></div>' +
       // colour guide: every status, how many of this route's vehicles have it
       '<div class="r-legend"><span class="rl-t">Colour guide</span>' + CATS.map(c =>
@@ -2816,10 +2912,11 @@
     return null;
   }
   /** the office said this place is right on this route although it is far off the straight way (places.js VPT_ROUTE_OK) */
-  const ROUTE_OK = {};
+  const ROUTE_OK = {}, ROUTE_VIA = {};   // ROUTE_VIA: from>to → those places (each makes a way of the route)
   Object.keys(window.VPT_ROUTE_OK || {}).forEach(k => {
     const [f, t] = k.split('>').map(spellKey);
     window.VPT_ROUTE_OK[k].forEach(p => { ROUTE_OK[f + '>' + t + ':' + spellKey(p)] = true; });
+    ROUTE_VIA[f + '>' + t] = window.VPT_ROUTE_OK[k];
   });
   const routeOk = (from, to, place) => !!ROUTE_OK[spellKey(from) + '>' + spellKey(to) + ':' + spellKey(place)];
   /** a place on the way from a to b: its own point, unless that is far off the way and another place of nearly the same
@@ -2927,6 +3024,18 @@
     if (!r || !r[0]) return null;
     return roadPts[k] || (roadPts[k] = { pts: polyDecode(r[0]), km: r[1], min: r[2] });
   }
+  /* ---- the other ways from a to b, like Google Maps' route choices: OSRM's alternatives (roads.js VPT_ALTS, a new pair
+   *  is asked for once and kept in this browser) — [[road, km, car minutes], …], [] when there is no other way */
+  const ALTS = window.VPT_ALTS || {};
+  const ALT_KEY = 'vpt_alts_v1';
+  const altMem = store.get(ALT_KEY, {});
+  Object.keys(altMem).forEach(k => { if (!Array.isArray(altMem[k]) && Date.now() - altMem[k] > 7 * 864e5) delete altMem[k]; });   // not found: ask again after a week
+  function roadAlts(a, b) {
+    if (!a || !b || a.join() === b.join()) return [];
+    const k = roadKey(a, b), r = ALTS[k] || altMem[k];
+    if (!r) { roadAsk(k, a, b, true); return []; }
+    return Array.isArray(r) ? r.map((x, i) => roadPts[k + '#' + i] || (roadPts[k + '#' + i] = { pts: polyDecode(x[0]), km: x[1], min: x[2] })) : [];
+  }
   /** the point of a line nearest to p: how far along the line it is (along / total, km) and how far p is from it (off, km) */
   function alongLine(pts, p) {
     const kx = Math.cos(p[0] * Math.PI / 180);
@@ -2942,25 +3051,28 @@
   }
   const roadQ = [];
   let roadBusy = false, roadAsked = 0;
-  function roadAsk(k, a, b) {
-    if (roadAsked >= 40 || roadQ.some(x => x[0] === k)) return;
-    roadQ.push([k, a, b]);
+  function roadAsk(k, a, b, alts) {   // alts: OSRM's other ways too (the road comes with them)
+    if (roadAsked >= 40 || roadQ.some(x => x[0] === k && x[3] === !!alts)) return;
+    roadQ.push([k, a, b, !!alts]);
     roadRun();
   }
   async function roadRun() {
     if (roadBusy) return;
     roadBusy = true;
     while (roadQ.length) {
-      const [k, a, b] = roadQ.shift();
+      const [k, a, b, alts] = roadQ.shift();
+      if (alts ? ALTS[k] || altMem[k] : ROADS[k] || roadMem[k]) continue;   // came meanwhile with another answer
       roadAsked++;
       try {
-        const r = await fetch('https://router.project-osrm.org/route/v1/driving/' + a[1] + ',' + a[0] + ';' + b[1] + ',' + b[0] + '?overview=full&geometries=polyline');
+        const r = await fetch('https://router.project-osrm.org/route/v1/driving/' + a[1] + ',' + a[0] + ';' + b[1] + ',' + b[0] + '?overview=full&geometries=polyline' + (alts ? '&alternatives=3' : ''));
         const j = r.ok ? await r.json() : null;
         if (j) {
-          const rt = j.code === 'Ok' && j.routes[0];
-          roadMem[k] = rt ? [polyEncode(simplify(polyDecode(rt.geometry), 0.0012)), Math.round(rt.distance / 1000), Math.round(rt.duration / 60)] : [0, Date.now()];
+          const ok = j.code === 'Ok' && j.routes.length > 0;
+          const pack = rt => [polyEncode(simplify(polyDecode(rt.geometry), 0.0012)), Math.round(rt.distance / 1000), Math.round(rt.duration / 60)];
+          if (!ROADS[k]) roadMem[k] = ok ? pack(j.routes[0]) : [0, Date.now()];
           store.set(ROAD_KEY, roadMem);
-          if (rt) mapSoon();
+          if (alts) { altMem[k] = ok ? j.routes.slice(1).map(pack) : Date.now(); store.set(ALT_KEY, altMem); }
+          if (ok) mapSoon();
         }
       } catch (e) { /* offline / busy: asked again next time */ }
       await new Promise(res => setTimeout(res, 1100));
@@ -2990,7 +3102,9 @@
     if (!ll) return null;
     const a = placeLL(v.from, true), b = placeLL(v.to, true), rd = road(a, b);
     if (!rd || (m && !m.drawn.has(roadKey(a, b)))) return ll;
-    return snapOn(rd.pts, ll, 30) || ll;
+    // the chosen route shows all its ways: onto the nearest of them
+    const on = ((m && m.ways[roadKey(a, b)]) || [rd.pts]).map(pts => snapOn(pts, ll, 30)).filter(Boolean);
+    return on.sort((x, y) => kmApart(x, ll) - kmApart(y, ll))[0] || ll;
   }
   /** the town a truck is in now (loading / unloading ones with no current location: their From / To) */
   function truckTown(v) {
@@ -3013,8 +3127,8 @@
     vs.forEach(v => {
       const a = truckTown(v), b = target(v);
       if (!a || !b || kmApart(a, b) < 15) return;
-      const own = road(placeLL(v.from, true), placeLL(v.to, true));
-      if (own && snapOn(own.pts, a, 30) && m.drawn.has(roadKey(placeLL(v.from, true), placeLL(v.to, true)))) return;   // already on a road shown
+      const f = placeLL(v.from, true), t = placeLL(v.to, true), own = road(f, t), ok = own && m.drawn.has(roadKey(f, t));
+      if (ok && (m.ways[roadKey(f, t)] || [own.pts]).some(pts => snapOn(pts, a, 30))) return;   // already on a road shown
       const k = roadKey(a, b);
       if (m.drawn.has(k)) return;
       (legs[k] = legs[k] || { a: a, b: b, name: v.cur || '', vs: [] }).vs.push(v);
@@ -3032,6 +3146,7 @@
     clearTimeout(mapT);
     mapT = setTimeout(() => {
       if (S.view === 'route' && S.rmode === 'map') renderRouteMap();
+      else if (S.view === 'route') { if (!roadQ.length) { S.routeKey = ''; renderRoutes(); } }   // the road view: once all asked-for ways / roads came (no jumping page)
       else if (S.view === 'hub' && S.hview === 'map' && S.hub) renderHubMap(hubData(S.hmode, S.hub));
     }, 600);
   }
@@ -3151,6 +3266,7 @@
     m.map.invalidateSize();
     m.lines.clearLayers(); m.marks.clearLayers(); m.trucks.clearLayers();
     m.drawn = new Set();   // roads on the map now (a → b), so a truck's own road is not drawn twice
+    m.ways = {};           // a → b: every way of it drawn (the chosen route), [pts, …]
     return m;
   }
   /** a gentle curve from a to b, so A → B and B → A do not lie on top of each other */
@@ -3166,8 +3282,8 @@
   /** a line a → b along the real road (a gentle curve until the road is known), Google style: coloured with an edge,
    *  white dashes running the way the trucks go, an arrow two thirds along. Returns the road ({ pts, km, min }) or null.
    *  o.look: 'all' (many routes at once), 'sel' (the chosen route, thick), 'dim' (the others while one is chosen), 'hub' */
-  function flowLine(m, a, b, o) {
-    const L = window.L, rd = road(a, b), pts = rd ? rd.pts : arc(a, b, 0.14), n = o.n || 1, look = o.look || 'hub';
+  function flowLine(m, a, b, o) {   // o.rd: draw this way of a → b instead of its road
+    const L = window.L, rd = o.rd || road(a, b), pts = rd ? rd.pts : arc(a, b, 0.14), n = o.n || 1, look = o.look || 'hub';
     m.drawn.add(roadKey(a, b));
     const w = o.w || (look === 'sel' ? 7 : look === 'leg' ? 4 : look === 'dim' ? 3 : look === 'all' ? 2.6 + Math.min(3, Math.sqrt(n) * 0.6) : 3 + Math.min(4, Math.sqrt(n) * 0.9));
     const tip = o.tip + (rd ? ' · ' + rd.km + ' km · ~' + truckTime(rd.min, rd.km) + ' by truck' : '');
@@ -3190,6 +3306,20 @@
     const mid = rd.pts[Math.floor((rd.pts.length - 1) * (i === undefined ? 0.5 : at))];
     m.lines.addLayer(L.tooltip({ permanent: true, direction: i % 2 ? 'left' : 'right', offset: [i % 2 ? -10 : 10, 0], className: 'mp-eta-tip', interactive: false })
       .setLatLng(mid).setContent('<div class="mp-eta">' + ICO.truck + '<div><b>~' + esc(truckTime(rd.min, rd.km)) + '</b><small>' + (from ? esc(from) + ' · ' : '') + rd.km + ' km</small></div></div>'));
+  }
+  /** a box on one way of the chosen route — its number, truck time, name and km — where it runs apart from the others */
+  function wayBox(m, l, i, ls) {
+    const L = window.L, pts = l.w.pts, step = Math.max(1, Math.floor(pts.length / 60));
+    let at = pts[Math.floor(pts.length / 2)], far = -1;
+    if (ls.length > 1) {
+      for (let k = Math.floor(pts.length * 0.15); k < pts.length * 0.85; k += step) {
+        const d = Math.min(...ls.filter(x => x !== l).map(x => alongLine(x.w.pts, pts[k]).off));
+        if (d > far) { far = d; at = pts[k]; }
+      }
+    }
+    m.lines.addLayer(L.tooltip({ permanent: true, direction: i % 2 ? 'left' : 'right', offset: [i % 2 ? -10 : 10, 0], className: 'mp-eta-tip', interactive: false })
+      .setLatLng(at).setContent('<div class="mp-eta mp-way" style="--lc:' + l.col + '">' + (ls.length > 1 ? '<i class="rw-no">' + (i + 1) + '</i>' : ICO.truck) +
+        '<div><b>~' + esc(truckTime(l.w.min, l.w.km)) + '</b><small>' + (l.name ? 'via ' + esc(l.name) + ' · ' : '') + l.w.km + ' km</small></div></div>'));
   }
   /** trucks at their current location (loading / unloading ones at From / To when the location is empty):
    *  one truck = a small lorry with its number, more = a ring in their status colours with the count */
@@ -3242,14 +3372,25 @@
   function declutter(m) {
     const el = m.map.getContainer();
     const all = [...el.querySelectorAll('.mk-hub, .mk-tag, .mp-eta-tip, .mk-lbl')];
-    all.forEach(e => e.classList.remove('mk-small', 'mk-off'));
+    all.forEach(e => { e.classList.remove('mk-small', 'mk-off', 'mk-flip'); e.style.marginLeft = e.style.marginTop = ''; });
     const rank = e => e.classList.contains('mk-hub') ? 1e6 : e.classList.contains('mk-tag') ? 1e4 + (+e.dataset.n || 0)
       : e.classList.contains('mp-eta-tip') ? 5e3 : e.classList.contains('major') ? 2e3 : 1e3;
-    const kept = [], pad = 2;
+    const kept = [...el.querySelectorAll('.mk-pinw')].map(e => e.getBoundingClientRect()), pad = 2;   // the big A / B pins stay uncovered
     const hits = r => kept.some(k => r.left < k.right + pad && k.left < r.right + pad && r.top < k.bottom + pad && k.top < r.bottom + pad);
     all.filter(e => e.offsetParent !== null).sort((a, b) => rank(b) - rank(a)).forEach(e => {
       let r = e.getBoundingClientRect();
       if (!hits(r)) { kept.push(r); return; }
+      if (e.classList.contains('mp-eta-tip')) {   // a time box: try the other side of its road, a bit above, a bit below
+        const base = e.classList.contains('leaflet-tooltip-left') ? -6 : 6, flip = base < 0 ? r.width + 32 : -r.width - 32, h = r.height + 6;   // Leaflet's own margin ±6px
+        const ok = [[flip, 0], [0, -h], [0, h], [flip, -h], [flip, h]].some(([dx, dy]) => {
+          e.style.marginLeft = base + dx + 'px';
+          e.style.marginTop = dy + 'px';
+          r = e.getBoundingClientRect();
+          return !hits(r);
+        });
+        if (ok) { e.classList.add('mk-flip'); kept.push(r); return; }
+        e.style.marginLeft = e.style.marginTop = '';
+      }
       if (e.classList.contains('mk-tag')) {   // try it as just its count; if even that is in the way, hide it until zoomed in
         e.classList.add('mk-small');
         r = e.getBoundingClientRect();
@@ -3319,13 +3460,27 @@
         if (b) { end(r.to, b, 'B', n); pts.push(b); }
       }
       if (!a || !b || a.join() === b.join()) return;
+      if (r === sel) {   // the chosen route: every way it can go, in the Road view's lane colours (route 1 on top)
+        const ls = routeLanes(r).lanes.filter(l => l.w);
+        if (ls.length) {
+          m.ways[roadKey(a, b)] = ls.map(l => l.w.pts);
+          ls.slice().reverse().forEach(l => {
+            const i = ls.indexOf(l);
+            flowLine(m, a, b, { rd: l.w, color: l.col, edge: l.edge, look: 'sel', w: i ? 5 : 7, n: n,
+              tip: (ls.length > 1 ? 'Route ' + (i + 1) + ' · ' : '') + (l.name ? 'via ' + esc(l.name) : esc(r.from + ' → ' + r.to)) + ' · ' + l.n + ' truck' + (l.n === 1 ? '' : 's') + ' on it' });
+            l.w.pts.forEach(p => pts.push(p));
+          });
+          ls.forEach((l, i) => wayBox(m, l, i, ls));
+          selRoad = ls;
+          return;
+        }
+      }
       const rd = flowLine(m, a, b, { color: rl === 'out' ? '#188038' : on ? '#1a73e8' : '#4285f4', edge: rl === 'out' ? '#0b5d1e' : on ? '#0b3d91' : '#fff', n: n,
         look: some ? (on ? 'sel' : 'dim') : 'all', tip: esc(r.from + ' → ' + r.to) + ' · ' + n + ' vehicle' + (n > 1 ? 's' : ''),
         click: () => { S.rplace = ''; S.rpick = rkey(r); renderRouteMap(); } });
       if (!rd || !on) return;
       rd.pts.forEach(p => pts.push(p));
-      if (r === sel) { selRoad = rd; etaBox(m, rd); }
-      else if (rl === 'in' && boxes < (narrow ? 4 : 10)) etaBox(m, rd, r.from, boxes++);   // time and km on the busiest roads coming in
+      if (rl === 'in' && boxes < (narrow ? 4 : 10)) etaBox(m, rd, r.from, boxes++);   // time and km on the busiest roads coming in
     });
     // a loading point also has empty trucks driving to it to load (their From is it): a road from where each group is now
     const coming = [];
@@ -3349,7 +3504,9 @@
       ? '<b>' + esc(focus.name) + '</b> · <span class="ms-in">● ' + sum.in[0] + ' route' + s(sum.in[0]) + ' coming in · ' + sum.in[1] + ' truck' + s(sum.in[1]) + '</span>' +
         ' · <span class="ms-out">● ' + sum.out[0] + ' going out · ' + sum.out[1] + ' truck' + s(sum.out[1]) + '</span>' + all
       : sel
-        ? '<b>' + esc(sel.from + ' → ' + sel.to) + '</b>' + (selRoad ? ' · ' + selRoad.km + ' km · ~' + esc(truckTime(selRoad.min, selRoad.km)) + ' by truck' : '') +
+        ? '<b>' + esc(sel.from + ' → ' + sel.to) + '</b>' + (!selRoad ? '' : selRoad.length > 1
+          ? ' · <b>' + selRoad.length + ' possible routes</b> (' + selRoad.map((l, i) => '<span class="mp-wk" style="--lc:' + l.col + '">' + (i + 1) + '</span> ' + l.w.km + ' km').join(' · ') + ')'
+          : ' · ' + selRoad[0].w.km + ' km · ~' + esc(truckTime(selRoad[0].w.min, selRoad[0].w.km)) + ' by truck') +
           ' · ' + sel.vs.length + ' truck' + s(sel.vs.length) + all
         : 'Pick a loading / unloading point (or tap its pin) to light up every route coming to it — or tap a route line to see it alone.';
     const major = new Set(Object.keys(ends).sort((x, y) => ends[y].n - ends[x].n).slice(0, narrow ? 6 : 12));
@@ -3382,7 +3539,7 @@
     m.trucks.eachLayer(l => pts.push([l.getLatLng().lat, l.getLatLng().lng]));
     mapFit(m, pts, [S.f.caller, S.rq, S.rcat, sel ? rkey(sel) + (selRoad ? '+road' : '') : '', focus ? '@' + fk : ''].join('|'), !some);
     mapNote(note, lost, missing, vs, focus ? [['#1a73e8', 'coming in'], ['#188038', 'going out'], ['#9aa0a6', 'other routes'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a number for its trucks', 'tip']]
-      : sel ? [['#1a73e8', 'this route'], ['#9aa0a6', 'other routes'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a truck for details', 'tip']]
+      : sel ? (selRoad && selRoad.length > 1 ? selRoad.map((l, i) => [l.col, 'route ' + (i + 1) + (l.name ? ' (via ' + l.name + ')' : '')]) : [['#1a73e8', 'this route']]).concat([['#9aa0a6', 'other routes'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a truck for details', 'tip']])
       : [['#4285f4', 'route (from A to B)'], ['#5b8def', 'a truck’s own way'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a pin: every route there · tap a line: that route', 'tip']]);
     declutterSoon(m);
   }
@@ -3515,6 +3672,18 @@
       rl.addEventListener('click', e => {
         const all = e.target.closest('.rl-all');
         if (all) { const lg = all.closest('.r-legend'); lg.classList.toggle('open'); all.textContent = lg.classList.contains('open') ? 'Fewer colours ▴' : 'All colours ▾'; return; }
+        // a route's ways: tap one to light it up (the others fade), again to see all; or see them on the map
+        const lh = e.target.closest('.r-lane-h[data-lane]');
+        if (lh) {
+          const ws = lh.closest('.r-ways'), lane = lh.closest('.r-lane'), on = !lane.classList.contains('on');
+          ws.querySelectorAll('.r-lane').forEach(l => l.classList.toggle('on', on && l === lane));
+          ws.classList.toggle('r-picked', on);
+          S.rlane = S.rlane || {};
+          S.rlane[ws.dataset.route] = on ? +lh.dataset.lane : undefined;   // kept when the list is drawn again
+          return;
+        }
+        const rm = e.target.closest('[data-rmap]');
+        if (rm) { S.rpick = rm.dataset.rmap; S.rplace = ''; setRouteMode('map'); $('#routeMapWrap').scrollIntoView({ block: 'start' }); return; }
         // hub analyzer: a place row opens / closes its trucks (one at a time), "+ N more", the hub box shows its trucks
         const hrow = e.target.closest('.hf-row');
         if (hrow) {

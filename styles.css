@@ -886,6 +886,39 @@ body.has-bulk main { padding-bottom: 180px; }
 .rc.off .rc-place span { border-color: #f5a3a3; box-shadow: 0 0 0 2px rgba(220, 38, 38, .25), 0 2px 4px rgba(22, 26, 51, .12); }
 .rc.off::after { border-color: #dc2626; animation: off-blink 1s steps(2, jump-none) infinite; }
 @keyframes off-blink { 50% { opacity: .2; } }
+/* a route's ways, one lane each (like Google Maps' route choices): name, km, truck time over each road;
+   A / B with their trucks on the first lane, a small A / B at the ends of the others */
+.r-ways { width: max-content; min-width: 100%; }
+.r-ways-t { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 10px 14px 0; font-size: 12px; color: var(--ink-2); }
+.r-ways-t b { color: var(--ink); }
+.r-ways-t .link { font-size: 12px; }
+.r-lane-h {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 3px 9px; margin: 10px 0 0 30px; padding: 3px 10px 3px 4px; border: 0; border-radius: 999px;
+  background: transparent; font: 600 11.5px var(--font); color: var(--muted); text-align: left;
+}
+div.r-lane-h { padding-left: 8px; }
+.r-lane-h .ico { width: 15px; height: 15px; color: var(--navy-3); }
+.r-lane-h b { font: 700 13.5px var(--cond); letter-spacing: .3px; color: var(--ink); }
+.r-lane-h em { font-style: normal; font-weight: 700; font-size: 10.5px; color: #137333; background: #e6f4ea; padding: 1px 8px; border-radius: 999px; }
+button.r-lane-h { cursor: pointer; transition: background .15s, box-shadow .15s; }
+button.r-lane-h:hover, .r-lane.on button.r-lane-h { background: #fff; box-shadow: 0 0 0 2px var(--lc), 0 2px 6px rgba(22, 26, 51, .12); }
+.rw-no, .mp-wk {
+  display: inline-grid; place-items: center; width: 21px; height: 21px; border-radius: 50%; flex: none;
+  background: var(--lc); color: #fff; font: 700 12px/1 var(--cond); font-style: normal; box-shadow: 0 1px 3px rgba(0, 0, 0, .25);
+}
+.rw-n { color: var(--ink-2); }
+.r-ways.multi .r-road { box-shadow: 0 0 0 3px var(--lc), 0 3px 8px rgba(27, 30, 79, .25); }
+.r-lane + .r-lane .r-track { min-height: 0; padding-top: 10px; }
+.r-lane + .r-lane.r-bare .r-track { padding-bottom: 34px; }   /* no stops: no place names under the road */
+.r-lane + .r-lane.r-bare .r-road { bottom: 22px; }
+.r-ghost { padding-bottom: 0; min-height: 0; }
+.r-ghost::after { display: none; }
+.r-ghost .node { width: 20px; height: 20px; bottom: -16px; margin-left: -10px; border-radius: 50%; transform: none; animation: none; box-shadow: 0 1px 4px rgba(0, 0, 0, .3); }
+.r-ghost .node i { transform: none; font-size: 11px; }
+.r-to.r-ghost .node { right: 20px; margin-left: 0; }
+/* one way picked: the others fade */
+.r-ways.r-picked .r-lane:not(.on) .r-lane-h, .r-ways.r-picked .r-lane:not(.on) .rz, .r-ways.r-picked .r-lane:not(.on) .r-road, .r-ways.r-picked .r-lane:not(.on) .r-ghost { opacity: .3; }
+.r-ways.r-picked .r-lane.on .r-road { box-shadow: 0 0 0 4px var(--lc), 0 0 14px var(--lc); }
 /* a vehicle: a little lorry in its status colour, with its short number (BA42) */
 .rdot {
   position: relative; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 2px 3px; border: 0; border-radius: 8px;
@@ -1025,6 +1058,21 @@ body.has-bulk main { padding-bottom: 180px; }
   .rc-place em { display: inline; margin: 0 0 0 6px; font-size: 11px; }
   .rc-place .pin, .rc-place .ico { width: 13px; height: 13px; vertical-align: -2px; margin-right: 4px; color: var(--orange-d); }
   .rc-dots { display: flex; flex-wrap: wrap; gap: 6px 8px; }
+  /* the ways on a phone: one road from A (top) to B (bottom); each way a small heading, its stops under it */
+  .r-ways { position: relative; display: flex; flex-direction: column; gap: 8px; width: auto; min-width: 0; padding: 12px 10px 12px 0; }
+  .r-lane, .r-ways .r-track { display: contents; }
+  .r-ways .r-from { order: -1; }
+  .r-ways .r-to { order: 1; }
+  .r-ghost, .r-lane + .r-lane .r-road { display: none; }
+  .r-ways-t { padding: 0 0 0 46px; font-size: 11.5px; gap: 2px 8px; }
+  .r-lane-h { margin: 2px 0 0 46px; padding: 6px 10px; border-radius: 10px; background: #f4f6fb; border-left: 4px solid var(--lc); gap: 2px 8px; font-size: 11px; }
+  div.r-lane-h { border-left-color: #c3c8dc; padding-left: 10px; }
+  .r-lane-h b { font-size: 13px; }
+  button.r-lane-h:hover { box-shadow: none; }
+  .r-lane.on button.r-lane-h { background: #fff; box-shadow: 0 0 0 2px var(--lc); }
+  .r-ways.multi .rc { box-shadow: inset 3px 0 0 var(--lc), 0 1px 4px rgba(22, 26, 51, .07); }
+  .r-ways.multi .r-road, .r-ways.r-picked .r-lane.on .r-road { box-shadow: 0 2px 6px rgba(27, 30, 79, .25); }
+  .r-ways.r-picked .r-lane:not(.on) .r-road { opacity: 1; }
   .route, .rdot { animation: none; }  /* cards and trucks show at once on a phone */
   .rdot span { font-size: 10.5px; }
 
@@ -1537,11 +1585,15 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 .mp-sum .link { border: 0; background: none; padding: 0 0 0 4px; font: 700 12.5px var(--font); color: #1a73e8; cursor: pointer; text-decoration: underline; }
 /* Google-style box on the chosen road: 🚚 ~8 hr 28 min / 286 km */
 .mp-map .leaflet-tooltip.mp-eta-tip { padding: 0; border: 0; border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, .3); background: #fff; }
+.mp-map .leaflet-tooltip.mp-eta-tip.mk-flip::before { display: none; }   /* moved to the other side of its road */
 .mp-eta { display: flex; align-items: center; gap: 7px; padding: 5px 10px 5px 7px; --c: #1a73e8; }
 .mp-eta .truck { width: 26px; height: 16px; }
 .mp-eta div { display: grid; line-height: 1.15; }
 .mp-eta b { font: 700 13px var(--font); color: #188038; }
 .mp-eta small { font-size: 11.5px; color: #5f6368; }
+.mp-way { border-left: 4px solid var(--lc); border-radius: 8px; }   /* one way of the chosen route: its number in its colour */
+.mp-way b { color: var(--ink); }
+.mp-wk { width: 17px; height: 17px; font-size: 10.5px; vertical-align: 1px; }
 /* Google-style teardrop pins for the chosen route: A orange, B red */
 .mk-pinw { transform: translate(-50%, calc(-100% - 5px)); }
 .mk-pin {
