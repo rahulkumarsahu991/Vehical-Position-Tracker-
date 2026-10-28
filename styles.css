@@ -918,6 +918,12 @@ button.r-lane-h:hover, .r-lane.on button.r-lane-h { background: #fff; box-shadow
 .r-ghost .node i { transform: none; font-size: 11px; }
 .r-to.r-ghost .node { right: 20px; margin-left: 0; }
 .r-ghost b { display: none; }   /* the place names are under lane 1's pins (a phone shows them on every road) */
+/* a way with no truck on it now: there, but quiet — a faint road that does not move, a softer name */
+.r-lane.r-none .r-road { opacity: .4; box-shadow: 0 0 0 2px var(--lc); }
+.r-lane.r-none .r-road::after { animation: none; }
+.r-lane.r-none .r-lane-h, .r-lane.r-none .r-ghost { opacity: .6; }
+.r-lane.r-none .rw-no { box-shadow: none; }
+.r-ways.r-picked .r-lane.on.r-none .r-road, .r-ways.r-picked .r-lane.on.r-none .r-lane-h, .r-ways.r-picked .r-lane.on.r-none .r-ghost { opacity: 1; }
 /* one way picked: the others fade */
 .r-ways.r-picked .r-lane:not(.on) .r-lane-h, .r-ways.r-picked .r-lane:not(.on) .rz, .r-ways.r-picked .r-lane:not(.on) .r-road, .r-ways.r-picked .r-lane:not(.on) .r-ghost { opacity: .3; }
 .r-ways.r-picked .r-lane.on .r-road { box-shadow: 0 0 0 4px var(--lc), 0 0 14px var(--lc); }

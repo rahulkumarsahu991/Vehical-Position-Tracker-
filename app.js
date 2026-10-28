@@ -2583,7 +2583,7 @@
       '<div class="r-track-wrap"><div class="r-ways' + (multi ? ' multi' : '') + (R.lanes[lit] ? ' r-picked' : '') + '" data-route="' + esc(r.from + '→' + r.to) + '">' +
       (multi ? '<div class="r-ways-t">🛣️ <b>' + R.lanes.length + ' possible routes</b> from A to B (real roads, like Google Maps) · tap one to highlight it' +
         '<button type="button" class="link" data-rmap="' + esc(r.from + '→' + r.to) + '">See them on the map</button></div>' : '') +
-      R.lanes.map((l, i) => '<div class="r-lane' + (l.stops.length ? '' : ' r-bare') + (i === lit ? ' on' : '') + '" style="--lc:' + (l.col || '#c3c8dc') + '">' +
+      R.lanes.map((l, i) => '<div class="r-lane' + (l.stops.length ? '' : ' r-bare') + (multi && !l.stops.length ? ' r-none' : '') + (i === lit ? ' on' : '') + '" style="--lc:' + (l.col || '#c3c8dc') + '">' +
         // the way's name, km and truck time ("Fastest" on the quickest of several)
         (l.w ? '<' + (multi ? 'button type="button" data-lane="' + i + '"' : 'div') + ' class="r-lane-h">' + (multi ? '<i class="rw-no">' + (i + 1) + '</i>' : ICO.road) +
           '<b>' + (l.name ? 'via ' + esc(l.name) : multi ? (l.main ? 'Main road' : 'Other road') : 'Road') + '</b><span>' + l.w.km + ' km · ≈ ' + esc(truckTime(l.w.min, l.w.km)) + ' by truck</span>' +
@@ -3308,13 +3308,15 @@
   function flowLine(m, a, b, o) {   // o.rd: draw this way of a → b instead of its road
     const L = window.L, rd = o.rd || road(a, b), pts = rd ? rd.pts : arc(a, b, 0.14), n = o.n || 1, look = o.look || 'hub';
     m.drawn.add(roadKey(a, b));
-    const w = o.w || (look === 'sel' ? 7 : look === 'leg' ? 4 : look === 'dim' ? 3 : look === 'all' ? 2.6 + Math.min(3, Math.sqrt(n) * 0.6) : 3 + Math.min(4, Math.sqrt(n) * 0.9));
+    const w = o.w || (look === 'sel' ? 7 : look === 'leg' ? 4 : look === 'dim' || look === 'faint' ? 3 : look === 'all' ? 2.6 + Math.min(3, Math.sqrt(n) * 0.6) : 3 + Math.min(4, Math.sqrt(n) * 0.9));
     const tip = o.tip + (rd ? ' · ' + rd.km + ' km · ~' + truckTime(rd.min, rd.km) + ' by truck' : '');
-    m.lines.addLayer(L.polyline(pts, { color: o.edge || '#fff', weight: w + 3, opacity: look === 'dim' ? .5 : .95, interactive: false, className: 'mp-edge' }));
-    const line = L.polyline(pts, { color: look === 'dim' ? '#9aa0a6' : o.color, weight: w, opacity: look === 'dim' ? .7 : 1, className: 'mp-line' }).bindTooltip(tip, { sticky: true });
+    // 'faint': a way of the chosen route with no truck on it now — its colour, but thin, light and still
+    const quiet = look === 'dim' || look === 'faint';
+    m.lines.addLayer(L.polyline(pts, { color: o.edge || '#fff', weight: w + 3, opacity: look === 'faint' ? .3 : look === 'dim' ? .5 : .95, interactive: false, className: 'mp-edge' }));
+    const line = L.polyline(pts, { color: look === 'dim' ? '#9aa0a6' : o.color, weight: w, opacity: look === 'faint' ? .55 : look === 'dim' ? .7 : 1, className: 'mp-line' }).bindTooltip(tip, { sticky: true });
     if (o.click) line.on('click', o.click);
     m.lines.addLayer(line);
-    if (look === 'dim') return rd;
+    if (quiet) return rd;
     // running dashes: on a phone only on the chosen route / hub lines (dozens of moving lines make a phone stutter)
     if (!(IS_PHONE && look === 'all')) m.lines.addLayer(L.polyline(pts, { color: '#fff', weight: look === 'sel' ? 2.2 : 1.4, opacity: .85, dashArray: look === 'sel' ? '3 13' : '2 10', interactive: false, className: 'mp-flow' }));
     const i = Math.max(1, Math.round((pts.length - 1) * 0.62)), p = m.map.project(pts[i - 1], 8), q = m.map.project(pts[i], 8);
@@ -3340,7 +3342,8 @@
         if (d > far) { far = d; at = pts[k]; }
       }
     }
-    m.lines.addLayer(L.tooltip({ permanent: true, direction: i % 2 ? 'left' : 'right', offset: [i % 2 ? -10 : 10, 0], className: 'mp-eta-tip', interactive: false })
+    const faint = ls.length > 1 && !l.stops.length;   // no truck on this way now: a softer box, the first to give way
+    m.lines.addLayer(L.tooltip({ permanent: true, direction: i % 2 ? 'left' : 'right', offset: [i % 2 ? -10 : 10, 0], className: 'mp-eta-tip' + (faint ? ' mp-faint' : ''), interactive: false, opacity: faint ? .6 : .9 })
       .setLatLng(at).setContent('<div class="mp-eta mp-way" style="--lc:' + l.col + '">' + (ls.length > 1 ? '<i class="rw-no">' + (i + 1) + '</i>' : ICO.truck) +
         '<div><b>~' + esc(truckTime(l.w.min, l.w.km)) + '</b><small>' + (l.name ? 'via ' + esc(l.name) + ' · ' : '') + l.w.km + ' km</small></div></div>'));
   }
@@ -3397,7 +3400,7 @@
     const all = [...el.querySelectorAll('.mk-hub, .mk-tag, .mp-eta-tip, .mk-lbl')];
     all.forEach(e => { e.classList.remove('mk-small', 'mk-off', 'mk-flip'); e.style.marginLeft = e.style.marginTop = ''; });
     const rank = e => e.classList.contains('mk-hub') ? 1e6 : e.classList.contains('mk-tag') ? 1e4 + (+e.dataset.n || 0)
-      : e.classList.contains('mp-eta-tip') ? 5e3 : e.classList.contains('major') ? 2e3 : 1e3;
+      : e.classList.contains('mp-eta-tip') ? (e.classList.contains('mp-faint') ? 4e3 : 5e3) : e.classList.contains('major') ? 2e3 : 1e3;
     const kept = [...el.querySelectorAll('.mk-pinw')].map(e => e.getBoundingClientRect()), pad = 2;   // the big A / B pins stay uncovered
     const hits = r => kept.some(k => r.left < k.right + pad && k.left < r.right + pad && r.top < k.bottom + pad && k.top < r.bottom + pad);
     all.filter(e => e.offsetParent !== null).sort((a, b) => rank(b) - rank(a)).forEach(e => {
@@ -3487,9 +3490,10 @@
         const ls = routeLanes(r).lanes.filter(l => l.w);
         if (ls.length) {
           m.ways[roadKey(a, b)] = ls.map(l => l.w.pts);
-          ls.slice().reverse().forEach(l => {
+          ls.slice().reverse().sort((x, y) => !!x.stops.length - !!y.stops.length).forEach(l => {   // the ways with trucks on top
             const i = ls.indexOf(l);
-            flowLine(m, a, b, { rd: l.w, color: l.col, edge: l.edge, look: 'sel', w: i ? 5 : 7, n: n,
+            const busy = ls.length < 2 || l.stops.length > 0;   // a way with no truck on it now stays quiet
+            flowLine(m, a, b, { rd: l.w, color: l.col, edge: l.edge, look: busy ? 'sel' : 'faint', w: busy ? (i ? 5 : 7) : 3.5, n: n,
               tip: (ls.length > 1 ? 'Route ' + (i + 1) + ' · ' : '') + (l.name ? 'via ' + esc(l.name) : esc(r.from + ' → ' + r.to)) + ' · ' + l.n + ' truck' + (l.n === 1 ? '' : 's') + ' on it' });
             l.w.pts.forEach(p => pts.push(p));
           });
@@ -3562,7 +3566,7 @@
     m.trucks.eachLayer(l => pts.push([l.getLatLng().lat, l.getLatLng().lng]));
     mapFit(m, pts, [S.f.caller, S.rq, S.rcat, sel ? rkey(sel) + (selRoad ? '+road' : '') : '', focus ? '@' + fk : ''].join('|'), !some);
     mapNote(note, lost, missing, vs, focus ? [['#1a73e8', 'coming in'], ['#188038', 'going out'], ['#9aa0a6', 'other routes'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a number for its trucks', 'tip']]
-      : sel ? (selRoad && selRoad.length > 1 ? selRoad.map((l, i) => [l.col, 'route ' + (i + 1) + (l.name ? ' (via ' + l.name + ')' : '')]) : [['#1a73e8', 'this route']]).concat([['#9aa0a6', 'other routes'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a truck for details', 'tip']])
+      : sel ? (selRoad && selRoad.length > 1 ? selRoad.map((l, i) => [l.col, 'route ' + (i + 1) + (l.name ? ' (via ' + l.name + ')' : '') + (l.stops.length ? '' : ' · no truck now')]) : [['#1a73e8', 'this route']]).concat([['#9aa0a6', 'other routes'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a truck for details', 'tip']])
       : [['#4285f4', 'route (from A to B)'], ['#5b8def', 'a truck’s own way'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a pin: every route there · tap a line: that route', 'tip']]);
     declutterSoon(m);
   }
