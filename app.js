@@ -2424,7 +2424,8 @@
     return { routes: routes, noRoute: noRoute };
   }
   /* ---- a route's ways: OSRM's road, its other ways, and the way through a town where trucks stand ---- */
-  const LANES = [['#1a73e8', '#0b3d91'], ['#9334e6', '#5b1d9e'], ['#0f9d58', '#0b5d36'], ['#e8710a', '#9a4a05']];   // colour, edge
+  // colour, edge — pink, gold, sky, lime: none is a truck status colour (Loading blue, Unloading violet, Running green…)
+  const LANES = [['#e8368f', '#9c1458'], ['#f0a30a', '#a86b00'], ['#29b6f6', '#0277bd'], ['#8bc34a', '#4b7a0a']];
   const ON_WAY = 25;   // km: a town this near a way is on it
   /** every way a lorry may take from A to B: OSRM's road and its other ways, plus the way through a town where trucks
    *  stand that is on none of them — when that is not much longer (Konsari → Vizianagaram: via Narayanpur, via Aheri ·
@@ -2448,7 +2449,7 @@
       const o1 = offAll(r1.pts), o2 = offAll(r2.pts);
       const back = o1.length + o2.length < 4 || o2.filter(q => alongLine(r1.pts, q).off <= 3).length >= o2.length * 0.6;
       if (back || ways.length >= LANES.length) side.add(p.join());
-      else ways.push({ pts: r1.pts.concat(r2.pts.slice(1)), km: r1.km + r2.km, min: r1.min + r2.min, via: true });
+      else ways.push({ pts: r1.pts.concat(r2.pts.slice(1)), km: r1.km + r2.km, min: r1.min + r2.min, via: true, sure: ok });
     });
     return { ways: ways, side: side };
   }
@@ -2500,14 +2501,16 @@
     const W = ok ? routeWays(A, B, stops.filter(c => c.p).sort((x, y) => y.vs.length - x.vs.length).map(c => c.p), sure) : { ways: [], side: new Set() };
     const ways = W.ways, ab = ok ? kmApart(A, B) : 0;
     stops.forEach(c => { c.o = c.p ? ways.map(w => alongLine(w.pts, c.p)) : []; c.on = c.o.map(o => o.off <= ON_WAY); });
-    // trucks on each way; a way through a town counts only the trucks on none of OSRM's ways (Kanker, Keshkal) —
-    // a truck on the main road and on that way too stays on the main road
+    // trucks on each way; a way through a town where trucks stand counts only the trucks on none of OSRM's ways —
+    // a truck on the main road and on that way too stays on the main road. The way the office named (Kanker, Keshkal
+    // on Konsari → Vizianagaram) counts all its trucks and comes first on a tie: that is the lorries' road
     const onOsrm = c => c.on.some((x, j) => x && !ways[j].via);
-    const weight = ways.map((w, i) => stops.reduce((s, c) => s + (c.on[i] && !(w.via && onOsrm(c)) ? c.vs.length : 0), 0));
-    const order = ways.map((w, i) => i).sort((x, y) => weight[y] - weight[x] || truckMin(ways[x]) - truckMin(ways[y]));
+    const weight = ways.map((w, i) => stops.reduce((s, c) => s + (c.on[i] && !(w.via && !w.sure && onOsrm(c)) ? c.vs.length : 0), 0));
+    const order = ways.map((w, i) => i).sort((x, y) => weight[y] - weight[x] || !!ways[y].sure - !!ways[x].sure || truckMin(ways[x]) - truckMin(ways[y]));
     const names = ways.length ? wayNames(ways, A, B) : [];
     const quick = ways.length > 1 ? ways.reduce((x, y) => (truckMin(y) < truckMin(x) ? y : x)) : null;
-    const lanes = order.map((i, li) => ({ w: ways[i], name: names[i], main: !i, col: LANES[li][0], edge: LANES[li][1], quick: ways[i] === quick, n: 0 }));
+    const one = ways.length < 2;   // just one road: Google blue as before
+    const lanes = order.map((i, li) => ({ w: ways[i], name: names[i], main: !i, col: one ? '#1a73e8' : LANES[li][0], edge: one ? '#0b3d91' : LANES[li][1], quick: ways[i] === quick, n: 0 }));
     if (!lanes.length) lanes.push({ w: null, name: '', n: 0 });
     stops.forEach(c => {
       if (!c.p) return;

@@ -44,7 +44,7 @@ window.VPT_PLACES = {
   "MUL": [20.0651, 79.6767], "BHEJGAON": [19.9889, 79.6887], "GUNJEWAHI": [20.2563, 79.8055], "SINDEWAHI": [20.2800, 79.6600],
   "NAGBHID": [20.5842, 79.6820], "BRAHMAPURI": [20.6040, 79.8683], "WADSA": [20.6240, 79.9631], "ARMORI": [20.4711, 79.9795],
   "KURKHEDA": [20.6194, 80.2080], "DHANORA": [20.2710, 80.3095],
-  "GADCHIROLI": [20.1809, 79.9861], "GADCHIROULI": [20.1809, 79.9861], "GADHCHIROLI": [20.1809, 79.9861], "CHAMORSHI": [19.9371, 79.8894],
+  "GADCHIROLI": [20.1809, 79.9861], "GADCHIROULI": [20.1809, 79.9861], "GADHCHIROLI": [20.1809, 79.9861], "CHAMORSHI": [19.9371, 79.8894], "CHAMORSI": [19.9371, 79.8894],
   "KONSARI": [19.7638, 79.8099], "SELUR": [19.8384, 79.7862], "ASTHI": [19.6812, 79.7992], "ASHTI": [19.6812, 79.7992],
   "AHERI": [19.4132, 80.0040], "ALLAPALLI": [19.4298, 80.0611], "ETTAPALLE": [19.5985, 80.2275], "ETAPALLI": [19.5985, 80.2275],
   "SIRONCHA": [18.8482, 79.9639], "BHAMRAGARH": [19.4252, 80.5984], "BHAMRAGAD": [19.4252, 80.5984],
@@ -101,5 +101,6 @@ window.VPT_PLACES = {
 /* A place far off the straight way from A to B that is still right on that route (the lorries' road goes round
  * there): no "current location galat hai" for it on that route. "FROM > TO": ["PLACE", …] */
 window.VPT_ROUTE_OK = {
-  "SOMINI > KAKINADA": ["KONDAGAON"]          // told by the office, 27 Oct 2026
+  "SOMINI > KAKINADA": ["KONDAGAON"],         // told by the office, 27 Oct 2026
+  "KONSARI > VIZIANAGARAM": ["KANKER", "KESKAL"]   // told by the office, 28 Oct 2026 (the lorries go this way)
 };
