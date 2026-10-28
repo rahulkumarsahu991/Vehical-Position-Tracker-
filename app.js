@@ -2568,10 +2568,10 @@
           (l.quick ? '<em>Fastest</em>' : '') + '</' + (multi ? 'button' : 'div') + '>' : '') +
         '<div class="r-track"><div class="r-road"></div>' +
         // A / B with their trucks on the first lane; the other lanes start and end at a small A / B
-        (i ? '<div class="r-end r-from r-ghost"><span class="node"><i>A</i></span></div>'
+        (i ? '<div class="r-end r-from r-ghost"><span class="node"><i>A</i></span><b>' + esc(r.from) + '</b></div>'
           : '<div class="r-end r-from">' + at('start') + '<span class="node"><i>A</i></span><b>' + esc(r.from || '?') + '</b><small>' + ICO.load + 'Loading point' + here('start') + '</small></div>') +
         zone(l.stops) +
-        (i ? '<div class="r-end r-to r-ghost"><span class="node"><i>B</i></span></div>'
+        (i ? '<div class="r-end r-to r-ghost"><span class="node"><i>B</i></span><b>' + esc(r.to) + '</b></div>'
           : '<div class="r-end r-to">' + at('end') + '<span class="node"><i>B</i></span><b>' + esc(r.to || '?') + '</b><small>' + ICO.flag + 'Unloading point' + here('end') + '</small></div>') +
         '</div></div>').join('') +
       '</div></div>' +

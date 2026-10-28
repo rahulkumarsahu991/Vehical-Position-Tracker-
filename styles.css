@@ -916,6 +916,7 @@ button.r-lane-h:hover, .r-lane.on button.r-lane-h { background: #fff; box-shadow
 .r-ghost .node { width: 20px; height: 20px; bottom: -16px; margin-left: -10px; border-radius: 50%; transform: none; animation: none; box-shadow: 0 1px 4px rgba(0, 0, 0, .3); }
 .r-ghost .node i { transform: none; font-size: 11px; }
 .r-to.r-ghost .node { right: 20px; margin-left: 0; }
+.r-ghost b { display: none; }   /* the place names are under lane 1's pins (a phone shows them on every road) */
 /* one way picked: the others fade */
 .r-ways.r-picked .r-lane:not(.on) .r-lane-h, .r-ways.r-picked .r-lane:not(.on) .rz, .r-ways.r-picked .r-lane:not(.on) .r-road, .r-ways.r-picked .r-lane:not(.on) .r-ghost { opacity: .3; }
 .r-ways.r-picked .r-lane.on .r-road { box-shadow: 0 0 0 4px var(--lc), 0 0 14px var(--lc); }
@@ -1058,21 +1059,23 @@ button.r-lane-h:hover, .r-lane.on button.r-lane-h { background: #fff; box-shadow
   .rc-place em { display: inline; margin: 0 0 0 6px; font-size: 11px; }
   .rc-place .pin, .rc-place .ico { width: 13px; height: 13px; vertical-align: -2px; margin-right: 4px; color: var(--orange-d); }
   .rc-dots { display: flex; flex-wrap: wrap; gap: 6px 8px; }
-  /* the ways on a phone: one road from A (top) to B (bottom); each way a small heading, its stops under it */
-  .r-ways { position: relative; display: flex; flex-direction: column; gap: 8px; width: auto; min-width: 0; padding: 12px 10px 12px 0; }
-  .r-lane, .r-ways .r-track { display: contents; }
-  .r-ways .r-from { order: -1; }
-  .r-ways .r-to { order: 1; }
-  .r-ghost, .r-lane + .r-lane .r-road { display: none; }
-  .r-ways-t { padding: 0 0 0 46px; font-size: 11.5px; gap: 2px 8px; }
-  .r-lane-h { margin: 2px 0 0 46px; padding: 6px 10px; border-radius: 10px; background: #f4f6fb; border-left: 4px solid var(--lc); gap: 2px 8px; font-size: 11px; }
+  /* the ways on a phone, as on a computer: each way its own road from A (top) to B (bottom) in its colour, its name over it */
+  .r-ways { width: auto; min-width: 0; }
+  .r-ways-t { padding: 10px 10px 0; font-size: 11.5px; gap: 2px 8px; }
+  .r-lane-h { margin: 10px 8px 0; padding: 6px 10px; border-radius: 10px; background: #f4f6fb; border-left: 4px solid var(--lc); gap: 2px 8px; font-size: 11px; }
   div.r-lane-h { border-left-color: #c3c8dc; padding-left: 10px; }
   .r-lane-h b { font-size: 13px; }
   button.r-lane-h:hover { box-shadow: none; }
   .r-lane.on button.r-lane-h { background: #fff; box-shadow: 0 0 0 2px var(--lc); }
   .r-ways.multi .rc { box-shadow: inset 3px 0 0 var(--lc), 0 1px 4px rgba(22, 26, 51, .07); }
-  .r-ways.multi .r-road, .r-ways.r-picked .r-lane.on .r-road { box-shadow: 0 2px 6px rgba(27, 30, 79, .25); }
-  .r-ways.r-picked .r-lane:not(.on) .r-road { opacity: 1; }
+  .r-lane + .r-lane .r-track { padding-top: 10px; }
+  .r-lane + .r-lane.r-bare .r-track { padding-bottom: 10px; }   /* a way with no truck: just its short road A → B */
+  .r-lane + .r-lane.r-bare .r-road { bottom: 20px; }
+  .r-lane.r-bare .rz { min-height: 18px; }
+  .r-ghost { min-height: 20px; padding-left: 17px; }   /* the small A / B on the road's centre line */
+  .r-ghost .node, .r-to.r-ghost .node { width: 20px; height: 20px; margin: 0; right: auto; }
+  .r-ghost .node i { font-size: 10.5px; }
+  .r-ghost b { display: block; font-size: 12px; color: var(--muted); }
   .route, .rdot { animation: none; }  /* cards and trucks show at once on a phone */
   .rdot span { font-size: 10.5px; }
 
