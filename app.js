@@ -2431,7 +2431,7 @@
    *  stand that is on none of them — when that is not much longer (Konsari → Vizianagaram: via Narayanpur, via Aheri ·
    *  Bijapur and, where the trucks are, via Kanker · Keshkal). stops: points, busiest first.
    *  side: stops just off a way (a short trip off the road and back) — no way of their own, not "galat" either */
-  function routeWays(A, B, stops, sure) {   // sure: places the office said are on this route (VPT_ROUTE_OK): a way through each, however long
+  function routeWays(A, B, stops, sure) {   // sure: places the office said the lorries pass on this route (VPT_ROUTE_OK)
     const alts = roadAlts(A, B), main = roadKnown(A, B), side = new Set();
     if (!main) return { ways: [], side: side };
     const ways = [main], ab = kmApart(A, B);
@@ -2439,17 +2439,33 @@
     const offAll = pts => sample(pts).filter(q => !ways.some(x => alongLine(x.pts, q).off <= 5));   // the part on none of the ways
     // OSRM's other ways — not one that is nearly the same road
     alts.forEach(w => { if (ways.length < LANES.length && offAll(w.pts).length >= sample(w.pts).length * 0.15) ways.push(w); });
-    const best = Math.min(...ways.map(w => w.km)), told = new Set((sure || []).map(p => p.join()));
-    (sure || []).concat(stops).forEach(p => {
-      const ok = told.has(p.join());
-      if (ways.some(w => alongLine(w.pts, p).off <= ON_WAY) || (!ok && kmApart(A, p) + kmApart(p, B) > ab * 1.6 + 40)) return;   // on a way already / far off: nothing to ask
+    const best = Math.min(...ways.map(w => w.km));
+    // the office's way: one road through all its places in order (Somini → Kondagaon → Vizag → Anakapalli → Kakinada),
+    // however long — or, when one of the ways already passes them all, that one
+    const told = (sure || []).filter((p, i, l) => l.findIndex(q => q.join() === p.join()) === i && p.join() !== A.join() && p.join() !== B.join());
+    if (told.length) {
+      const own = ways.findIndex(w => told.every(p => alongLine(w.pts, p).off <= ON_WAY));
+      if (own >= 0) ways[own] = Object.assign({}, ways[own], { sure: true });
+      else {
+        const at = p => kmApart(A, p) / (kmApart(A, p) + kmApart(p, B) || 1);
+        const pts = [A].concat(told.sort((x, y) => at(x) - at(y)), [B]), legs = pts.slice(1).map((p, i) => road(pts[i], p));   // asked for once
+        const km = legs.every(Boolean) ? legs.reduce((s, l) => s + l.km, 0) : Infinity;
+        if (km <= best * 2.2 + 30) {
+          ways.splice(Math.min(ways.length, LANES.length - 1), 0, { pts: legs.reduce((s, l, i) => s.concat(i ? l.pts.slice(1) : l.pts), []),
+            km: km, min: legs.reduce((s, l) => s + l.min, 0), via: true, sure: true });
+          ways.length = Math.min(ways.length, LANES.length);
+        }
+      }
+    }
+    stops.forEach(p => {
+      if (ways.some(w => alongLine(w.pts, p).off <= ON_WAY) || kmApart(A, p) + kmApart(p, B) > ab * 1.6 + 40) return;   // on a way already / far off: nothing to ask
       const r1 = road(A, p), r2 = road(p, B);   // asked for once
-      if (!r1 || !r2 || r1.km + r2.km > best * (ok ? 2.2 : 1.35) + 30) return;   // a long way round: the current location is probably wrong
+      if (!r1 || !r2 || r1.km + r2.km > best * 1.35 + 30) return;   // a long way round: the current location is probably wrong
       // out to the town and back on the same road (a short trip off the way): no way of its own
       const o1 = offAll(r1.pts), o2 = offAll(r2.pts);
       const back = o1.length + o2.length < 4 || o2.filter(q => alongLine(r1.pts, q).off <= 3).length >= o2.length * 0.6;
       if (back || ways.length >= LANES.length) side.add(p.join());
-      else ways.push({ pts: r1.pts.concat(r2.pts.slice(1)), km: r1.km + r2.km, min: r1.min + r2.min, via: true, sure: ok });
+      else ways.push({ pts: r1.pts.concat(r2.pts.slice(1)), km: r1.km + r2.km, min: r1.min + r2.min, via: true });
     });
     return { ways: ways, side: side };
   }
@@ -2497,7 +2513,8 @@
       const place = Object.keys(c.spell).sort((x, y) => c.spell[y] - c.spell[x])[0] || '—';
       return { place: place, vs: c.vs, p: ok && place !== '—' ? placeOn(place, A, B, true) : null, at: -1, km: null, lane: 0 };
     });
-    const sure = (ROUTE_VIA[spellKey(r.from) + '>' + spellKey(r.to)] || []).map(n => ok && placeOn(n, A, B, true)).filter(Boolean);
+    const told = (ROUTE_VIA[spellKey(r.from) + '>' + spellKey(r.to)] || []).map(n => ({ n: n, p: ok && placeOn(n, A, B, true) })).filter(x => x.p);
+    const sure = told.map(x => x.p);
     const W = ok ? routeWays(A, B, stops.filter(c => c.p).sort((x, y) => y.vs.length - x.vs.length).map(c => c.p), sure) : { ways: [], side: new Set() };
     const ways = W.ways, ab = ok ? kmApart(A, B) : 0;
     stops.forEach(c => { c.o = c.p ? ways.map(w => alongLine(w.pts, c.p)) : []; c.on = c.o.map(o => o.off <= ON_WAY); });
@@ -2507,7 +2524,10 @@
     const onOsrm = c => c.on.some((x, j) => x && !ways[j].via);
     const weight = ways.map((w, i) => stops.reduce((s, c) => s + (c.on[i] && !(w.via && !w.sure && onOsrm(c)) ? c.vs.length : 0), 0));
     const order = ways.map((w, i) => i).sort((x, y) => weight[y] - weight[x] || !!ways[y].sure - !!ways[x].sure || truckMin(ways[x]) - truckMin(ways[y]));
-    const names = ways.length ? wayNames(ways, A, B) : [];
+    const names = ways.length ? wayNames(ways, A, B).slice() : [];
+    // the office's way is called by the places it named, in the order a lorry meets them ("via Kondagaon · Vishakhapatnam")
+    const at = p => kmApart(A, p) / (kmApart(A, p) + kmApart(p, B) || 1);
+    ways.forEach((w, i) => { if (w.sure && told.length) names[i] = told.slice().sort((x, y) => at(x.p) - at(y.p)).slice(0, 2).map(x => x.n.charAt(0) + x.n.slice(1).toLowerCase()).join(' · '); });
     const quick = ways.length > 1 ? ways.reduce((x, y) => (truckMin(y) < truckMin(x) ? y : x)) : null;
     const one = ways.length < 2;   // just one road: Google blue as before
     const lanes = order.map((i, li) => ({ w: ways[i], name: names[i], main: !i, col: one ? '#1a73e8' : LANES[li][0], edge: one ? '#0b3d91' : LANES[li][1], quick: ways[i] === quick, n: 0 }));

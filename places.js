@@ -101,6 +101,6 @@ window.VPT_PLACES = {
 /* A place far off the straight way from A to B that is still right on that route (the lorries' road goes round
  * there): no "current location galat hai" for it on that route. "FROM > TO": ["PLACE", …] */
 window.VPT_ROUTE_OK = {
-  "SOMINI > KAKINADA": ["KONDAGAON"],         // told by the office, 27 Oct 2026
+  "SOMINI > KAKINADA": ["KONDAGAON", "VISHAKHAPATNAM", "ANAKAPALLE"],   // told by the office, 27 + 28 Oct 2026 (via Vizag / Anakapalli)
   "KONSARI > VIZIANAGARAM": ["KANKER", "KESKAL"]   // told by the office, 28 Oct 2026 (the lorries go this way)
 };
