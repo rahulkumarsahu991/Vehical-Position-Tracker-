@@ -794,6 +794,7 @@
     $$('[data-dbadge]').forEach(b => { b.textContent = w; b.hidden = !w; });
   }
   function renderUser() {
+    drawAccess();
     $('#userName').textContent = S.user || 'Who?';
     $('#userInitial').textContent = (S.user || '?').trim().charAt(0).toUpperCase();
     $('#userBtn').title = (S.user ? S.user + ' — ' : '') + 'change user';
@@ -1687,8 +1688,9 @@
         S.flow = !!ping.flow; store.set(K.flow, S.flow);
         computeActive(); renderAll(); refreshPrograms();
       }
-      if (!!ping.routes !== S.drawOk) { // Route Finder can save (Code.gs "routes-5")
+      if (!!ping.routes !== S.drawOk || !!ping.routePass !== S.drawPass) { // Route Finder can save (Code.gs "routes-5"), with the Director's password ("routes-6")
         S.drawOk = !!ping.routes; store.set('vpt_draw_ok', S.drawOk);
+        S.drawPass = !!ping.routePass; store.set('vpt_draw_pass', S.drawPass);
         if (S.view === 'draw') renderDrawList();
       }
       loadDrawn(true);
@@ -2389,6 +2391,7 @@
    * ===================================================================== */
   function setView(view, noHash) {
     if (!['board', 'programs', 'print', 'route', 'hub', 'draw'].includes(view)) view = 'board';
+    if (view === 'draw' && !canMake() && !canCheck()) { view = 'board'; noHash = false; }   // Route Finder: the Manager and the Director only
     if (['route', 'hub', 'draw'].includes(view)) loadDrawn();   // the Director's drawn roads (again after 2 minutes)
     S.view = view;
     $$('.view').forEach(s => { s.hidden = s.id !== 'view-' + view; });
@@ -3677,6 +3680,7 @@
   const DRAWN_KEY = 'vpt_drawn_v1';
   S.drawn = store.get(DRAWN_KEY, []);              // every drawn road: Waiting / Approved / Rejected
   S.drawOk = !!store.get('vpt_draw_ok', false);    // the deployed Apps Script can save them (Code.gs "routes-5")
+  S.drawPass = !!store.get('vpt_draw_pass', false); // … and checks the Director's password ("routes-6")
   let drawnIdx = null;                             // the approved ones by From>To (spellings merged)
   /** the Director's drawn roads of a route, as ways { pts, km, min, code, dname } */
   function drawnFor(from, to) {
@@ -3724,7 +3728,16 @@
     renderBadges();
     if (['route', 'hub', 'draw'].includes(S.view)) renderAll();
   }
-  const canCheck = () => isTop(S.user) || S.auth.admin;   // the Director: adds drawn roads to Route & Hub
+  const canCheck = () => isTop(S.user) || (!!S.user && S.auth.admin);   // the Director: adds drawn roads to Route & Hub (with the password)
+  const canMake = () => isMid(S.user);                                  // the Manager: draws and saves them (Code.gs ROUTE_MAKERS)
+  /** Route Finder is shown to the Manager and the Director only (callers do not see the tab); the Director checks, the Manager draws */
+  function drawAccess() {
+    const on = canMake() || canCheck();
+    $$('[data-view="draw"]').forEach(b => { b.hidden = !on; });
+    $('.tabs').classList.toggle('no-draw', !on);
+    $('#view-draw').classList.toggle('dw-check', !canMake());
+    if (!on && S.view === 'draw') setView('board');
+  }
 
   // the drawing: From / To (any place — the sheet's loading / unloading points first, any town, or a new name), the points
   // on the way (any order: each goes where it fits) — the road always runs A → points → B. Kept in this browser until saved.
@@ -3984,7 +3997,7 @@
     if (D.road) flowLine(m, g.A, g.B, { rd: D.road, color: '#1a73e8', edge: '#0b3d91', look: 'sel', w: 6, tip: 'Your road' });
     else m.lines.addLayer(L.polyline([g.A, g.B], { color: '#5f6368', weight: 2.5, opacity: .75, dashArray: '2 9', interactive: false }));
     D.pts.forEach((p, i) => {
-      const mk = L.marker(p, { draggable: true, keyboard: false, zIndexOffset: 900,
+      const mk = L.marker(p, { draggable: canMake(), keyboard: false, zIndexOffset: 900,
         icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in dw-pt">' + (i + 1) + '</div>' }) });
       mk.bindTooltip(esc(nearTown(p)) + ' · drag to move · tap to take out', { direction: 'top', offset: [0, -14] });
       mk.on('dragend', e => {
@@ -4000,15 +4013,18 @@
   function drawSum(g) {
     const el = $('#drawSum'), w = D.road, n = D.pts.length;
     if (el) {
-      el.innerHTML = !D.from || !D.to ? '<b>1.</b> Choose <b>From</b> and <b>To</b> above the map'
+      el.innerHTML = !canMake() && !g ? 'Director: tap <b>🗺️ Show</b> on a road below to see it here'
+        : !D.from || !D.to ? '<b>1.</b> Choose <b>From</b> and <b>To</b> above the map'
         : !g ? '<b>' + esc(D.from + ' → ' + D.to) + '</b> — finding this place on the map… (if it never shows, check the spelling)'
         : '<b>' + esc(g.from + ' → ' + g.to) + '</b>' + (w ? ' · <b>' + w.km + ' km</b> · ≈ ' + esc(truckTime(w.min, w.km)) : '') + ' · ' +
-          (D.busy ? '<span class="dw-busy">Finding the road…</span>'
+          (!canMake() ? '<span class="dw-ok">the road the Manager drew</span> — Route ID + password below to add it'
+            : D.busy ? '<span class="dw-busy">Finding the road…</span>'
             : n ? '<span class="dw-ok">' + n + ' point' + (n > 1 ? 's' : '') + ' ✓</span> add more or 💾 Save'
             : w ? '<span class="dw-ok">Road found ✓</span> 💾 Save it — or add the places the lorries pass to change it'
             : '<span class="dw-next">Zoom in, put the ＋ on the road and “Add point here” — or tap the map</span>');
     }
-    $('#drawNote').innerHTML = (D.msg ? '<b>' + esc(D.msg) + '</b><br>' : '') + 'Add the places the lorries pass in any order — each goes where it fits between A and B. ' +
+    $('#drawNote').innerHTML = !canMake() ? 'Director: check each road the Manager drew on the map (🗺️ Show), then give it a Route ID, type the password and “Add to Route &amp; Hub”.'
+      : (D.msg ? '<b>' + esc(D.msg) + '</b><br>' : '') + 'Add the places the lorries pass in any order — each goes where it fits between A and B. ' +
       'Drag a point to move it, tap it to take it out. ' + (D.follow ? 'The road follows the real roads (OpenStreetMap).' : 'Straight lines between your points.');
     const off = (id, v) => { const b = $(id); if (b) b.disabled = v; };
     off('#drawUndo', !n); off('#drawClear', !n); off('#drawHere', !g);
@@ -4032,6 +4048,7 @@
     const g = drawSel(), now = Date.now();
     if (D.tapAt && now - D.tapAt.t < 600 && kmApart(D.tapAt.ll, ll) < 1) return;   // one tap on a phone can come twice
     D.tapAt = { t: now, ll: ll };
+    if (!canMake()) return;   // the Director checks the roads here, the Manager draws them
     if (!g) { toast('Choose From and To first (above the map)'); return; }
     const chain = [g.A].concat(D.pts, [g.B]);
     let at = 0, cost = Infinity;
@@ -4074,6 +4091,7 @@
   async function drawSave() {
     const g = drawSel(), b = $('#drawSave');
     if (b.disabled) return;   // saving already
+    if (!canMake()) { toast('Only the Manager saves drawn roads', true); return; }
     if (!g) { toast(!D.from || !D.to ? 'Choose From and To first (above the map)' : 'Wait — finding ' + (placeLL(D.from, true) ? D.to : D.from) + ' on the map…', true); return; }
     if (D.busy) { toast('Wait a moment — the road is being found…'); return; }
     if (!D.road) { toast('No road yet — add a place on the way, or tap the map', true); return; }
@@ -4099,11 +4117,11 @@
     } finally { b.disabled = false; b.querySelector('span').textContent = 'Save'; drawSum(drawSel()); }
   }
   /** the Director: Approved (with a Route ID) / Rejected; whoever drew a waiting road (or the Director) may delete it */
-  async function drawSet(id, status, code) {
+  async function drawSet(id, status, code, pass) {   // pass: the Director's password, to put a road into Route & Hub or take it out
     if (!S.drawOk) { toast('This needs the new Apps Script (Code.gs) — see the note under the map', true); return; }
     if (!(await ensureUser()) || !S.auth.token) return;
     try {
-      const res = await api('setRoute', { token: S.auth.token, id: id, status: status, code: code || '' });
+      const res = await api('setRoute', { token: S.auth.token, id: id, status: status, code: code || '', pass: pass || '' });
       setDrawn(status === 'Deleted' ? S.drawn.filter(d => d.id !== id) : S.drawn.map(d => (d.id === id ? Object.assign({}, d, res.route) : d)));
       toast(status === 'Approved' ? 'Added to Route & Hub as ' + code + ' ✓' : status === 'Deleted' ? 'Deleted' : status === 'Rejected' ? 'Taken out — not used in Route & Hub' : 'Done');
       renderDraw();
@@ -4136,14 +4154,18 @@
         '<div class="dl-meta">' + esc(d.km) + ' km · ≈ ' + esc(truckTime(+d.min || 0, +d.km || 0)) + ' by truck' + (d.via ? ' · via ' + esc(d.via) : '') +
         ' · drawn by <b>' + esc(d.by) + '</b> ' + esc(d.at) + (d.okBy && st !== 'wait' ? ' · ' + (st === 'ok' ? 'added' : 'checked') + ' by ' + esc(d.okBy) : '') + '</div>' +
         '<div class="dl-act"><button type="button" class="btn sm" data-dshow="' + esc(d.id) + '">🗺️ Show</button>' +
-        (boss && st !== 'ok' ? '<input class="dl-code" data-dcode="' + esc(d.id) + '" value="' + esc(d.code || next) + '" maxlength="30" aria-label="Route ID">' +
-          '<button type="button" class="btn sm primary" data-dok="' + esc(d.id) + '">✓ Add to Route &amp; Hub</button>' : '') +
+        (boss && st !== 'ok' ? '<input class="dl-code" data-dcode="' + esc(d.id) + '" value="' + esc(d.code || next) + '" maxlength="30" aria-label="Route ID" title="Route ID">' : '') +
+        // the Director's password: into Route & Hub (or out of it) only with it
+        (boss && st !== 'no' ? '<input class="dl-pass" type="password" data-dpass="' + esc(d.id) + '" placeholder="Password" autocomplete="off" aria-label="Director password">' : '') +
+        (boss && st !== 'ok' ? '<button type="button" class="btn sm primary" data-dok="' + esc(d.id) + '">✓ Add to Route &amp; Hub</button>' : '') +
         (boss && st === 'wait' ? '<button type="button" class="btn sm" data-dno="' + esc(d.id) + '">✕ Don’t use</button>' : '') +
         (boss && st === 'ok' ? '<button type="button" class="btn sm" data-dno="' + esc(d.id) + '">Take out of Route &amp; Hub</button>' : '') +
         (boss || own ? '<button type="button" class="btn sm dl-del" data-ddel="' + esc(d.id) + '">🗑 Delete</button>' : '') + '</div></div>';
     };
     $('#drawList').innerHTML = '<div class="dl-head"><h3>Drawn roads</h3><span>' + n('Waiting') + ' waiting · ' + n('Approved') + ' in Route &amp; Hub</span>' +
-      (boss ? '<em>Director: check a road (🗺️ Show), give it a Route ID and “Add to Route &amp; Hub”.</em>' : '<em>The Director checks each saved road and adds it to Route &amp; Hub.</em>') + '</div>' +
+      (boss ? '<em>Director: check a road the Manager drew (🗺️ Show), give it a Route ID, type the password and “Add to Route &amp; Hub”.</em>'
+        : '<em>The Manager draws the roads; the Director checks each one and adds it to Route &amp; Hub.</em>') + '</div>' +
+      (boss && !S.drawPass ? '<p class="dl-warn">⚠ The password check needs the new Apps Script once (Code.gs “routes-6”): Apps Script → paste the new Code.gs → Deploy → Manage deployments → ✏ Edit → New version.</p>' : '') +
       (S.drawOk ? '' : '<p class="dl-warn">⚠ Saving needs the new Apps Script once: Apps Script → paste the new Code.gs → Save → Deploy → Manage deployments → ✏ Edit → Version: New version → Deploy. Until then you can draw, but not save.</p>') +
       (list.length ? list.map(card).join('') : '<p class="dl-empty">No road drawn yet. Pick a route above and draw its road from A to B.</p>');
   }
@@ -4307,13 +4329,21 @@
     $('#drawList').addEventListener('click', e => {
       const t = e.target.closest('button');
       if (!t) return;
+      const id = t.dataset.dok || t.dataset.dno || t.dataset.ddel || '', d = S.drawn.find(x => x.id === id);
+      const pass = () => { const p = $$('#drawList [data-dpass]').find(x => x.dataset.dpass === id); return p ? p.value : ''; };
+      const needPass = () => { if (pass()) return true; toast('Type the Director password first', true); const p = $$('#drawList [data-dpass]').find(x => x.dataset.dpass === id); if (p) p.focus(); return false; };
       if (t.dataset.dshow) drawShow(t.dataset.dshow);
       else if (t.dataset.dok) {
-        const inp = $$('#drawList [data-dcode]').find(x => x.dataset.dcode === t.dataset.dok), code = inp ? inp.value.trim() : '';
+        const inp = $$('#drawList [data-dcode]').find(x => x.dataset.dcode === id), code = inp ? inp.value.trim() : '';
         if (!code) { toast('Give the road a Route ID first', true); return; }
-        drawSet(t.dataset.dok, 'Approved', code);
-      } else if (t.dataset.dno) drawSet(t.dataset.dno, 'Rejected');
-      else if (t.dataset.ddel && confirm('Delete this drawn road?')) drawSet(t.dataset.ddel, 'Deleted');
+        if (needPass()) drawSet(id, 'Approved', code, pass());
+      } else if (t.dataset.dno) {
+        if (d && d.status === 'Approved' && !needPass()) return;   // out of Route & Hub: the password too
+        drawSet(id, 'Rejected', '', pass());
+      } else if (t.dataset.ddel && confirm('Delete this drawn road?')) {
+        if (d && d.status === 'Approved' && !needPass()) return;
+        drawSet(id, 'Deleted', '', pass());
+      }
     });
     // full-screen map: the back button / Esc close it (but a detail sheet over it closes first)
     window.addEventListener('popstate', () => { const f = $('.mp-map.mp-full'); if (f && !(history.state && history.state.vpt === 'map')) mapFull(f, false); });

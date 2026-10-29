@@ -1709,6 +1709,11 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 .dw-b.dw-off { opacity: .55; }   /* Save not ready yet — a tap says what is missing */
 .dw-here { min-width: 116px; background: #1a73e8; color: #fff; }
 .dw-save { background: var(--orange); color: #fff; }
+/* the Director's view of Route Finder: no drawing — the roads the Manager drew are checked (Show) and added with the password */
+#view-draw.dw-check .draw-card, #view-draw.dw-check .dw-bar, #view-draw.dw-check .dw-cross, #view-draw.dw-check .dw-follow { display: none; }
+#view-draw.dw-check .draw-map.leaflet-container, #view-draw.dw-check .draw-map .leaflet-grab { cursor: grab; }
+.dl-pass { width: 120px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; font: 600 13px var(--font); color: var(--ink); }
+.tabs.no-draw { grid-template-columns: 1fr 1.5fr 1fr 1fr 1fr; }   /* a phone: five tabs when Route Finder is not shown */
 /* Route Finder on a phone: no banner (the map gets the room), From over To with ⇅ on the right, big type (no zoom-in on tap) */
 @media (max-width: 760px) {
   .draw-hero { display: none; }
