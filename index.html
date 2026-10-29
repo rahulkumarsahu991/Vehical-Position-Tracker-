@@ -296,7 +296,7 @@
         <div>
           <small>Daman Group · Route Finder</small>
           <h2>Draw the lorries' road</h2>
-          <p>Pick a route — A and B are pinned on the map. Tap the map from A towards B: the road follows the real roads. Save it; the Director gives it a Route ID and adds it to Route &amp; Hub.</p>
+          <p>Choose From and To — they are pinned on the map. Add the places the lorries pass: by name, by tapping the map, or zoom in and “＋ Add point here”. The road follows the real roads. Save it; the Director gives it a Route ID and adds it to Route &amp; Hub.</p>
         </div>
         <svg class="hh-web" viewBox="0 0 120 120" aria-hidden="true">
           <path d="M18 98c18-6 20-30 38-34s26 14 44-4 6-36 6-36" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-dasharray="1 11"/>
@@ -304,17 +304,20 @@
           <circle cx="56" cy="64" r="5" fill="#fff"/><circle cx="96" cy="52" r="5" fill="#fff"/>
         </svg>
       </div>
-      <div class="draw-bar">
-        <label class="select-wrap mp-pick draw-pick"><span>Route</span><select id="drawPick"></select></label>
-        <div class="draw-tools">
-          <button type="button" class="btn sm" id="drawUndo" title="Take back the last point">↶ Undo</button>
-          <button type="button" class="btn sm" id="drawClear" title="Start again from A">✕ Clear</button>
-          <label class="draw-follow" title="On: the road follows the real roads between your points. Off: straight lines."><input type="checkbox" id="drawFollow" checked> Follow roads</label>
-          <button type="button" class="btn sm navy" id="drawJoin" title="Join the last point to B">Join to B</button>
-          <button type="button" class="btn sm primary" id="drawSave">💾 Save</button>
+      <!-- From / To: any place (the sheet's loading / unloading points first); places on the way by name -->
+      <div class="draw-card">
+        <div class="dw-ends">
+          <label class="dw-end a"><i>A</i><input id="drawFrom" list="drawFromList" placeholder="From — loading point" autocomplete="off" enterkeyhint="next"></label>
+          <button type="button" class="dw-swap" id="drawSwap" title="Swap From and To" aria-label="Swap From and To">⇅</button>
+          <label class="dw-end b"><i>B</i><input id="drawTo" list="drawToList" placeholder="To — unloading point" autocomplete="off" enterkeyhint="done"></label>
         </div>
+        <div class="dw-add">
+          <input id="drawPlace" list="drawTownList" placeholder="Add a place on the way (e.g. Kanker)" autocomplete="off" enterkeyhint="go">
+          <button type="button" class="btn navy" id="drawPlaceAdd">＋ Add</button>
+        </div>
+        <div class="dw-pts" id="drawPts"></div>
+        <datalist id="drawFromList"></datalist><datalist id="drawToList"></datalist><datalist id="drawTownList"></datalist>
       </div>
-      <div class="mp-sum draw-sum" id="drawSum"></div>
       <div id="drawMap" class="mp-map draw-map"><div class="mp-loading">Loading the map…</div></div>
       <p class="hint mp-note" id="drawNote"></p>
       <div class="draw-list" id="drawList"></div>

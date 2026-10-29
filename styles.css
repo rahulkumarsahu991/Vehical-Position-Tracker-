@@ -71,7 +71,13 @@ a { color: inherit; }
   background: none; border: 0;
   color: rgba(255,255,255,.72);
   font: 600 16px var(--cond); letter-spacing: .5px; text-transform: uppercase;
-  padding: 8px 14px; border-radius: 8px;
+  padding: 8px 14px; border-radius: 8px; white-space: nowrap;
+}
+/* six tabs: a little tighter on a laptop so each stays on one line */
+@media (max-width: 1500px) and (min-width: 761px) {
+  .tabs { gap: 0; margin-left: 6px; }
+  .tabs button { padding: 8px 9px; font-size: 15px; letter-spacing: .3px; }
+  .tabs button.active::after { left: 9px; right: 9px; }
 }
 .tabs button:hover { color: #fff; background: rgba(255,255,255,.07); }
 .tabs button.active { color: #fff; }
@@ -1218,12 +1224,6 @@ button.r-lane-h:hover, .r-lane.on button.r-lane-h { background: #fff; box-shadow
   .hub-controls .seg button { padding: 6px 10px; font-size: 13px; }
   .hub-pick { margin-left: 0; width: 100%; }
   .hub-pick select { max-width: none; flex: 1; }
-  /* Route Finder on a phone: the route picker a full row, the tools under it */
-  .draw-pick { width: 100%; }
-  .draw-pick select { max-width: none; flex: 1; }
-  .draw-tools { margin-left: 0; width: 100%; }
-  .draw-tools .btn.primary { margin-left: auto; }
-  .dl-code { width: 96px; }
   .hub-chips { flex-wrap: nowrap; overflow-x: auto; margin: 0 -12px 8px; padding: 0 12px 2px; scrollbar-width: none; }
   .hub-chips .chip { flex: none; }
   .hub-stats { gap: 6px; }
@@ -1609,12 +1609,67 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 .mp-eta small { font-size: 11.5px; color: #5f6368; }
 /* ---------------- Route Finder: draw a route's road, the Director adds it to Route & Hub ---------------- */
 .draw-hero .hh-web { animation: none; color: rgba(255, 255, 255, .55); }
-.draw-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 6px; }
-.draw-pick select { max-width: 360px; }
-.draw-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
-.draw-follow { display: inline-flex; align-items: center; gap: 5px; padding: 0 4px; font-size: 13px; font-weight: 600; color: var(--ink-2); cursor: pointer; }
-.draw-follow input { width: 16px; height: 16px; accent-color: var(--navy); }
-.draw-sum { margin: 2px 0 8px; line-height: 1.55; }
+/* From / To (any place) · a place on the way by name · the points as chips */
+.draw-card { margin-bottom: 10px; padding: 10px 12px; background: #fff; border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.dw-ends { display: flex; align-items: center; gap: 8px; }
+.dw-end { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px; background: #f6f7fb; border: 1px solid var(--line); border-radius: 10px; }
+.dw-end:focus-within { border-color: var(--navy-3); background: #fff; box-shadow: 0 0 0 3px rgba(39, 43, 110, .1); }
+.dw-end i { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--orange); color: #fff; font: 700 12px/1 var(--cond); font-style: normal; }
+.dw-end.b i { background: #ea4335; }
+.dw-end input { flex: 1; min-width: 0; padding: 10px 0; border: 0; background: none; outline: none; font: 600 14px var(--font); color: var(--ink); text-transform: uppercase; }
+.dw-end input::placeholder { text-transform: none; font-weight: 500; color: var(--muted); }
+.dw-swap { flex: none; width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 50%; background: #fff; color: var(--navy); font-size: 17px; cursor: pointer; }
+.dw-swap:hover { background: #f1f3f9; }
+.dw-add { display: flex; gap: 8px; margin-top: 8px; }
+.dw-add input { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; font: 500 14px var(--font); color: var(--ink); }
+.dw-pts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.dw-pts:empty { display: none; }
+.dw-pts-t { font-size: 12px; font-weight: 600; color: var(--muted); }
+.dw-chip { display: inline-flex; align-items: center; overflow: hidden; background: #eef3fe; border: 1px solid #c9d6f5; border-radius: 999px; }
+.dw-chip button { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 0; background: none; font: 600 12.5px var(--font); color: #0b3d91; cursor: pointer; }
+.dw-chip i { width: 18px; height: 18px; border-radius: 50%; background: #1a73e8; color: #fff; font: 700 10.5px/18px var(--cond); font-style: normal; text-align: center; }
+.dw-chip .x { padding: 5px 9px 5px 2px; color: #c62828; }
+/* the tools on the map (they stay in full screen): what is drawn on top, a cross in the middle, the buttons at the bottom */
+.dw-ov > * { position: absolute; z-index: 1000; }
+.dw-sum {
+  top: 10px; left: 58px; right: 10px; padding: 7px 11px; background: rgba(255, 255, 255, .96); border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(22, 26, 51, .18); font-size: 12.5px; line-height: 1.45; color: var(--ink-2);
+}
+.dw-sum b { color: var(--navy); }
+.dw-cross { left: 50%; top: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px; pointer-events: none; }
+.dw-cross::before, .dw-cross::after { content: ""; position: absolute; background: #1a73e8; box-shadow: 0 0 0 1.5px #fff; border-radius: 2px; }
+.dw-cross::before { left: 17px; top: 0; width: 2px; height: 36px; }
+.dw-cross::after { top: 17px; left: 0; width: 36px; height: 2px; }
+.dw-follow {
+  right: 10px; bottom: 92px; display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border-radius: 999px;
+  background: rgba(255, 255, 255, .95); box-shadow: 0 1px 5px rgba(22, 26, 51, .2); font-size: 11.5px; font-weight: 700; color: var(--ink-2); cursor: pointer;
+}
+.dw-follow input { width: 15px; height: 15px; margin: 0; accent-color: var(--navy); }
+.dw-bar {
+  left: 50%; bottom: 26px; transform: translateX(-50%); display: flex; gap: 6px; padding: 6px; max-width: calc(100% - 20px);
+  background: rgba(255, 255, 255, .97); border-radius: 16px; box-shadow: 0 4px 16px rgba(22, 26, 51, .28);
+}
+.dw-b {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 58px; min-height: 48px; padding: 5px 8px;
+  border: 0; border-radius: 12px; background: #f1f3f9; color: var(--navy); font: 700 17px/1 var(--font); cursor: pointer;
+}
+.dw-b span { margin-top: 3px; font-size: 10.5px; white-space: nowrap; }
+.dw-b:hover:not(:disabled) { filter: brightness(.95); }
+.dw-b:disabled { opacity: .4; cursor: default; }
+.dw-here { min-width: 116px; background: #1a73e8; color: #fff; }
+.dw-save { background: var(--orange); color: #fff; }
+/* Route Finder on a phone: no banner (the map gets the room), From over To with ⇅ on the right, big type (no zoom-in on tap) */
+@media (max-width: 760px) {
+  .draw-hero { display: none; }
+  .draw-card { padding: 9px 10px; }
+  .dw-ends { position: relative; flex-direction: column; align-items: stretch; gap: 6px; }
+  .dw-end { padding-right: 50px; }
+  .dw-swap { position: absolute; right: 6px; top: 50%; margin-top: -18px; z-index: 1; }
+  .dw-end input, .dw-add input { font-size: 16px; }
+  .dw-sum { left: 54px; font-size: 12px; }
+  .dw-b { min-width: 54px; }
+  .dw-here { min-width: 104px; }
+}
 .dw-busy { color: #1a73e8; font-weight: 700; animation: off-blink 1s steps(2, jump-none) infinite; }
 .dw-ok { color: #188038; font-weight: 700; }
 .dw-next { color: var(--orange-d); font-weight: 700; }
