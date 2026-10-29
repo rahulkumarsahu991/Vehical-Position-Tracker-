@@ -296,7 +296,7 @@
         <div>
           <small>Daman Group · Route Finder</small>
           <h2>Draw the lorries' road</h2>
-          <p>Choose From and To — they are pinned on the map. Add the places the lorries pass: by name, by tapping the map, or zoom in and “＋ Add point here”. The road follows the real roads. Save it; the Director gives it a Route ID and adds it to Route &amp; Hub.</p>
+          <p>Pick a route (or From and To) from the lists — A and B are pinned on the map. Add the places the lorries pass: from the list, by tapping the map, or zoom in and “＋ Add point here”. The road follows the real roads. Save it; the Director gives it a Route ID and adds it to Route &amp; Hub.</p>
         </div>
         <svg class="hh-web" viewBox="0 0 120 120" aria-hidden="true">
           <path d="M18 98c18-6 20-30 38-34s26 14 44-4 6-36 6-36" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-dasharray="1 11"/>
@@ -304,19 +304,17 @@
           <circle cx="56" cy="64" r="5" fill="#fff"/><circle cx="96" cy="52" r="5" fill="#fff"/>
         </svg>
       </div>
-      <!-- From / To: any place (the sheet's loading / unloading points first); places on the way by name -->
+      <!-- dropdowns, like the Route map: a route of the sheet (fills From / To), or From / To themselves (any place);
+           a place on the way from the list -->
       <div class="draw-card">
+        <label class="dw-end dw-route"><i>🛣️</i><select id="drawRoute" aria-label="Route"></select></label>
         <div class="dw-ends">
-          <label class="dw-end a"><i>A</i><input id="drawFrom" list="drawFromList" placeholder="From — loading point" autocomplete="off" enterkeyhint="next"></label>
+          <label class="dw-end a"><i>A</i><select id="drawFrom" aria-label="From"></select></label>
           <button type="button" class="dw-swap" id="drawSwap" title="Swap From and To" aria-label="Swap From and To">⇅</button>
-          <label class="dw-end b"><i>B</i><input id="drawTo" list="drawToList" placeholder="To — unloading point" autocomplete="off" enterkeyhint="done"></label>
+          <label class="dw-end b"><i>B</i><select id="drawTo" aria-label="To"></select></label>
         </div>
-        <div class="dw-add">
-          <input id="drawPlace" list="drawTownList" placeholder="Add a place on the way (e.g. Kanker)" autocomplete="off" enterkeyhint="go">
-          <button type="button" class="btn navy" id="drawPlaceAdd">＋ Add</button>
-        </div>
+        <label class="dw-end dw-way"><i>＋</i><select id="drawPlace" aria-label="Add a place on the way"></select></label>
         <div class="dw-pts" id="drawPts"></div>
-        <datalist id="drawFromList"></datalist><datalist id="drawToList"></datalist><datalist id="drawTownList"></datalist>
       </div>
       <div id="drawMap" class="mp-map draw-map"><div class="mp-loading">Loading the map…</div></div>
       <p class="hint mp-note" id="drawNote"></p>

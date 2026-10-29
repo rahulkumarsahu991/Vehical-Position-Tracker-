@@ -1620,8 +1620,11 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 .dw-end input::placeholder { text-transform: none; font-weight: 500; color: var(--muted); }
 .dw-swap { flex: none; width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 50%; background: #fff; color: var(--navy); font-size: 17px; cursor: pointer; }
 .dw-swap:hover { background: #f1f3f9; }
-.dw-add { display: flex; gap: 8px; margin-top: 8px; }
-.dw-add input { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; font: 500 14px var(--font); color: var(--ink); }
+.dw-end select { flex: 1; min-width: 0; padding: 10px 0; border: 0; background: none; outline: none; font: 600 14px var(--font); color: var(--ink); cursor: pointer; }
+.dw-route { margin-bottom: 8px; }
+.dw-route i { background: none; font-size: 15px; }
+.dw-way { margin-top: 8px; }
+.dw-way i { background: #1a73e8; font-size: 15px; }
 .dw-pts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
 .dw-pts:empty { display: none; }
 .dw-pts-t { font-size: 12px; font-weight: 600; color: var(--muted); }
@@ -1663,9 +1666,9 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
   .draw-hero { display: none; }
   .draw-card { padding: 9px 10px; }
   .dw-ends { position: relative; flex-direction: column; align-items: stretch; gap: 6px; }
-  .dw-end { padding-right: 50px; }
+  .dw-ends .dw-end { padding-right: 50px; }   /* room for ⇅ */
   .dw-swap { position: absolute; right: 6px; top: 50%; margin-top: -18px; z-index: 1; }
-  .dw-end input, .dw-add input { font-size: 16px; }
+  .dw-end select { font-size: 16px; }
   .dw-sum { left: 54px; font-size: 12px; }
   .dw-b { min-width: 54px; }
   .dw-here { min-width: 104px; }

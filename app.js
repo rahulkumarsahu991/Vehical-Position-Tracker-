@@ -3748,17 +3748,40 @@
     const A = placeLL(D.from), B = placeLL(D.to);
     return A && B && A.join() !== B.join() ? { from: D.from, to: D.to, A: A, B: B } : null;
   }
+  /** every route of the Calling Sheet with its trucks, busiest first — the same list as the Route map's dropdown */
+  function drawRoutes() {
+    const by = {};
+    S.vehicles.forEach(v => {
+      if (v.cat === 'sold' || !v.from || !v.to) return;
+      const k = v.from + '→' + v.to;
+      (by[k] = by[k] || { from: v.from, to: v.to, n: 0 }).n++;
+    });
+    return Object.values(by).sort((a, b) => b.n - a.n || a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
+  }
+  /** the dropdowns: Route (fills From / To), From / To (the sheet's points first, then every town), a place on the way */
+  function drawDropdowns() {
+    const routes = drawRoutes(), key = D.from + '→' + D.to;
+    const sig = routes.map(r => r.from + '→' + r.to + r.n).join('|') + '#' + Object.keys(PLACES).length + '#' + key;
+    if (sig === S.drawListSig) return;   // not made again while nothing changed (a list open on a phone stays open)
+    S.drawListSig = sig;
+    const opt = (v, label, on) => '<option value="' + esc(v) + '"' + (on ? ' selected' : '') + '>' + esc(label) + '</option>';
+    const ends = (kind, cur, head) => {
+      const all = drawPlaces(kind), sheet = new Set(routes.map(r => spellKey(kind === 'from' ? r.from : r.to)));
+      const same = cur ? all.findIndex(p => spellKey(p) === spellKey(cur)) : -1;
+      if (cur) { if (same >= 0) all[same] = cur; else all.unshift(cur); }   // shown with the spelling chosen (VIZIANAGARAM, not VIZIANAGRAM)
+      const mine = all.filter(p => sheet.has(spellKey(p)) || p === cur), rest = all.filter(p => !mine.includes(p));
+      const pick = p => opt(p, p, spellKey(p) === spellKey(cur));
+      return opt('', head, !cur) + '<optgroup label="' + (kind === 'from' ? 'Loading points in the sheet' : 'Unloading points in the sheet') + '">' +
+        mine.map(pick).join('') + '</optgroup><optgroup label="Other places">' + rest.map(pick).join('') + '</optgroup>';
+    };
+    $('#drawRoute').innerHTML = opt('', 'Pick a route (' + routes.length + ')', !routes.some(r => r.from + '→' + r.to === key)) +
+      routes.map(r => opt(r.from + '→' + r.to, r.from + ' → ' + r.to + ' (' + r.n + ')', r.from + '→' + r.to === key)).join('');
+    $('#drawFrom').innerHTML = ends('from', D.from, 'From — loading point');
+    $('#drawTo').innerHTML = ends('to', D.to, 'To — unloading point');
+    $('#drawPlace').innerHTML = opt('', 'Add a place on the way…', true) + towns().slice().sort((a, b) => a.n.localeCompare(b.n)).map(t => opt(t.n, t.n)).join('');
+  }
   async function renderDraw() {
-    const sig = S.vehicles.length + '|' + Object.keys(PLACES).length;
-    if (sig !== S.drawListSig) {   // the name lists, made again only when the sheet changed
-      S.drawListSig = sig;
-      const opts = l => l.map(p => '<option value="' + esc(p) + '">').join('');
-      $('#drawFromList').innerHTML = opts(drawPlaces('from'));
-      $('#drawToList').innerHTML = opts(drawPlaces('to'));
-      $('#drawTownList').innerHTML = opts(towns().map(t => t.n));
-    }
-    if (document.activeElement !== $('#drawFrom')) $('#drawFrom').value = D.from;
-    if (document.activeElement !== $('#drawTo')) $('#drawTo').value = D.to;
+    drawDropdowns();
     renderDrawList();
     loadDrawn();
     let m = MAPS.drawMap;
@@ -3956,7 +3979,6 @@
     D.from = d.from; D.to = d.to; D.pts = d.points ? polyDecode(d.points) : []; D.hist = D.pts.slice(); D.busy = false; D.msg = ''; D.seq++;
     D.road = { pts: polyDecode(d.road), km: +d.km || 0, min: +d.min || 0 };
     keepDraft();
-    $('#drawFrom').value = D.from; $('#drawTo').value = D.to;
     D.fitKey = D.from + '→' + D.to;   // fit to the road itself, below
     renderDraw().then(() => { const m = MAPS.drawMap; if (m) m.map.fitBounds(window.L.latLngBounds(D.road.pts), { paddingTopLeft: [40, 80], paddingBottomRight: [40, 100] }); });
     $('#drawMap').scrollIntoView({ block: 'center' });
@@ -4090,24 +4112,29 @@
       if (v) placeLL(v);   // a name not known yet: looked up on OpenStreetMap
       drawRoad();
     };
-    $('#drawFrom').addEventListener('change', e => setEnd('from', e.target.value));
-    $('#drawTo').addEventListener('change', e => setEnd('to', e.target.value));
+    $('#drawFrom').addEventListener('change', e => { setEnd('from', e.target.value); drawDropdowns(); });
+    $('#drawTo').addEventListener('change', e => { setEnd('to', e.target.value); drawDropdowns(); });
+    $('#drawRoute').addEventListener('change', e => {   // a route of the sheet: its From and To
+      if (!e.target.value) return;
+      const [f, t] = e.target.value.split('→');
+      if (spellKey(f) !== spellKey(D.from) || spellKey(t) !== spellKey(D.to)) D.pts = [];   // another route: its own points
+      D.hist = D.pts.slice();
+      setEnd('from', f); setEnd('to', t);
+      drawDropdowns(); drawRoad();
+    });
     $('#drawSwap').addEventListener('click', () => {
       [D.from, D.to] = [D.to, D.from]; D.pts.reverse(); D.road = null; D.seq++;
-      $('#drawFrom').value = D.from; $('#drawTo').value = D.to;
-      keepDraft(); drawRoad();
+      keepDraft(); drawDropdowns(); drawRoad();
     });
-    const addPlace = () => {
-      const v = $('#drawPlace').value.trim();
+    $('#drawPlace').addEventListener('change', e => {   // a place on the way: added at once, the list back to its first line
+      const v = e.target.value;
+      e.target.value = '';
       if (!v) return;
       const p = placeLL(v);
-      if (!p) { toast('“' + v + '” is not on the map yet — check the spelling, or zoom in and add it with ＋', true); return; }
-      $('#drawPlace').value = '';
+      if (!p) { toast('“' + v + '” is not on the map yet — zoom in and add it with ＋', true); return; }
       D.tapAt = null;
       drawAdd(p.slice());
-    };
-    $('#drawPlaceAdd').addEventListener('click', addPlace);
-    $('#drawPlace').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addPlace(); } });
+    });
     $('#drawPts').addEventListener('click', e => {
       const go = e.target.closest('[data-pgo]'), del = e.target.closest('[data-pdel]');
       if (del) drawTake(+del.dataset.pdel);
