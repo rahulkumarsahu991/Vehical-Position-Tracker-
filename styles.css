@@ -1621,6 +1621,44 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 .dw-swap { flex: none; width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 50%; background: #fff; color: var(--navy); font-size: 17px; cursor: pointer; }
 .dw-swap:hover { background: #f1f3f9; }
 .dw-end select { flex: 1; min-width: 0; padding: 10px 0; border: 0; background: none; outline: none; font: 600 14px var(--font); color: var(--ink); cursor: pointer; }
+/* From / To / a place on the way: looks like a dropdown, opens the place picker (search box on top) */
+.dw-field { width: 100%; min-height: 42px; text-align: left; cursor: pointer; font: 600 14px var(--font); color: var(--ink); }
+.dw-field span { flex: 1; min-width: 0; padding: 10px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; }
+.dw-field.empty span, .dw-way span { text-transform: none; font-weight: 500; color: var(--muted); }
+.dw-caret { flex: none; color: var(--ink-2); font-size: 13px; }
+.dw-field:hover { border-color: #c5cbe0; background: #fff; }
+/* the place picker: a search box on top, the lists under it; a bottom sheet on a phone */
+#pickOverlay { z-index: 75; }
+.pick-sheet {
+  display: flex; flex-direction: column; width: min(460px, 100%); max-height: min(640px, calc(100vh - 32px)); overflow: hidden;
+  background: var(--card); border-radius: 18px; box-shadow: var(--shadow-lg); transform: scale(.97); transition: transform .18s;
+}
+.overlay.show .pick-sheet { transform: none; }
+.pk-head { display: flex; align-items: center; gap: 8px; padding: 14px 14px 8px 16px; }
+.pk-head b { flex: 1; font: 700 18px var(--cond); letter-spacing: .4px; color: var(--ink); }
+.pk-x { width: 34px; height: 34px; border: 0; border-radius: 50%; background: var(--line-2); color: var(--ink-2); font-size: 20px; line-height: 1; cursor: pointer; }
+.pk-search { display: flex; align-items: center; gap: 8px; margin: 0 14px 8px; padding: 0 12px; background: #f6f7fb; border: 1px solid var(--line); border-radius: 12px; }
+.pk-search:focus-within { border-color: var(--navy-3); background: #fff; box-shadow: 0 0 0 3px rgba(39, 43, 110, .1); }
+.pk-search .ico { width: 18px; height: 18px; color: var(--muted); flex: none; }
+.pk-search input { flex: 1; min-width: 0; padding: 11px 0; border: 0; background: none; outline: none; font: 600 16px var(--font); color: var(--ink); }
+.pk-list { flex: 1; overflow-y: auto; padding: 0 8px 12px; -webkit-overflow-scrolling: touch; }
+.pk-g { position: sticky; top: 0; z-index: 1; padding: 8px 8px 4px; background: var(--card); font-size: 11px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+.pk-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 10px; border: 0; border-radius: 10px; background: none;
+  text-align: left; font: 600 14.5px var(--font); color: var(--ink); cursor: pointer;
+}
+.pk-row:hover, .pk-row:focus-visible { background: #f1f3f9; outline: 0; }
+.pk-row .pin { width: 15px; height: 15px; flex: none; color: var(--orange-d); }
+.pk-row span { min-width: 0; }
+.pk-row small { display: block; font-size: 11.5px; font-weight: 500; color: var(--muted); white-space: normal; }
+.pk-find { color: #1a73e8; background: #eef3fe; margin: 2px 0 4px; }
+.pk-hit { background: #f4fbf6; }
+.pk-self { color: var(--navy-3); border-top: 1px solid var(--line-2); border-radius: 0 0 10px 10px; margin-top: 6px; }
+.pk-none { padding: 10px; color: var(--muted); font-size: 13px; }
+@media (max-width: 760px) {
+  #pickOverlay.center { align-items: flex-end; padding: 0; }
+  .pick-sheet { width: 100%; max-height: 88vh; border-radius: 18px 18px 0 0; }
+}
 /* ➕ New place: its name, find it on the map or put the blue ＋ on it, set */
 .dw-new { margin-top: 8px; padding: 9px 10px; background: #eef3fe; border: 1px dashed #8fb0ef; border-radius: 12px; }
 .dw-new[hidden] { display: none; }
@@ -1668,6 +1706,7 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 .dw-b span { margin-top: 3px; font-size: 10.5px; white-space: nowrap; }
 .dw-b:hover:not(:disabled) { filter: brightness(.95); }
 .dw-b:disabled { opacity: .4; cursor: default; }
+.dw-b.dw-off { opacity: .55; }   /* Save not ready yet — a tap says what is missing */
 .dw-here { min-width: 116px; background: #1a73e8; color: #fff; }
 .dw-save { background: var(--orange); color: #fff; }
 /* Route Finder on a phone: no banner (the map gets the room), From over To with ⇅ on the right, big type (no zoom-in on tap) */
@@ -1678,9 +1717,14 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
   .dw-ends .dw-end { padding-right: 50px; }   /* room for ⇅ */
   .dw-swap { position: absolute; right: 6px; top: 50%; margin-top: -18px; z-index: 1; }
   .dw-end select, .dw-new input { font-size: 16px; }
+  .dw-field { font-size: 15px; }
   .dw-sum { left: 54px; font-size: 12px; }
   .dw-b { min-width: 54px; }
   .dw-here { min-width: 104px; }
+  /* the map fits the screen under the header (the page scrolls to it once From / To are set): the buttons always show */
+  .mp-map.draw-map:not(.mp-full) { height: calc(100vh - var(--sticky-top, 96px) - 14px); height: calc(100svh - var(--sticky-top, 96px) - 14px); min-height: 360px; }
+  .dw-bar { bottom: max(14px, env(safe-area-inset-bottom)); }
+  .dw-follow { bottom: 80px; }
 }
 .dw-busy { color: #1a73e8; font-weight: 700; animation: off-blink 1s steps(2, jump-none) infinite; }
 .dw-ok { color: #188038; font-weight: 700; }

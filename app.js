@@ -3765,12 +3765,13 @@
   }
   /* ---- "➕ New place": its name, then where it is — found on OpenStreetMap, or the blue ＋ put on it ---- */
   let newFor = '';   // 'from' / 'to' while a new place is being made
-  function drawNewOpen(kind) {
+  function drawNewOpen(kind, name) {
     newFor = kind;
     $('#drawNew').hidden = false;
     $('#drawNewFor').textContent = kind === 'from' ? 'A — From' : 'B — To';
-    $('#drawNewName').value = '';
-    $('#drawNewName').focus();
+    $('#drawNewName').value = name || '';
+    $('#drawNew').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (!name) $('#drawNewName').focus();
   }
   function drawNewClose() { newFor = ''; $('#drawNew').hidden = true; S.drawListSig = ''; drawDropdowns(); }
   async function drawNewFind() {
@@ -3823,27 +3824,93 @@
     return Object.values(by).sort((a, b) => b.n - a.n || a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
   }
   /** the dropdowns: Route (fills From / To), From / To (the sheet's points first, then every town), a place on the way */
+  /** the Route dropdown (fills From / To) and what From / To show (they open the place picker with its search box) */
   function drawDropdowns() {
+    const field = (id, v, empty) => { const b = $(id); b.querySelector('span').textContent = v || empty; b.classList.toggle('empty', !v); };
+    field('#drawFrom', D.from, 'From — loading point');
+    field('#drawTo', D.to, 'To — unloading point');
     const routes = drawRoutes(), key = D.from + '→' + D.to;
-    const sig = routes.map(r => r.from + '→' + r.to + r.n).join('|') + '#' + Object.keys(PLACES).length + '#' + key;
+    const sig = routes.map(r => r.from + '→' + r.to + r.n).join('|') + '#' + key;
     if (sig === S.drawListSig) return;   // not made again while nothing changed (a list open on a phone stays open)
     S.drawListSig = sig;
     const opt = (v, label, on) => '<option value="' + esc(v) + '"' + (on ? ' selected' : '') + '>' + esc(label) + '</option>';
-    const ends = (kind, cur, head) => {
-      const all = drawPlaces(kind), sheet = new Set(routes.map(r => spellKey(kind === 'from' ? r.from : r.to)));
-      const same = cur ? all.findIndex(p => spellKey(p) === spellKey(cur)) : -1;
-      if (cur) { if (same >= 0) all[same] = cur; else all.unshift(cur); }   // shown with the spelling chosen (VIZIANAGARAM, not VIZIANAGRAM)
-      const mine = all.filter(p => sheet.has(spellKey(p)) || p === cur), rest = all.filter(p => !mine.includes(p));
-      const pick = p => opt(p, p, spellKey(p) === spellKey(cur));
-      return opt('', head, !cur) + opt('__new__', '➕ New place (not in this list)…') + '<optgroup label="' + (kind === 'from' ? 'Loading points in the sheet' : 'Unloading points in the sheet') + '">' +
-        mine.map(pick).join('') + '</optgroup><optgroup label="Other places">' + rest.map(pick).join('') + '</optgroup>';
-    };
     $('#drawRoute').innerHTML = opt('', 'Pick a route (' + routes.length + ')', !routes.some(r => r.from + '→' + r.to === key)) +
       opt('__new__', '➕ New route — choose From and To') +
       routes.map(r => opt(r.from + '→' + r.to, r.from + ' → ' + r.to + ' (' + r.n + ')', r.from + '→' + r.to === key)).join('');
-    $('#drawFrom').innerHTML = ends('from', D.from, 'From — loading point');
-    $('#drawTo').innerHTML = ends('to', D.to, 'To — unloading point');
-    $('#drawPlace').innerHTML = opt('', 'Add a place on the way…', true) + towns().slice().sort((a, b) => a.n.localeCompare(b.n)).map(t => opt(t.n, t.n)).join('');
+  }
+
+  /* ---- the place picker: a search box on top, the sheet's points (busiest first), the new places, every town; a name
+   *  in no list is found on the map (OpenStreetMap, around the fleet's area) or put on it with the blue ＋ ---- */
+  let pickKind = '', pickHits = [];
+  function pickOpen(kind) {
+    pickKind = kind; pickHits = [];
+    $('#pickTitle').textContent = kind === 'from' ? 'A — From (loading point)' : kind === 'to' ? 'B — To (unloading point)' : '＋ A place on the way';
+    $('#pickQ').value = '';
+    pickList();
+    const ov = $('#pickOverlay');
+    ov.hidden = false;
+    requestAnimationFrame(() => ov.classList.add('show'));
+    setTimeout(() => { ov.classList.add('show'); $('#pickQ').focus(); }, 60);
+  }
+  function pickClose() { const ov = $('#pickOverlay'); ov.classList.remove('show'); ov.hidden = true; pickKind = ''; }
+  function pickList() {
+    const q = $('#pickQ').value.trim(), uq = up(q), sq = spellKey(q);
+    const all = drawPlaces(pickKind === 'to' ? 'to' : 'from'), routes = drawRoutes();
+    const sheet = new Set(routes.map(r => spellKey(pickKind === 'to' ? r.to : r.from)));
+    const made = new Set(Object.keys(myPlaces).concat(S.drawn.flatMap(d => [up(d.from), up(d.to)])).map(spellKey));
+    const hit = p => !q || up(p).includes(uq) || (sq.length >= 2 && spellKey(p).startsWith(sq));   // KESKAL / KESHKAL alike, not RAIPUR in CHANDRAPUR
+    const list = all.filter(hit).slice(0, q ? 80 : 400);
+    const row = p => '<button type="button" class="pk-row" data-pk-name="' + esc(p) + '">' + ICO.pin + '<span>' + esc(p) + '</span></button>';
+    const group = (title, l) => l.length ? '<div class="pk-g">' + esc(title) + '</div>' + l.map(row).join('') : '';
+    const inSheet = list.filter(p => sheet.has(spellKey(p))), isNew = list.filter(p => !sheet.has(spellKey(p)) && made.has(spellKey(p)));
+    const rest = list.filter(p => !inSheet.includes(p) && !isNew.includes(p));
+    const exact = list.some(p => spellKey(p) === sq);
+    $('#pickList').innerHTML =
+      (q && !exact ? '<button type="button" class="pk-row pk-find" data-pk-find="1">🔍<span>Find “' + esc(uq) + '” on the map</span></button>' : '') +
+      pickHits.map((h, i) => '<button type="button" class="pk-row pk-hit" data-pk-hit="' + i + '">📍<span><b>' + esc(h.name) + '</b><small>' + esc(h.where) + '</small></span></button>').join('') +
+      group(pickKind === 'way' ? 'In the sheet' : pickKind === 'to' ? 'Unloading points in the sheet' : 'Loading points in the sheet', inSheet) +
+      group('New places (made here)', isNew) + group('Other places', rest) +
+      (q ? '<button type="button" class="pk-row pk-self" data-pk-self="1">✋<span>Put “' + esc(uq) + '” on the map yourself (blue ＋)</span></button>' : '') +
+      (!list.length && !q ? '<p class="pk-none">No place yet.</p>' : '');
+  }
+  /** a place from the list (or a found one, with where it is) → From / To, or a point on the way */
+  function pickChoose(name, ll) {
+    const kind = pickKind;
+    name = up(name);
+    if (ll && !placeLL(name, true)) { myPlaces[name] = ll; store.set(MY_PLACES_KEY, myPlaces); }   // a new place, found on the map
+    pickClose();
+    if (kind === 'way') {
+      const p = placeLL(name);
+      if (!p) { toast('“' + name + '” is not on the map yet — zoom in and add it with ＋', true); return; }
+      D.tapAt = null;
+      drawAdd(p.slice());
+      return;
+    }
+    D[kind] = name; D.road = null; D.msg = ''; D.fitKey = ''; D.seq++;
+    keepDraft(); drawDropdowns(); drawRoad();
+    if (D.from && D.to) drawFocus();
+  }
+  /** on a phone: the page to the map (it fits the screen under the header), so the road and its buttons are in view */
+  function drawFocus() {
+    if (window.innerWidth > 760) return;
+    const head = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sticky-top'), 10) || $('.top').offsetHeight || 96;
+    setTimeout(() => window.scrollTo({ top: $('#drawMap').getBoundingClientRect().top + window.scrollY - head - 6, behavior: 'smooth' }), 120);
+  }
+  /** a name in no list: looked up on OpenStreetMap around the fleet's area, the places found listed to pick from */
+  async function pickFind() {
+    const q = $('#pickQ').value.trim();
+    if (!q) return;
+    const b = $('#pickList [data-pk-find]');
+    if (b) { b.disabled = true; b.querySelector('span').textContent = 'Finding “' + up(q) + '”…'; }
+    try {
+      const r = await fetchWithTimeout('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&countrycodes=in&viewbox=75.5,24,89,15.5&bounded=1&q=' + encodeURIComponent(q), {}, 15000);
+      const far = x => Math.hypot(x.lat - 20.8, x.lon - 81), all = r.ok ? await r.json() : [];
+      pickHits = all.sort((a, b) => (GEO_KINDS.includes(b.addresstype) - GEO_KINDS.includes(a.addresstype)) || far(a) - far(b)).slice(0, 5)
+        .map(x => ({ name: up(x.name || q).includes(up(q)) ? up(q) : up(x.name || q),   // "BODLA", not "BODLA TAHSIL"
+          ll: [+(+x.lat).toFixed(5), +(+x.lon).toFixed(5)], where: String(x.display_name || '').split(',').slice(0, 4).join(',').trim() }));
+      if (!pickHits.length) toast('Not found on the map — use “Put it on the map yourself”', true);
+    } catch (e) { toast('The map search did not answer — try again, or put it on the map yourself', true); }
+    pickList();
   }
   async function renderDraw() {
     drawDropdowns();
@@ -3860,7 +3927,7 @@
     if (S.view !== 'draw') return;
     m.map.invalidateSize();
     drawPaint();
-    if (!D.road && !D.busy && D.pts.length) drawRoad();   // a drawing kept from before: its road again
+    if (!D.road && !D.busy && !D.idle && drawSel()) drawRoad();   // a drawing kept from before (or just From / To): its road again
   }
   /** the tools on the map itself (so they stay in full screen): what is drawn, on top; a cross in the middle —
    *  zoom in, move the map until the cross is on the place, "＋ Add point here" (exact on a phone); Undo, Clear, Save */
@@ -3938,13 +4005,15 @@
         : '<b>' + esc(g.from + ' → ' + g.to) + '</b>' + (w ? ' · <b>' + w.km + ' km</b> · ≈ ' + esc(truckTime(w.min, w.km)) : '') + ' · ' +
           (D.busy ? '<span class="dw-busy">Finding the road…</span>'
             : n ? '<span class="dw-ok">' + n + ' point' + (n > 1 ? 's' : '') + ' ✓</span> add more or 💾 Save'
+            : w ? '<span class="dw-ok">Road found ✓</span> 💾 Save it — or add the places the lorries pass to change it'
             : '<span class="dw-next">Zoom in, put the ＋ on the road and “Add point here” — or tap the map</span>');
     }
     $('#drawNote').innerHTML = (D.msg ? '<b>' + esc(D.msg) + '</b><br>' : '') + 'Add the places the lorries pass in any order — each goes where it fits between A and B. ' +
       'Drag a point to move it, tap it to take it out. ' + (D.follow ? 'The road follows the real roads (OpenStreetMap).' : 'Straight lines between your points.');
     const off = (id, v) => { const b = $(id); if (b) b.disabled = v; };
     off('#drawUndo', !n); off('#drawClear', !n); off('#drawHere', !g);
-    off('#drawSave', !(g && w && n && !D.busy));
+    const sv = $('#drawSave');   // never disabled: a tap always says what is still missing
+    if (sv) sv.classList.toggle('dw-off', !(g && w && !D.busy));
   }
   /** the points as chips with the town they are at: tap one to zoom to it, ✕ to take it out */
   function drawChips(g) {
@@ -3984,8 +4053,8 @@
   /** the road A → points → B along the real roads (one OSRM ask for the whole chain); straight lines when it cannot */
   async function drawRoad() {
     const g = drawSel(), seq = ++D.seq;
-    D.msg = '';
-    if (!g || !D.pts.length) { D.road = null; D.busy = false; drawPaint(); return; }
+    D.msg = ''; D.idle = false;
+    if (!g) { D.road = null; D.busy = false; drawPaint(); return; }   // with no point yet: the road A → B itself (it can be saved as it is)
     const chain = [g.A].concat(D.pts, [g.B]);
     const straight = () => { let km = 0; for (let i = 1; i < chain.length; i++) km += kmApart(chain[i - 1], chain[i]); return { pts: chain.slice(), km: Math.round(km), min: Math.round(km) }; };
     if (!D.follow) { D.road = straight(); D.busy = false; drawPaint(); return; }
@@ -4003,25 +4072,31 @@
     drawPaint();
   }
   async function drawSave() {
-    const g = drawSel();
-    if (!g || !D.road || !D.pts.length || D.busy) return;
-    if (!S.drawOk) { toast('Saving needs the new Apps Script (Code.gs) — see the note under the map', true); renderDrawList(); return; }
+    const g = drawSel(), b = $('#drawSave');
+    if (b.disabled) return;   // saving already
+    if (!g) { toast(!D.from || !D.to ? 'Choose From and To first (above the map)' : 'Wait — finding ' + (placeLL(D.from, true) ? D.to : D.from) + ' on the map…', true); return; }
+    if (D.busy) { toast('Wait a moment — the road is being found…'); return; }
+    if (!D.road) { toast('No road yet — add a place on the way, or tap the map', true); return; }
+    if (!S.drawOk) {   // not known yet on this phone (the Apps Script was slow at start): ask it now
+      try { const p = await api('ping'); S.drawOk = !!p.routes; store.set('vpt_draw_ok', S.drawOk); } catch (e) { /* offline: said below */ }
+    }
+    if (!S.drawOk) { toast('Saving needs the new Apps Script (Code.gs), or there is no internet — try again', true); renderDrawList(); return; }
     if (!(await ensureUser())) return;
     if (!S.auth.token) { toast('Log in first to save a road', true); return; }
-    const b = $('#drawSave');
     b.disabled = true;
+    b.querySelector('span').textContent = 'Saving…';
     try {
       const res = await api('saveRoute', { token: S.auth.token, from: g.from, to: g.to, road: polyEncode(simplify(D.road.pts, 0.0015)),
         km: D.road.km, min: D.road.min, via: wayNames([D.road], g.A, g.B)[0] || '', points: polyEncode(D.pts) });
       setDrawn(S.drawn.concat([res.route]));
-      D.pts = []; D.hist = []; D.road = null; keepDraft();
+      D.pts = []; D.hist = []; D.road = null; D.idle = true; keepDraft();   // idle: the same road is not offered again at once
       toast('Saved ✓ — waiting for the Director to add it to Route & Hub');
       renderDraw();
       $('#drawList').scrollIntoView({ block: 'start', behavior: 'smooth' });
     } catch (e) {
       if (e.code === 'auth') { logoutLocal(); openLogin(); }
       toast(e.message, true);
-    } finally { drawSum(drawSel()); }
+    } finally { b.disabled = false; b.querySelector('span').textContent = 'Save'; drawSum(drawSel()); }
   }
   /** the Director: Approved (with a Route ID) / Rejected; whoever drew a waiting road (or the Director) may delete it */
   async function drawSet(id, status, code) {
@@ -4177,12 +4252,31 @@
       if (v) placeLL(v);   // a name not known yet: looked up on OpenStreetMap
       drawRoad();
     };
-    const pickEnd = kind => e => {
-      if (e.target.value === '__new__') { S.drawListSig = ''; drawDropdowns(); drawNewOpen(kind); return; }   // a place in no list
-      setEnd(kind, e.target.value); drawDropdowns();
-    };
-    $('#drawFrom').addEventListener('change', pickEnd('from'));
-    $('#drawTo').addEventListener('change', pickEnd('to'));
+    // From / To / a place on the way: the place picker (search box, lists, find on the map, put it on the map yourself)
+    $$('[data-pick]').forEach(b => b.addEventListener('click', () => pickOpen(b.dataset.pick)));
+    $('#pickQ').addEventListener('input', () => { pickHits = []; pickList(); });
+    $('#pickQ').addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const names = $$('#pickList [data-pk-name]'), sq = spellKey($('#pickQ').value);
+      const exact = names.find(b => spellKey(b.dataset.pkName) === sq) || (names.length === 1 ? names[0] : null);
+      if (exact) pickChoose(exact.dataset.pkName); else pickFind();   // the place itself — or look it up on the map
+    });
+    $('#pickOverlay').addEventListener('click', e => {
+      const t = e.target;
+      if (t === $('#pickOverlay') || t.closest('[data-pk-close]')) { pickClose(); return; }
+      const name = t.closest('[data-pk-name]'), hit = t.closest('[data-pk-hit]');
+      if (name) pickChoose(name.dataset.pkName);
+      else if (hit) { const h = pickHits[+hit.dataset.pkHit]; if (h) pickChoose(h.name, h.ll); }
+      else if (t.closest('[data-pk-find]')) pickFind();
+      else if (t.closest('[data-pk-self]')) {   // put it on the map with the blue ＋
+        const kind = pickKind, name = up($('#pickQ').value.trim());
+        pickClose();
+        if (kind === 'way') { toast('Zoom in, move the map until the blue ＋ is on it, then “＋ Add point here”'); $('#drawMap').scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+        else drawNewOpen(kind, name);
+      }
+    });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#pickOverlay').hidden) pickClose(); });
     $('#drawNewFind').addEventListener('click', drawNewFind);
     $('#drawNewSet').addEventListener('click', drawNewSet);
     $('#drawNewCancel').addEventListener('click', drawNewClose);
@@ -4199,20 +4293,11 @@
       if (spellKey(f) !== spellKey(D.from) || spellKey(t) !== spellKey(D.to)) D.pts = [];   // another route: its own points
       D.hist = D.pts.slice();
       setEnd('from', f); setEnd('to', t);
-      drawDropdowns(); drawRoad();
+      drawDropdowns(); drawRoad(); drawFocus();
     });
     $('#drawSwap').addEventListener('click', () => {
       [D.from, D.to] = [D.to, D.from]; D.pts.reverse(); D.road = null; D.seq++;
       keepDraft(); drawDropdowns(); drawRoad();
-    });
-    $('#drawPlace').addEventListener('change', e => {   // a place on the way: added at once, the list back to its first line
-      const v = e.target.value;
-      e.target.value = '';
-      if (!v) return;
-      const p = placeLL(v);
-      if (!p) { toast('“' + v + '” is not on the map yet — zoom in and add it with ＋', true); return; }
-      D.tapAt = null;
-      drawAdd(p.slice());
     });
     $('#drawPts').addEventListener('click', e => {
       const go = e.target.closest('[data-pgo]'), del = e.target.closest('[data-pdel]');

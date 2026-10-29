@@ -296,7 +296,7 @@
         <div>
           <small>Daman Group · Route Finder</small>
           <h2>Draw the lorries' road</h2>
-          <p>Pick a route (or From and To) from the lists — a new route or a place in no list: “➕ New”. A and B are pinned on the map. Add the places the lorries pass: from the list, by tapping the map, or zoom in and “＋ Add point here”. The road follows the real roads. Save it; the Director gives it a Route ID and adds it to Route &amp; Hub.</p>
+          <p>Pick a route — or tap From / To and search any place (a new one is found on the map). A and B are pinned on the map and the road is found at once. Add the places the lorries pass: from the list, by tapping the map, or zoom in and “＋ Add point here”. The road follows the real roads. Save it; the Director gives it a Route ID and adds it to Route &amp; Hub.</p>
         </div>
         <svg class="hh-web" viewBox="0 0 120 120" aria-hidden="true">
           <path d="M18 98c18-6 20-30 38-34s26 14 44-4 6-36 6-36" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-dasharray="1 11"/>
@@ -308,10 +308,11 @@
            a place on the way from the list -->
       <div class="draw-card">
         <label class="dw-end dw-route"><i>🛣️</i><select id="drawRoute" aria-label="Route"></select></label>
+        <!-- From / To / a place on the way: a list with a search box on top (tap to open) -->
         <div class="dw-ends">
-          <label class="dw-end a"><i>A</i><select id="drawFrom" aria-label="From"></select></label>
+          <button type="button" class="dw-end dw-field a" id="drawFrom" data-pick="from"><i>A</i><span>From — loading point</span><b class="dw-caret">▾</b></button>
           <button type="button" class="dw-swap" id="drawSwap" title="Swap From and To" aria-label="Swap From and To">⇅</button>
-          <label class="dw-end b"><i>B</i><select id="drawTo" aria-label="To"></select></label>
+          <button type="button" class="dw-end dw-field b" id="drawTo" data-pick="to"><i>B</i><span>To — unloading point</span><b class="dw-caret">▾</b></button>
         </div>
         <!-- a place that is in no list: its name, then where it is (found on the map, or the blue ＋ put on it) -->
         <div class="dw-new" id="drawNew" hidden>
@@ -324,7 +325,7 @@
           </div>
           <p class="dw-new-hint">Zoom the map in and move it until the blue ＋ in the middle is on the place, then “Set here”.</p>
         </div>
-        <label class="dw-end dw-way"><i>＋</i><select id="drawPlace" aria-label="Add a place on the way"></select></label>
+        <button type="button" class="dw-end dw-field dw-way" id="drawPlace" data-pick="way"><i>＋</i><span>Add a place on the way…</span><b class="dw-caret">▾</b></button>
         <div class="dw-pts" id="drawPts"></div>
       </div>
       <div id="drawMap" class="mp-map draw-map"><div class="mp-loading">Loading the map…</div></div>
@@ -365,6 +366,18 @@
         <input id="whoInput" placeholder="Other name…" autocomplete="off">
         <button class="btn primary" type="submit">OK</button>
       </form>
+    </div>
+  </div>
+
+  <!-- Route Finder: pick a place — search box on top, the sheet's points, every town, or find a new one on the map -->
+  <div class="overlay center" id="pickOverlay" hidden>
+    <div class="pick-sheet" role="dialog" aria-modal="true" aria-labelledby="pickTitle">
+      <div class="pk-head"><b id="pickTitle">Pick a place</b><button type="button" class="pk-x" data-pk-close aria-label="Close">×</button></div>
+      <label class="pk-search">
+        <svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="pickQ" type="search" placeholder="Search a place… (e.g. Kanker)" autocomplete="off" enterkeyhint="search">
+      </label>
+      <div class="pk-list" id="pickList"></div>
     </div>
   </div>
 
