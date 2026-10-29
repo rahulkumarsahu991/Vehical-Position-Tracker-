@@ -296,7 +296,7 @@
         <div>
           <small>Daman Group · Route Finder</small>
           <h2>Draw the lorries' road</h2>
-          <p>Pick a route (or From and To) from the lists — A and B are pinned on the map. Add the places the lorries pass: from the list, by tapping the map, or zoom in and “＋ Add point here”. The road follows the real roads. Save it; the Director gives it a Route ID and adds it to Route &amp; Hub.</p>
+          <p>Pick a route (or From and To) from the lists — a new route or a place in no list: “➕ New”. A and B are pinned on the map. Add the places the lorries pass: from the list, by tapping the map, or zoom in and “＋ Add point here”. The road follows the real roads. Save it; the Director gives it a Route ID and adds it to Route &amp; Hub.</p>
         </div>
         <svg class="hh-web" viewBox="0 0 120 120" aria-hidden="true">
           <path d="M18 98c18-6 20-30 38-34s26 14 44-4 6-36 6-36" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-dasharray="1 11"/>
@@ -312,6 +312,17 @@
           <label class="dw-end a"><i>A</i><select id="drawFrom" aria-label="From"></select></label>
           <button type="button" class="dw-swap" id="drawSwap" title="Swap From and To" aria-label="Swap From and To">⇅</button>
           <label class="dw-end b"><i>B</i><select id="drawTo" aria-label="To"></select></label>
+        </div>
+        <!-- a place that is in no list: its name, then where it is (found on the map, or the blue ＋ put on it) -->
+        <div class="dw-new" id="drawNew" hidden>
+          <div class="dw-new-h">➕ New place for <b id="drawNewFor">A — From</b></div>
+          <input id="drawNewName" placeholder="Name of the place (e.g. NEW PLANT KHAIRAGARH)" autocomplete="off" maxlength="60">
+          <div class="dw-new-act">
+            <button type="button" class="btn sm navy" id="drawNewFind">🔍 Find on map</button>
+            <button type="button" class="btn sm primary" id="drawNewSet">📍 Set here (blue ＋)</button>
+            <button type="button" class="btn sm" id="drawNewCancel">Cancel</button>
+          </div>
+          <p class="dw-new-hint">Zoom the map in and move it until the blue ＋ in the middle is on the place, then “Set here”.</p>
         </div>
         <label class="dw-end dw-way"><i>＋</i><select id="drawPlace" aria-label="Add a place on the way"></select></label>
         <div class="dw-pts" id="drawPts"></div>

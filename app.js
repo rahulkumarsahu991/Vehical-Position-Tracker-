@@ -2942,6 +2942,8 @@
     if (!k || n === '—') return null;
     if (PLACES[n]) return PLACES[n];
     if (placeIdx[k]) return placeIdx[k];
+    const made = madePlace(n, k);   // a new place set in Route Finder (here, or the end of a saved drawn road)
+    if (made) return made;
     if (geoMem[n]) return geoMem[n].ll;
     // a known place inside a longer name: "BHANDARA STM", "GADCHIROULI LAHERI M", "KONSARI LOADING"
     const w = n.split(/[^A-Z0-9]+/).filter(Boolean);
@@ -3715,7 +3717,7 @@
     const sig = l => JSON.stringify(l.map(d => [d.id, d.status, d.code]));
     const changed = sig(list) !== sig(S.drawn);
     S.drawn = list.map(d => { const o = Object.assign({}, d); delete o.way; return o; });   // its way is made again (with its new Route ID)
-    drawnIdx = null;
+    drawnIdx = null; drawnEnds = null;
     store.set(DRAWN_KEY, S.drawn);
     if (!changed) return;
     S.routeKey = '';
@@ -3733,14 +3735,76 @@
   })(store.get('vpt_draw_draft', {}));
   D.follow = store.get('vpt_draw_follow', true);
   const keepDraft = () => store.set('vpt_draw_draft', { from: D.from, to: D.to, pts: D.pts });
-  /** names for the From / To lists: the Calling Sheet's loading (or unloading) points, busiest first, then every known town */
+  /* ---- new places (in no list): set on this phone with the blue ＋ (kept here), and the ends of every drawn road —
+   *  so a new route's From / To is on the map for everybody once its road is saved ---- */
+  const MY_PLACES_KEY = 'vpt_my_places';
+  const myPlaces = store.get(MY_PLACES_KEY, {});
+  let drawnEnds = null;   // NAME / spellKey → [lat, lng]: where each drawn road starts and ends
+  function madePlace(n, k) {
+    if (myPlaces[n]) return myPlaces[n];
+    if (!drawnEnds) {
+      drawnEnds = {};
+      S.drawn.forEach(d => {
+        if (!d.road) return;
+        const pts = polyDecode(d.road), put = (name, p) => { const u = up(name); if (u && !drawnEnds[u]) drawnEnds[u] = drawnEnds['~' + spellKey(u)] = p; };
+        if (pts.length) { put(d.from, pts[0]); put(d.to, pts[pts.length - 1]); }
+      });
+    }
+    return drawnEnds[n] || drawnEnds['~' + k] || null;
+  }
+  /** names for the From / To lists: the Calling Sheet's loading (or unloading) points, busiest first, the new places
+   *  made here, then every known town */
   function drawPlaces(kind) {
     const n = {}, seen = new Set(), out = [];
     S.vehicles.forEach(v => { const p = v.cat !== 'sold' && (kind === 'from' ? v.from : v.to); if (p) n[p] = (n[p] || 0) + 1; });
     const add = p => { const k = spellKey(p); if (k && !seen.has(k)) { seen.add(k); out.push(p); } };
     Object.keys(n).sort((a, b) => n[b] - n[a]).forEach(add);
+    Object.keys(myPlaces).concat(S.drawn.flatMap(d => [up(d.from), up(d.to)])).sort().forEach(add);
     Object.keys(PLACES).filter(p => /^[A-Z]/.test(p) && !NOT_PLACE.test(p)).sort().forEach(add);
     return out;
+  }
+  /* ---- "➕ New place": its name, then where it is — found on OpenStreetMap, or the blue ＋ put on it ---- */
+  let newFor = '';   // 'from' / 'to' while a new place is being made
+  function drawNewOpen(kind) {
+    newFor = kind;
+    $('#drawNew').hidden = false;
+    $('#drawNewFor').textContent = kind === 'from' ? 'A — From' : 'B — To';
+    $('#drawNewName').value = '';
+    $('#drawNewName').focus();
+  }
+  function drawNewClose() { newFor = ''; $('#drawNew').hidden = true; S.drawListSig = ''; drawDropdowns(); }
+  async function drawNewFind() {
+    const name = up($('#drawNewName').value.trim()), m = MAPS.drawMap;
+    if (!name) { toast('Write the name of the place first', true); return; }
+    const known = placeLL(name, true);
+    if (known) { if (m) m.map.setView(known, 11); toast(name + ' is known already — it is on the map'); return; }
+    const b = $('#drawNewFind');
+    b.disabled = true; b.textContent = 'Finding…';
+    try {
+      // as the place lookup: around where the fleet runs, a town / village, the one nearest the middle (Raipur side)
+      const r = await fetchWithTimeout('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&countrycodes=in&viewbox=75.5,24,89,15.5&bounded=1&q=' + encodeURIComponent(name), {}, 15000);
+      const far = x => Math.hypot(x.lat - 20.8, x.lon - 81), all = r.ok ? await r.json() : [];
+      const hit = all.filter(x => GEO_KINDS.includes(x.addresstype)).sort((a, b) => far(a) - far(b))[0] || all.sort((a, b) => far(a) - far(b))[0];
+      if (hit && m) { m.map.setView([+hit.lat, +hit.lon], 12); toast('Found — check the blue ＋ is on it (move the map if not), then “Set here”'); }
+      else toast('Not found on the map — zoom in, move the map until the blue ＋ is on it, then “Set here”', true);
+    } catch (e) { toast('The map search did not answer — move the map to the place yourself, then “Set here”', true); }
+    finally { b.disabled = false; b.textContent = '🔍 Find on map'; }
+  }
+  function drawNewSet() {
+    const name = up($('#drawNewName').value.trim()), m = MAPS.drawMap;
+    if (!name) { toast('Write the name of the place first', true); return; }
+    if (!placeLL(name, true)) {   // a name that is known already keeps its own place
+      if (!m) return;
+      const c = m.map.getCenter();
+      myPlaces[name] = [+c.lat.toFixed(5), +c.lng.toFixed(5)];
+      store.set(MY_PLACES_KEY, myPlaces);
+    }
+    const kind = newFor;
+    D[kind] = name; D.road = null; D.fitKey = ''; D.seq++;
+    keepDraft();
+    drawNewClose();
+    toast(name + ' set as ' + (kind === 'from' ? 'A (From)' : 'B (To)') + ' ✓');
+    drawRoad();
   }
   /** From / To on the map, or null (a name not known yet is looked up on OpenStreetMap — the map draws itself when found) */
   function drawSel() {
@@ -3771,10 +3835,11 @@
       if (cur) { if (same >= 0) all[same] = cur; else all.unshift(cur); }   // shown with the spelling chosen (VIZIANAGARAM, not VIZIANAGRAM)
       const mine = all.filter(p => sheet.has(spellKey(p)) || p === cur), rest = all.filter(p => !mine.includes(p));
       const pick = p => opt(p, p, spellKey(p) === spellKey(cur));
-      return opt('', head, !cur) + '<optgroup label="' + (kind === 'from' ? 'Loading points in the sheet' : 'Unloading points in the sheet') + '">' +
+      return opt('', head, !cur) + opt('__new__', '➕ New place (not in this list)…') + '<optgroup label="' + (kind === 'from' ? 'Loading points in the sheet' : 'Unloading points in the sheet') + '">' +
         mine.map(pick).join('') + '</optgroup><optgroup label="Other places">' + rest.map(pick).join('') + '</optgroup>';
     };
     $('#drawRoute').innerHTML = opt('', 'Pick a route (' + routes.length + ')', !routes.some(r => r.from + '→' + r.to === key)) +
+      opt('__new__', '➕ New route — choose From and To') +
       routes.map(r => opt(r.from + '→' + r.to, r.from + ' → ' + r.to + ' (' + r.n + ')', r.from + '→' + r.to === key)).join('');
     $('#drawFrom').innerHTML = ends('from', D.from, 'From — loading point');
     $('#drawTo').innerHTML = ends('to', D.to, 'To — unloading point');
@@ -4112,9 +4177,23 @@
       if (v) placeLL(v);   // a name not known yet: looked up on OpenStreetMap
       drawRoad();
     };
-    $('#drawFrom').addEventListener('change', e => { setEnd('from', e.target.value); drawDropdowns(); });
-    $('#drawTo').addEventListener('change', e => { setEnd('to', e.target.value); drawDropdowns(); });
-    $('#drawRoute').addEventListener('change', e => {   // a route of the sheet: its From and To
+    const pickEnd = kind => e => {
+      if (e.target.value === '__new__') { S.drawListSig = ''; drawDropdowns(); drawNewOpen(kind); return; }   // a place in no list
+      setEnd(kind, e.target.value); drawDropdowns();
+    };
+    $('#drawFrom').addEventListener('change', pickEnd('from'));
+    $('#drawTo').addEventListener('change', pickEnd('to'));
+    $('#drawNewFind').addEventListener('click', drawNewFind);
+    $('#drawNewSet').addEventListener('click', drawNewSet);
+    $('#drawNewCancel').addEventListener('click', drawNewClose);
+    $('#drawNewName').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); drawNewFind(); } });
+    $('#drawRoute').addEventListener('change', e => {   // a route of the sheet: its From and To — or a new route
+      if (e.target.value === '__new__') {
+        D.from = ''; D.to = ''; D.pts = []; D.hist = []; D.road = null; D.msg = ''; D.seq++;
+        keepDraft(); S.drawListSig = ''; drawDropdowns(); drawPaint();
+        toast('New route: choose From and To below — “➕ New place” for one that is in no list');
+        return;
+      }
       if (!e.target.value) return;
       const [f, t] = e.target.value.split('→');
       if (spellKey(f) !== spellKey(D.from) || spellKey(t) !== spellKey(D.to)) D.pts = [];   // another route: its own points

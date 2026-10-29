@@ -1621,6 +1621,15 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 .dw-swap { flex: none; width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 50%; background: #fff; color: var(--navy); font-size: 17px; cursor: pointer; }
 .dw-swap:hover { background: #f1f3f9; }
 .dw-end select { flex: 1; min-width: 0; padding: 10px 0; border: 0; background: none; outline: none; font: 600 14px var(--font); color: var(--ink); cursor: pointer; }
+/* ➕ New place: its name, find it on the map or put the blue ＋ on it, set */
+.dw-new { margin-top: 8px; padding: 9px 10px; background: #eef3fe; border: 1px dashed #8fb0ef; border-radius: 12px; }
+.dw-new[hidden] { display: none; }
+.dw-new-h { margin-bottom: 6px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.dw-new-h b { color: var(--navy); }
+.dw-new input { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; font: 600 14px var(--font); color: var(--ink); text-transform: uppercase; }
+.dw-new input::placeholder { text-transform: none; font-weight: 500; }
+.dw-new-act { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.dw-new-hint { margin: 6px 0 0; font-size: 11.5px; color: var(--muted); }
 .dw-route { margin-bottom: 8px; }
 .dw-route i { background: none; font-size: 15px; }
 .dw-way { margin-top: 8px; }
@@ -1668,7 +1677,7 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
   .dw-ends { position: relative; flex-direction: column; align-items: stretch; gap: 6px; }
   .dw-ends .dw-end { padding-right: 50px; }   /* room for ⇅ */
   .dw-swap { position: absolute; right: 6px; top: 50%; margin-top: -18px; z-index: 1; }
-  .dw-end select { font-size: 16px; }
+  .dw-end select, .dw-new input { font-size: 16px; }
   .dw-sum { left: 54px; font-size: 12px; }
   .dw-b { min-width: 54px; }
   .dw-here { min-width: 104px; }
