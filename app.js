@@ -2049,7 +2049,7 @@
     const l = document.createElement('link');
     l.rel = 'stylesheet';
     l.crossOrigin = 'anonymous'; // lets JPG / PDF downloads copy the font
-    l.href = 'https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap';
+    l.href = 'https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&family=Carlito:wght@400;700&display=swap';
     document.head.appendChild(l);
   }
 
@@ -2073,6 +2073,20 @@
     else sets = [{ caller: P.caller, vs: P.caller ? all.filter(v => v.callerName === P.caller) : all }];
     if (!sets.length) { area.innerHTML = '<div class="empty"><b>No vehicles</b>Nothing to print for this caller.</div>'; return; }
     $('#repCols').disabled = !!rep.printf;
+    // U&N for all callers: the sheet's "T,U&N" tab as it is (the website's own U&N while it loads / if it cannot be read)
+    if (P.rep === 'un' && !P.caller && CFG.TUN_GID) {
+      loadTun();
+      if (S.tun) {
+        const o = P.orient === 'auto' ? 'portrait' : P.orient;
+        $('#repCols').disabled = true;
+        $('#repHint').textContent = 'Same as the sheet’s “T,U&N” tab (read live from the sheet). A Next Load / Broker the sheet leaves blank shows the program given on this website (✓ = driver informed) — tap it to give one.';
+        area.innerHTML = '<div class="pages">' + tunPageHtml(S.tun, o) + '</div>';
+        setPageSize(o);
+        fitPages();
+        return;
+      }
+      $('#repHint').textContent = (S.tunErr || 'Loading the sheet’s “T,U&N” tab… ') + rep.hint;
+    }
     // "Remove programs": every program shown in this print (U&N / Caller wise)
     const withProg = printedPrograms();
     $('#clearProgBtn').hidden = !withProg.length;
@@ -2191,6 +2205,56 @@
     }
   }
 
+  /* ---------------- U&N for all callers = the sheet's "T,U&N" tab, as the sheet shows it ----------------
+   * Read live (public CSV, again after a minute): the date line, then each block — its name + count in orange, its
+   * headings in blue, its rows — in Calibri, bold headings, centred, black grid. A Next Load / Broker the sheet leaves
+   * blank shows the program given on this website (✓ = driver informed); tap it to give / change one. */
+  S.tun = null; S.tunAt = 0;
+  async function loadTun() {
+    if (S.tunBusy || !CFG.TUN_GID || Date.now() - S.tunAt < 60000) return;
+    S.tunBusy = true;
+    try {
+      const url = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(CFG.SHEET_ID) + '/export?format=csv&gid=' + encodeURIComponent(CFG.TUN_GID);
+      const r = await fetchWithTimeout(url, { cache: 'no-store' }, 30000), text = await r.text();
+      if (!r.ok || /^\s*</.test(text)) throw new Error('not readable');
+      const grid = parseCsv(text);
+      while (grid.length && grid[grid.length - 1].every(c => !String(c || '').trim())) grid.pop();
+      if (!grid.some(row => /^\s*unloading\s*\(\d+\)/i.test(row[0] || ''))) throw new Error('not the U&N layout');
+      const changed = JSON.stringify(grid) !== JSON.stringify(S.tun);
+      S.tun = grid; S.tunAt = Date.now(); S.tunErr = '';
+      if (changed && S.view === 'print' && S.print.rep === 'un' && !S.print.caller) renderPrint();
+    } catch (e) {
+      const first = !S.tunErr;
+      S.tunErr = 'The sheet’s “T,U&N” tab could not be read — this is the website’s own U&N. ';
+      S.tunAt = Date.now() - 30000;   // try again in half a minute
+      if (first && !S.tun && S.view === 'print' && S.print.rep === 'un' && !S.print.caller) renderPrint();
+    } finally { S.tunBusy = false; }
+  }
+  function tunPageHtml(grid, orient) {
+    const W = [178, 233, 111, 307, 120, 120, 105];   // the tab's column widths (px)
+    const cols =Math.min(Math.max(...grid.map(r => { let k = r.length; while (k && !String(r[k - 1] || '').trim()) k--; return k; })), 10) || W.length;
+    const widths = Array.from({ length: cols }, (_, i) => W[i] || 110), sum = widths.reduce((a, b) => a + b, 0);
+    let heads = [];
+    const rows = grid.map(r => {
+      const c = i => String(r[i] == null ? '' : r[i]).trim();
+      if (/^DATE:/i.test(c(0))) return '<tr class="tun-top"><td colspan="' + cols + '">' + esc(c(0)) + '</td></tr>';
+      if (/\(\d+\)\s*$/.test(c(0)) && !/^\d+\./.test(c(0))) {   // a block: "Unloading (39)" + its headings
+        heads = Array.from({ length: cols }, (_, i) => c(i));
+        return '<tr>' + heads.map((h, i) => '<td class="' + (i ? (h ? 'tun-hd' : '') : 'tun-cat') + '">' + esc(h) + '</td>').join('') + '</tr>';
+      }
+      const m = c(0).match(/^\d+\.\s*([A-Z0-9]+)/i), vno = m ? m[1].toUpperCase() : '', p = vno && S.active[vno];
+      return '<tr>' + Array.from({ length: cols }, (_, i) => {
+        const h = heads[i] || '', next = /^next\s*load$/i.test(h), broker = /^broker$/i.test(h);
+        let x = esc(c(i));
+        if (vno && !c(i) && next) x = progCell(S.byVno[vno] || { vno: vno });   // the website's program where the sheet has none
+        if (vno && !c(i) && broker && p) x = esc(p.broker || '');
+        return '<td' + (vno && (next || broker) ? ' class="prog" data-edit="' + esc(vno) + '"' : '') + '>' + x + '</td>';
+      }).join('') + '</tr>';
+    }).join('');
+    return '<div class="page ' + orient + '" data-maxfs="17" data-name="U&amp;N All callers"><div class="page-inner"><table class="tun"><colgroup>' +
+      widths.map(w => '<col style="width:' + (w / sum * 100).toFixed(2) + '%">').join('') + '</colgroup>' + rows + '</table></div></div>';
+  }
+
   /* ---------------- PDF / JPG downloads (the tools load only the first time they are used) ---------------- */
   const LIBS = {
     img: 'https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.js',
@@ -2209,7 +2273,7 @@
    *  Without them the picture falls back to a wider font and the text runs into each other. */
   const FONT_CSS_URLS = [
     'https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap',
-    'https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap'
+    'https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&family=Carlito:wght@400;700&display=swap'
   ];
   function toBase64(buf) {
     const bytes = new Uint8Array(buf);

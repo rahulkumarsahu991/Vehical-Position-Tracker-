@@ -1336,6 +1336,22 @@ table.pf .pf-cat { font-weight: 700; }
 table.pf .pf-hd { background: #2c77b7; color: #fff; font-weight: 700; }
 table.pf .pf-none { font-style: italic; color: #555; }
 table.pf .ok { color: #15803d; font-weight: 700; }
+/* U&N for all callers = the sheet's "T,U&N" tab: Calibri (Carlito), centred, black grid, orange block name, blue headings */
+table.tun {
+  width: 100%; table-layout: fixed; border-collapse: collapse;
+  font: 400 var(--fs)/1.2 "Carlito", Calibri, Arial, sans-serif; color: #000;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+table.tun td {
+  border: .3mm solid #000; padding: .4mm .8mm; text-align: center; vertical-align: middle;
+  overflow-wrap: anywhere; height: calc(var(--fs) * 1.5);
+}
+table.tun .tun-top td, table.tun .tun-cat, table.tun .tun-hd { font-weight: 700; }
+table.tun .tun-top td { padding: 1mm; }
+table.tun .tun-cat { background: #f39c12; }
+table.tun .tun-hd { background: #2d77b7; color: #fff; }
+table.tun .ok { color: #15803d; font-weight: 700; }
+table.tun .prog { cursor: pointer; }
 .pfoot { margin-top: auto; font-size: calc(var(--fs) * .85); color: #666; display: flex; justify-content: space-between; border-top: .25mm solid #ccc; padding-top: 1mm; }
 
 /* ---------------- bottom nav (phones) ---------------- */

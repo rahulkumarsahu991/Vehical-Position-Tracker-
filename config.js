@@ -20,6 +20,7 @@ window.VPT_CONFIG = {
   // If that fails, the copy above (SHEET_ID / CALLING_GID) is used. DATE_ORDER: how that sheet writes dates.
   CALLING_SOURCE: { SHEET_ID: "1wgG2K9phHMQPvIskvXF1OBHxNHFk8pegrKCi0hvuF6U", GID: "855099761", DATE_ORDER: "DMY" },
   RH_GID: "853440745",      // R&H tab: repair date + reason for the Caller wise print
+  TUN_GID: "482471806",     // "T,U&N" tab: the U&N print for All callers is this tab, as the sheet shows it
 
   // "Pending calls" button: caller-wise calls from the Dashboard tab of the Fleet sheet
   CALLS_SHEET_ID: "1wgG2K9phHMQPvIskvXF1OBHxNHFk8pegrKCi0hvuF6U",
