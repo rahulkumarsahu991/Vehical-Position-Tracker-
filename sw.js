@@ -6,7 +6,7 @@
  * the network answers quickly, and the saved copy is refreshed every time.
  * Google Sheet / Apps Script data is never cached here — always live.
  * ===================================================================== */
-const CACHE = 'vpt-v57';
+const CACHE = 'vpt-v58';
 const FILES = ['./', './index.html', './styles.css', './app.js', './config.js', './places.js', './roads.js', './logo.webp', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 const FAST_MS = 1500; // wait this long for the network before using the saved copy
 
@@ -27,7 +27,8 @@ self.addEventListener('fetch', e => {
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
     const cached = await cache.match(req, { ignoreSearch: true });
-    const fresh = fetch(req).then(res => {
+    // asked again every time (no-cache): the browser's own 10-minute copy must not hide a new version of the site
+    const fresh = fetch(new Request(req.url, { cache: 'no-cache', credentials: 'same-origin' })).then(res => {
       if (res.ok) cache.put(req, res.clone());
       return res;
     });

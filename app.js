@@ -2214,12 +2214,17 @@
     if (S.tunBusy || !CFG.TUN_GID || Date.now() - S.tunAt < 60000) return;
     S.tunBusy = true;
     try {
-      const url = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(CFG.SHEET_ID) + '/export?format=csv&gid=' + encodeURIComponent(CFG.TUN_GID);
-      const r = await fetchWithTimeout(url, { cache: 'no-store' }, 30000), text = await r.text();
-      if (!r.ok || /^\s*</.test(text)) throw new Error('not readable');
-      const grid = parseCsv(text);
-      while (grid.length && grid[grid.length - 1].every(c => !String(c || '').trim())) grid.pop();
-      if (!grid.some(row => /^\s*unloading\s*\(\d+\)/i.test(row[0] || ''))) throw new Error('not the U&N layout');
+      // two ways to read the tab: the CSV file, and gviz (some office networks / antivirus stop one of them)
+      const base = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(CFG.SHEET_ID), gid = encodeURIComponent(CFG.TUN_GID);
+      const read = async url => {
+        const r = await fetchWithTimeout(url, { cache: 'no-store' }, 15000), text = await r.text();
+        if (!r.ok || /^\s*</.test(text)) throw new Error('not readable');
+        const g = parseCsv(text);
+        while (g.length && g[g.length - 1].every(c => !String(c || '').trim())) g.pop();
+        if (!g.some(row => /^\s*unloading\s*\(\d+\)/i.test(row[0] || ''))) throw new Error('not the U&N layout');
+        return g;
+      };
+      const grid = await read(base + '/export?format=csv&gid=' + gid).catch(() => read(base + '/gviz/tq?tqx=out:csv&headers=0&gid=' + gid));
       const changed = JSON.stringify(grid) !== JSON.stringify(S.tun);
       S.tun = grid; S.tunAt = Date.now(); S.tunErr = '';
       if (changed && S.view === 'print' && S.print.rep === 'un' && !S.print.caller) renderPrint();
@@ -2234,13 +2239,17 @@
     const W = [178, 233, 111, 307, 120, 120, 105];   // the tab's column widths (px)
     const cols =Math.min(Math.max(...grid.map(r => { let k = r.length; while (k && !String(r[k - 1] || '').trim()) k--; return k; })), 10) || W.length;
     const widths = Array.from({ length: cols }, (_, i) => W[i] || 110), sum = widths.reduce((a, b) => a + b, 0);
-    let heads = [];
+    let heads = [], blocks = 0, blank = true;
+    const empty = '<tr>' + '<td></td>'.repeat(cols) + '</tr>';
     const rows = grid.map(r => {
       const c = i => String(r[i] == null ? '' : r[i]).trim();
-      if (/^DATE:/i.test(c(0))) return '<tr class="tun-top"><td colspan="' + cols + '">' + esc(c(0)) + '</td></tr>';
+      const was = blank;
+      blank = !r.some(x => String(x || '').trim());
+      if (/^DATE:/i.test(c(0))) { blank = true; return '<tr class="tun-top"><td colspan="' + cols + '">' + esc(c(0)) + '</td></tr>'; }
       if (/\(\d+\)\s*$/.test(c(0)) && !/^\d+\./.test(c(0))) {   // a block: "Unloading (39)" + its headings
         heads = Array.from({ length: cols }, (_, i) => c(i));
-        return '<tr>' + heads.map((h, i) => '<td class="' + (i ? (h ? 'tun-hd' : '') : 'tun-cat') + '">' + esc(h) + '</td>').join('') + '</tr>';
+        return (blocks++ && !was ? empty : '') +   // one empty row between blocks, as in the sheet (gviz leaves it out)
+          '<tr>' + heads.map((h, i) => '<td class="' + (i ? (h ? 'tun-hd' : '') : 'tun-cat') + '">' + esc(h) + '</td>').join('') + '</tr>';
       }
       const m = c(0).match(/^\d+\.\s*([A-Z0-9]+)/i), vno = m ? m[1].toUpperCase() : '', p = vno && S.active[vno];
       return '<tr>' + Array.from({ length: cols }, (_, i) => {
