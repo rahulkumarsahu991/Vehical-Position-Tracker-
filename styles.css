@@ -1218,6 +1218,12 @@ button.r-lane-h:hover, .r-lane.on button.r-lane-h { background: #fff; box-shadow
   .hub-controls .seg button { padding: 6px 10px; font-size: 13px; }
   .hub-pick { margin-left: 0; width: 100%; }
   .hub-pick select { max-width: none; flex: 1; }
+  /* Route Finder on a phone: the route picker a full row, the tools under it */
+  .draw-pick { width: 100%; }
+  .draw-pick select { max-width: none; flex: 1; }
+  .draw-tools { margin-left: 0; width: 100%; }
+  .draw-tools .btn.primary { margin-left: auto; }
+  .dl-code { width: 96px; }
   .hub-chips { flex-wrap: nowrap; overflow-x: auto; margin: 0 -12px 8px; padding: 0 12px 2px; scrollbar-width: none; }
   .hub-chips .chip { flex: none; }
   .hub-stats { gap: 6px; }
@@ -1369,7 +1375,7 @@ table.pf .ok { color: #15803d; font-weight: 700; }
   .user-chip .ico, #userName { display: none; }
   .user-chip .initial { display: block; font: 700 16px/1 var(--cond); color: var(--orange); }
   .tabs {
-    grid-area: tabs; display: grid; grid-template-columns: 1fr 1.5fr 1fr 1fr 1fr; gap: 0;
+    grid-area: tabs; display: grid; grid-template-columns: 1fr 1.45fr .95fr 1fr .8fr .95fr; gap: 0;
     margin: 8px -12px 0; border-top: 1px solid rgba(255,255,255,.08);
   }
   .tabs button {
@@ -1601,6 +1607,44 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 .mp-eta div { display: grid; line-height: 1.15; }
 .mp-eta b { font: 700 13px var(--font); color: #188038; }
 .mp-eta small { font-size: 11.5px; color: #5f6368; }
+/* ---------------- Route Finder: draw a route's road, the Director adds it to Route & Hub ---------------- */
+.draw-hero .hh-web { animation: none; color: rgba(255, 255, 255, .55); }
+.draw-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 6px; }
+.draw-pick select { max-width: 360px; }
+.draw-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
+.draw-follow { display: inline-flex; align-items: center; gap: 5px; padding: 0 4px; font-size: 13px; font-weight: 600; color: var(--ink-2); cursor: pointer; }
+.draw-follow input { width: 16px; height: 16px; accent-color: var(--navy); }
+.draw-sum { margin: 2px 0 8px; line-height: 1.55; }
+.dw-busy { color: #1a73e8; font-weight: 700; animation: off-blink 1s steps(2, jump-none) infinite; }
+.dw-ok { color: #188038; font-weight: 700; }
+.dw-next { color: var(--orange-d); font-weight: 700; }
+.draw-map.leaflet-container, .draw-map .leaflet-grab { cursor: crosshair; }   /* a tap adds a point */
+.draw-map .leaflet-dragging .leaflet-grab { cursor: grabbing; }
+.dw-pt {   /* a point the road goes through: drag to move, tap to take out */
+  width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 3px solid #1a73e8; box-sizing: border-box;
+  color: #0b3d91; font: 700 11px/16px var(--cond); text-align: center; box-shadow: 0 1px 4px rgba(0, 0, 0, .35); cursor: grab;
+}
+.draw-list { margin: 14px 0 10px; }
+.dl-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 8px; }
+.dl-head h3 { margin: 0; font: 700 18px var(--cond); letter-spacing: .4px; color: var(--ink); }
+.dl-head span { font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.dl-head em { flex-basis: 100%; font-style: normal; font-size: 12px; color: var(--muted); }
+.dl-warn { margin: 0 0 8px; padding: 8px 12px; border: 1px solid #f5c26b; border-radius: 10px; background: #fff7e6; color: #7a4b00; font-size: 12.5px; }
+.dl-empty { color: var(--muted); font-size: 13px; }
+.dl-card { margin-bottom: 8px; padding: 9px 12px; background: #fff; border: 1px solid var(--line); border-left: 4px solid #f0a30a; border-radius: 12px; box-shadow: var(--shadow); }
+.dl-card.dl-ok { border-left-color: #0f9d58; }
+.dl-card.dl-no { border-left-color: #9aa0a6; opacity: .75; }
+.dl-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; }
+.dl-top b { font: 700 15px var(--cond); letter-spacing: .4px; color: var(--ink); }
+.dl-st { font-size: 12px; font-weight: 700; color: #a86b00; }
+.dl-ok .dl-st { color: #0b7a3e; }
+.dl-no .dl-st { color: var(--muted); }
+.dl-meta { margin: 3px 0 7px; font-size: 12px; color: var(--ink-2); }
+.dl-act { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.dl-code { width: 110px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; font: 600 13px var(--font); color: var(--ink); }
+.dl-del { color: #c62828; }
+/* a road drawn in Route Finder, added by the Director: its Route ID on the lane / time box */
+.rw-code { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 6px; background: #0f9d58; color: #fff; font: 700 11px/16px var(--cond); letter-spacing: .4px; }
 .mp-way { border-left: 4px solid var(--lc); border-radius: 8px; }   /* one way of the chosen route: its number in its colour */
 .mp-way b { color: var(--ink); }
 .mp-wk { width: 17px; height: 17px; font-size: 10.5px; vertical-align: 1px; }

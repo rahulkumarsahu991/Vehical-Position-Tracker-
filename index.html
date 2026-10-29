@@ -30,6 +30,7 @@
         <button type="button" data-view="print">Print</button>
         <button type="button" data-view="route">Route</button>
         <button type="button" data-view="hub"><span class="t-long">Hub Analyzer</span><span class="t-short">Hub</span></button>
+        <button type="button" data-view="draw"><span class="t-long">Route Finder</span><span class="t-short">Draw</span> <span class="tab-badge" data-dbadge hidden></span></button>
       </nav>
       <div class="top-right">
         <span id="saveState" class="save-state" hidden></span>
@@ -287,6 +288,36 @@
         <div id="hubMap" class="mp-map"><div class="mp-loading">Loading the map…</div></div>
         <p class="hint mp-note" id="hubMapNote"></p>
       </div>
+    </section>
+
+    <!-- ============ ROUTE FINDER: draw a route's real road, the Director adds it to Route & Hub ============ -->
+    <section id="view-draw" class="view" hidden>
+      <div class="hub-hero draw-hero">
+        <div>
+          <small>Daman Group · Route Finder</small>
+          <h2>Draw the lorries' road</h2>
+          <p>Pick a route — A and B are pinned on the map. Tap the map from A towards B: the road follows the real roads. Save it; the Director gives it a Route ID and adds it to Route &amp; Hub.</p>
+        </div>
+        <svg class="hh-web" viewBox="0 0 120 120" aria-hidden="true">
+          <path d="M18 98c18-6 20-30 38-34s26 14 44-4 6-36 6-36" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-dasharray="1 11"/>
+          <circle cx="18" cy="98" r="9" fill="#f28a1c"/><circle cx="106" cy="24" r="9" fill="#ea4335"/>
+          <circle cx="56" cy="64" r="5" fill="#fff"/><circle cx="96" cy="52" r="5" fill="#fff"/>
+        </svg>
+      </div>
+      <div class="draw-bar">
+        <label class="select-wrap mp-pick draw-pick"><span>Route</span><select id="drawPick"></select></label>
+        <div class="draw-tools">
+          <button type="button" class="btn sm" id="drawUndo" title="Take back the last point">↶ Undo</button>
+          <button type="button" class="btn sm" id="drawClear" title="Start again from A">✕ Clear</button>
+          <label class="draw-follow" title="On: the road follows the real roads between your points. Off: straight lines."><input type="checkbox" id="drawFollow" checked> Follow roads</label>
+          <button type="button" class="btn sm navy" id="drawJoin" title="Join the last point to B">Join to B</button>
+          <button type="button" class="btn sm primary" id="drawSave">💾 Save</button>
+        </div>
+      </div>
+      <div class="mp-sum draw-sum" id="drawSum"></div>
+      <div id="drawMap" class="mp-map draw-map"><div class="mp-loading">Loading the map…</div></div>
+      <p class="hint mp-note" id="drawNote"></p>
+      <div class="draw-list" id="drawList"></div>
     </section>
   </main>
 

@@ -781,6 +781,7 @@
     else if (S.view === 'print') renderPrint();
     else if (S.view === 'route') renderRoutes();
     else if (S.view === 'hub') renderHub();
+    else if (S.view === 'draw') renderDraw();
     if (S.detail) renderDetail();
   }
 
@@ -788,6 +789,9 @@
     const n = S.vehicles.filter(v => v.cat !== 'sold' && (!S.f.caller || v.callerName === S.f.caller))
       .filter(v => { const st = progState(v); return st === 'need' || st === 'given' || (st === 'manager' && isMid(S.user)); }).length;
     $$('[data-badge]').forEach(b => { b.textContent = n; b.hidden = !n; });
+    // Route Finder: roads waiting for the Director
+    const w = canCheck() ? S.drawn.filter(d => d.status === 'Waiting').length : 0;
+    $$('[data-dbadge]').forEach(b => { b.textContent = w; b.hidden = !w; });
   }
   function renderUser() {
     $('#userName').textContent = S.user || 'Who?';
@@ -1683,6 +1687,11 @@
         S.flow = !!ping.flow; store.set(K.flow, S.flow);
         computeActive(); renderAll(); refreshPrograms();
       }
+      if (!!ping.routes !== S.drawOk) { // Route Finder can save (Code.gs "routes-5")
+        S.drawOk = !!ping.routes; store.set('vpt_draw_ok', S.drawOk);
+        if (S.view === 'draw') renderDrawList();
+      }
+      loadDrawn(true);
     } catch (e) { return; } // offline: keep what we knew
     if (!S.auth.on) { closeAuth(); return; }
     if (!S.auth.token) { openLogin(); return; }
@@ -2379,7 +2388,8 @@
    *  Views, toast, events
    * ===================================================================== */
   function setView(view, noHash) {
-    if (!['board', 'programs', 'print', 'route', 'hub'].includes(view)) view = 'board';
+    if (!['board', 'programs', 'print', 'route', 'hub', 'draw'].includes(view)) view = 'board';
+    if (['route', 'hub', 'draw'].includes(view)) loadDrawn();   // the Director's drawn roads (again after 2 minutes)
     S.view = view;
     $$('.view').forEach(s => { s.hidden = s.id !== 'view-' + view; });
     $$('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view));
@@ -2431,14 +2441,21 @@
    *  stand that is on none of them — when that is not much longer (Konsari → Vizianagaram: via Narayanpur, via Aheri ·
    *  Bijapur and, where the trucks are, via Kanker · Keshkal). stops: points, busiest first.
    *  side: stops just off a way (a short trip off the road and back) — no way of their own, not "galat" either */
-  function routeWays(A, B, stops, sure) {   // sure: places the office said the lorries pass on this route (VPT_ROUTE_OK)
-    const alts = roadAlts(A, B), main = roadKnown(A, B), side = new Set();
-    if (!main) return { ways: [], side: side };
-    const ways = [main], ab = kmApart(A, B);
+  function routeWays(A, B, stops, sure, drawn) {   // sure: places the office said the lorries pass on this route (VPT_ROUTE_OK)
+    const alts = roadAlts(A, B), main = roadKnown(A, B), side = new Set();   // drawn: the Director's roads from Route Finder
+    if (!main && !(drawn && drawn.length)) return { ways: [], side: side };
+    const ways = main ? [main] : [], ab = kmApart(A, B);
     const sample = pts => { const step = Math.max(1, Math.floor(pts.length / 40)); return pts.filter((q, i) => i % step === 0); };
     const offAll = pts => sample(pts).filter(q => !ways.some(x => alongLine(x.pts, q).off <= 5));   // the part on none of the ways
     // OSRM's other ways — not one that is nearly the same road
-    alts.forEach(w => { if (ways.length < LANES.length && offAll(w.pts).length >= sample(w.pts).length * 0.15) ways.push(w); });
+    if (main) alts.forEach(w => { if (ways.length < LANES.length && offAll(w.pts).length >= sample(w.pts).length * 0.15) ways.push(w); });
+    // the Director's drawn roads: always a way (counts all its trucks, first on a tie); one that is nearly a way already takes its place
+    (drawn || []).forEach(d => {
+      const same = (x, y) => sample(x).filter(q => alongLine(y, q).off <= 5).length >= sample(x).length * 0.9;
+      const i = ways.findIndex(w => same(d.pts, w.pts) && same(w.pts, d.pts)), way = Object.assign({}, d, { sure: true, via: i >= 0 ? ways[i].via : true });
+      if (i >= 0) ways[i] = way;
+      else { ways.splice(Math.min(ways.length, LANES.length - 1), 0, way); ways.length = Math.min(ways.length, LANES.length); }
+    });
     const best = Math.min(...ways.map(w => w.km));
     // the office's way: one road through all its places in order (Somini → Kondagaon → Vizag → Anakapalli → Kakinada),
     // however long — or, when one of the ways already passes them all, that one
@@ -2515,7 +2532,7 @@
     });
     const told = (ROUTE_VIA[spellKey(r.from) + '>' + spellKey(r.to)] || []).map(n => ({ n: n, p: ok && placeOn(n, A, B, true) })).filter(x => x.p);
     const sure = told.map(x => x.p);
-    const W = ok ? routeWays(A, B, stops.filter(c => c.p).sort((x, y) => y.vs.length - x.vs.length).map(c => c.p), sure) : { ways: [], side: new Set() };
+    const W = ok ? routeWays(A, B, stops.filter(c => c.p).sort((x, y) => y.vs.length - x.vs.length).map(c => c.p), sure, drawnFor(r.from, r.to)) : { ways: [], side: new Set() };
     const ways = W.ways, ab = ok ? kmApart(A, B) : 0;
     stops.forEach(c => { c.o = c.p ? ways.map(w => alongLine(w.pts, c.p)) : []; c.on = c.o.map(o => o.off <= ON_WAY); });
     // trucks on each way; a way through a town where trucks stand counts only the trucks on none of OSRM's ways —
@@ -2527,10 +2544,13 @@
     const names = ways.length ? wayNames(ways, A, B).slice() : [];
     // the office's way is called by the places it named, in the order a lorry meets them ("via Kondagaon · Vishakhapatnam")
     const at = p => kmApart(A, p) / (kmApart(A, p) + kmApart(p, B) || 1);
-    ways.forEach((w, i) => { if (w.sure && told.length) names[i] = told.slice().sort((x, y) => at(x.p) - at(y.p)).slice(0, 2).map(x => x.n.charAt(0) + x.n.slice(1).toLowerCase()).join(' · '); });
+    ways.forEach((w, i) => {
+      if (w.code) { if (w.dname) names[i] = w.dname; }   // a drawn road: the towns it was saved with
+      else if (w.sure && told.length) names[i] = told.slice().sort((x, y) => at(x.p) - at(y.p)).slice(0, 2).map(x => x.n.charAt(0) + x.n.slice(1).toLowerCase()).join(' · ');
+    });
     const quick = ways.length > 1 ? ways.reduce((x, y) => (truckMin(y) < truckMin(x) ? y : x)) : null;
     const one = ways.length < 2;   // just one road: Google blue as before
-    const lanes = order.map((i, li) => ({ w: ways[i], name: names[i], main: !i, col: one ? '#1a73e8' : LANES[li][0], edge: one ? '#0b3d91' : LANES[li][1], quick: ways[i] === quick, n: 0 }));
+    const lanes = order.map((i, li) => ({ w: ways[i], name: names[i], main: !i, code: ways[i].code || '', col: one ? '#1a73e8' : LANES[li][0], edge: one ? '#0b3d91' : LANES[li][1], quick: ways[i] === quick, n: 0 }));
     if (!lanes.length) lanes.push({ w: null, name: '', n: 0 });
     stops.forEach(c => {
       if (!c.p) return;
@@ -2586,7 +2606,7 @@
       R.lanes.map((l, i) => '<div class="r-lane' + (l.stops.length ? '' : ' r-bare') + (multi && !l.stops.length ? ' r-none' : '') + (i === lit ? ' on' : '') + '" style="--lc:' + (l.col || '#c3c8dc') + '">' +
         // the way's name, km and truck time ("Fastest" on the quickest of several)
         (l.w ? '<' + (multi ? 'button type="button" data-lane="' + i + '"' : 'div') + ' class="r-lane-h">' + (multi ? '<i class="rw-no">' + (i + 1) + '</i>' : ICO.road) +
-          '<b>' + (l.name ? 'via ' + esc(l.name) : multi ? (l.main ? 'Main road' : 'Other road') : 'Road') + '</b><span>' + l.w.km + ' km · ≈ ' + esc(truckTime(l.w.min, l.w.km)) + ' by truck</span>' +
+          (l.code ? '<span class="rw-code" title="Drawn in Route Finder, added by the Director">' + esc(l.code) + '</span>' : '') + '<b>' + (l.name ? 'via ' + esc(l.name) : multi ? (l.main ? 'Main road' : 'Other road') : 'Road') + '</b><span>' + l.w.km + ' km · ≈ ' + esc(truckTime(l.w.min, l.w.km)) + ' by truck</span>' +
           (multi ? '<span class="rw-n">' + (l.n ? l.n + ' truck' + (l.n > 1 ? 's' : '') + ' on it' : 'no truck on it now') + '</span>' : '') +
           (l.quick ? '<em>Fastest</em>' : '') + '</' + (multi ? 'button' : 'div') + '>' : '') +
         '<div class="r-track"><div class="r-road"></div>' +
@@ -3252,7 +3272,7 @@
   }
   const MAPS = {};
   /** the map in #id (made once): the clean map underneath, layers for lines, places and trucks */
-  async function mapFor(id) {
+  async function mapFor(id, plain) {   // plain: no Trucks / Route lines switch (the Route Finder's drawing map)
     const L = await loadLeaflet();
     loadGL();   // start fetching the clean map's code at once
     let m = MAPS[id];
@@ -3279,7 +3299,7 @@
         iconCreateFunction: cl => L.divIcon({ className: 'mk', iconSize: null, html: ringHtml(cl.getAllChildMarkers().flatMap(x => x.options.vs || [])) })
       });
       m = MAPS[id] = { map: map, lines: L.layerGroup().addTo(map), marks: L.layerGroup().addTo(map), trucks: trucks.addTo(map), fit: '' };
-      L.control.layers(null, { 'Trucks now': m.trucks, 'Route lines': m.lines }, { position: 'topright' }).addTo(map);
+      if (!plain) L.control.layers(null, { 'Trucks now': m.trucks, 'Route lines': m.lines }, { position: 'topright' }).addTo(map);
       el.addEventListener('click', e => {
         const v = e.target.closest('[data-v]'), p = e.target.closest('[data-rplace]');
         if (v) openDetail(v.dataset.v);
@@ -3345,7 +3365,7 @@
     const faint = ls.length > 1 && !l.stops.length;   // no truck on this way now: a softer box, the first to give way
     m.lines.addLayer(L.tooltip({ permanent: true, direction: i % 2 ? 'left' : 'right', offset: [i % 2 ? -10 : 10, 0], className: 'mp-eta-tip' + (faint ? ' mp-faint' : ''), interactive: false, opacity: faint ? .6 : .9 })
       .setLatLng(at).setContent('<div class="mp-eta mp-way" style="--lc:' + l.col + '">' + (ls.length > 1 ? '<i class="rw-no">' + (i + 1) + '</i>' : ICO.truck) +
-        '<div><b>~' + esc(truckTime(l.w.min, l.w.km)) + '</b><small>' + (l.name ? 'via ' + esc(l.name) + ' · ' : '') + l.w.km + ' km</small></div></div>'));
+        '<div><b>~' + esc(truckTime(l.w.min, l.w.km)) + '</b><small>' + (l.code ? esc(l.code) + ' · ' : '') + (l.name ? 'via ' + esc(l.name) + ' · ' : '') + l.w.km + ' km</small></div></div>'));
   }
   /** trucks at their current location (loading / unloading ones at From / To when the location is empty):
    *  one truck = a small lorry with its number, more = a ring in their status colours with the count */
@@ -3444,10 +3464,10 @@
    *  time and km — or pick a loading / unloading point (or tap its pin) to light up every route coming to it (blue,
    *  with time and km) and going out from it (green). A / B pins, the trucks on the road where they are now. */
   async function renderRouteMap() {
-    const note = $('#routeMapNote');
+    const note = $('#routeMapNote'), seq = S.rmapSeq = (S.rmapSeq || 0) + 1;
     let m;
     try { m = await mapFor('routeMap'); } catch (e) { note.innerHTML = '<b>The map could not load.</b> Check the internet and open Map again.'; return; }
-    if (S.view !== 'route' || S.rmode !== 'map') return;
+    if (S.view !== 'route' || S.rmode !== 'map' || seq !== S.rmapSeq) return;   // a newer drawing of it is on its way
     const L = window.L, g = routeGroups(), ends = {}, pts = [], missing = [], narrow = m.map.getContainer().clientWidth < 600;
     const rkey = r => r.from + '→' + r.to;
     // every From / To once (spellings merged): how many vehicles come to it, how many leave from it
@@ -3502,7 +3522,9 @@
           return;
         }
       }
-      const rd = flowLine(m, a, b, { color: rl === 'out' ? '#188038' : on ? '#1a73e8' : '#4285f4', edge: rl === 'out' ? '#0b5d1e' : on ? '#0b3d91' : '#fff', n: n,
+      const dr = drawnFor(r.from, r.to)[0];   // the Director's drawn road, when there is one, is the route's line
+      if (dr) m.ways[roadKey(a, b)] = [dr.pts];
+      const rd = flowLine(m, a, b, { rd: dr, color: rl === 'out' ? '#188038' : on ? '#1a73e8' : '#4285f4', edge: rl === 'out' ? '#0b5d1e' : on ? '#0b3d91' : '#fff', n: n,
         look: some ? (on ? 'sel' : 'dim') : 'all', tip: esc(r.from + ' → ' + r.to) + ' · ' + n + ' vehicle' + (n > 1 ? 's' : ''),
         click: () => { S.rplace = ''; S.rpick = rkey(r); renderRouteMap(); } });
       if (!rd || !on) return;
@@ -3573,10 +3595,10 @@
 
   /** Hub Analyzer on the map: places trucks come from → hub → places they go to, and the trucks where they are now */
   async function renderHubMap(d) {
-    const note = $('#hubMapNote');
+    const note = $('#hubMapNote'), seq = S.hmapSeq = (S.hmapSeq || 0) + 1;
     let m;
     try { m = await mapFor('hubMap'); } catch (e) { note.innerHTML = '<b>The map could not load.</b> Check the internet and open Map again.'; return; }
-    if (S.view !== 'hub' || S.hview !== 'map') return;
+    if (S.view !== 'hub' || S.hview !== 'map' || seq !== S.hmapSeq) return;   // a newer drawing of it is on its way
     const L = window.L, col = HUB_COL[S.hmode], load = S.hmode === 'load', hub = placeLL(S.hub), pts = [], missing = [];
     if (!hub) missing.push(S.hub);
     else {
@@ -3595,7 +3617,8 @@
       if (!ll) { missing.push(gp.place); return; }
       pts.push(ll);
       const c = into ? col.in : col.out, n = gp.vs.length;
-      const rd = hub && ll.join() !== hub.join() ? flowLine(m, into ? ll : hub, into ? hub : ll, { color: c, edge: EDGE[c], n: n, look: 'sel', w: 3.5 + Math.min(3.5, Math.sqrt(n) * 0.9),
+      const dr = drawnFor(into ? gp.place : S.hub, into ? S.hub : gp.place)[0];   // the Director's drawn road for it, if any
+      const rd = hub && ll.join() !== hub.join() ? flowLine(m, into ? ll : hub, into ? hub : ll, { rd: dr, color: c, edge: EDGE[c], n: n, look: 'sel', w: 3.5 + Math.min(3.5, Math.sqrt(n) * 0.9),
         tip: esc(into ? gp.place + ' → ' + S.hub : S.hub + ' → ' + gp.place) + ' · ' + n + ' truck' + (n > 1 ? 's' : '') }) : null;
       if (rd) rd.pts.forEach(p => pts.push(p));
       const mk = L.marker(ll, { icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in mk-tag" data-n="' + n + '" style="--c:' + c + '">' +
@@ -3641,6 +3664,270 @@
     if (quiet) return;
     if (S.hview === 'map' && S.hub) renderHubMap(hubData(S.hmode, S.hub));
     else drawHubLinks();
+  }
+
+  /* =====================================================================
+   *  Route Finder — draw a route's real road: A and B are pinned, every tap on the map adds a point from A towards B
+   *  and the road follows the real roads through them (OSRM). Saved in the "Drawn Routes" tab (Code.gs) as "Waiting";
+   *  the Director gives it a Route ID ("Approved") and from then on it is one of that route's ways in Route & Hub.
+   * ===================================================================== */
+  const DRAWN_KEY = 'vpt_drawn_v1';
+  S.drawn = store.get(DRAWN_KEY, []);              // every drawn road: Waiting / Approved / Rejected
+  S.drawOk = !!store.get('vpt_draw_ok', false);    // the deployed Apps Script can save them (Code.gs "routes-5")
+  let drawnIdx = null;                             // the approved ones by From>To (spellings merged)
+  /** the Director's drawn roads of a route, as ways { pts, km, min, code, dname } */
+  function drawnFor(from, to) {
+    if (!drawnIdx) {
+      drawnIdx = {};
+      S.drawn.filter(d => d.status === 'Approved' && d.road).forEach(d => {
+        const k = spellKey(d.from) + '>' + spellKey(d.to);
+        (drawnIdx[k] = drawnIdx[k] || []).push(d);
+      });
+    }
+    return (drawnIdx[spellKey(from) + '>' + spellKey(to)] || [])
+      .map(d => d.way || (d.way = { pts: polyDecode(d.road), km: +d.km || 0, min: +d.min || 0, code: d.code, dname: d.via }));
+  }
+  const DRAWN_HEAD = {
+    'id': 'id', 'date': 'date', 'from': 'from', 'to': 'to', 'road': 'road', 'km': 'km', 'car minutes': 'min', 'via': 'via', 'points': 'points',
+    'drawn by': 'by', 'drawn at': 'at', 'status': 'status', 'route id': 'code', 'checked by': 'okBy', 'checked at': 'okAt', 'note': 'note'
+  };
+  let drawnAt = 0, drawnBusy = null;
+  /** the drawn roads: straight from the sheet (public CSV, ≈1 s), else from the Apps Script; again after 2 minutes */
+  function loadDrawn(force) {
+    if (LOCAL || drawnBusy || (!force && Date.now() - drawnAt < 120000)) return drawnBusy || Promise.resolve();
+    drawnAt = Date.now();
+    const viaSheet = async () => {
+      const url = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(CFG.SHEET_ID) + '/gviz/tq?tqx=out:csv&headers=1&sheet=' +
+        encodeURIComponent(CFG.ROUTE_TAB || 'Drawn Routes');
+      const r = await fetchWithTimeout(url, { cache: 'no-store' }, 15000), text = await r.text();
+      if (!r.ok || /^\s*</.test(text)) throw new Error('tab not readable');
+      const grid = parseCsv(text), keys = (grid[0] || []).map(h => DRAWN_HEAD[normHead(h)] || '');
+      if (!['id', 'road', 'status'].every(k => keys.includes(k))) throw new Error('no tab yet');   // a missing tab gives the first sheet
+      return grid.slice(1).map(row => { const o = {}; keys.forEach((k, i) => { if (k) o[k] = String(row[i] == null ? '' : row[i]); }); return o; }).filter(o => o.id);
+    };
+    drawnBusy = viaSheet().catch(() => (S.drawOk ? api('routes').then(r => r.routes || []) : null))
+      .then(list => { if (list) setDrawn(list); }).catch(() => { /* keep what we have */ })
+      .then(() => { drawnBusy = null; });
+    return drawnBusy;
+  }
+  function setDrawn(list) {
+    const sig = l => JSON.stringify(l.map(d => [d.id, d.status, d.code]));
+    const changed = sig(list) !== sig(S.drawn);
+    S.drawn = list.map(d => { const o = Object.assign({}, d); delete o.way; return o; });   // its way is made again (with its new Route ID)
+    drawnIdx = null;
+    store.set(DRAWN_KEY, S.drawn);
+    if (!changed) return;
+    S.routeKey = '';
+    renderBadges();
+    if (['route', 'hub', 'draw'].includes(S.view)) renderAll();
+  }
+  const canCheck = () => isTop(S.user) || S.auth.admin;   // the Director: adds drawn roads to Route & Hub
+
+  // the drawing: route (From→To), the points tapped after A, joined to B or not; kept in this browser until saved
+  const D = Object.assign({ key: '', pts: [], done: false }, store.get('vpt_draw_draft', {}), { road: null, busy: false, seq: 0, msg: '' });
+  D.follow = store.get('vpt_draw_follow', true);
+  const keepDraft = () => store.set('vpt_draw_draft', { key: D.key, pts: D.pts, done: D.done });
+  /** every route in the Calling Sheet (not filtered by the Route tab's search / caller), busiest first */
+  function allRoutes() {
+    const by = {};
+    S.vehicles.forEach(v => {
+      if (v.cat === 'sold' || !v.from || !v.to) return;
+      const k = v.from + '→' + v.to;
+      (by[k] = by[k] || { from: v.from, to: v.to, n: 0 }).n++;
+    });
+    return Object.values(by).sort((a, b) => b.n - a.n || a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
+  }
+  /** the picked route with its A / B on the map, or null */
+  function drawSel() {
+    if (!D.key) return null;
+    const [from, to] = D.key.split('→'), A = placeLL(from), B = placeLL(to);
+    return A && B && A.join() !== B.join() ? { from: from, to: to, A: A, B: B } : null;
+  }
+  async function renderDraw() {
+    const routes = allRoutes();
+    if (D.key && !routes.some(r => r.from + '→' + r.to === D.key)) { const [f, t] = D.key.split('→'); routes.push({ from: f, to: t, n: 0 }); }
+    const sig = routes.map(r => r.from + '→' + r.to + r.n).join('|') + '#' + D.key;
+    if (sig !== S.drawPickSig) {   // not rebuilt while somebody has it open
+      S.drawPickSig = sig;
+      $('#drawPick').innerHTML = '<option value="">Pick a route (' + routes.length + ')</option>' + routes.map(r => { const k = r.from + '→' + r.to;
+        return '<option value="' + esc(k) + '"' + (k === D.key ? ' selected' : '') + '>' + esc(r.from + ' → ' + r.to) + (r.n ? ' (' + r.n + ')' : '') + '</option>'; }).join('');
+    }
+    $('#drawFollow').checked = D.follow;
+    renderDrawList();
+    loadDrawn();
+    let m = MAPS.drawMap;
+    if (!m) {
+      try { m = await mapFor('drawMap', true); } catch (e) { $('#drawNote').innerHTML = '<b>The map could not load.</b> Check the internet and open Route Finder again.'; return; }
+      m.map.doubleClickZoom.disable();   // a double tap is two points here
+      m.map.on('click', e => drawTap([+e.latlng.lat.toFixed(5), +e.latlng.lng.toFixed(5)]));
+      const g = drawSel();
+      if (g) drawFit(g); else m.map.setView([22.5, 80.5], 5);   // all India
+    }
+    if (S.view !== 'draw') return;
+    m.map.invalidateSize();
+    drawPaint();
+    if (!D.road && !D.busy && D.pts.length + (D.done ? 1 : 0) > 0) drawRoad();   // a drawing kept from before: its road again
+  }
+  function drawFit(g) {
+    const m = MAPS.drawMap;
+    if (m) m.map.fitBounds([g.A, g.B], { paddingTopLeft: [40, 70], paddingBottomRight: [40, 40], maxZoom: 9 });
+  }
+  /** the map: A / B pins, the road drawn so far, a dotted line still to go to B, the points (drag / tap to remove),
+   *  and this route's roads drawn before (faint: green = in Route & Hub, amber = waiting for the Director) */
+  function drawPaint() {
+    const m = MAPS.drawMap, g = drawSel(), L = window.L;
+    drawSum(g);
+    if (!m || !L) return;
+    m.lines.clearLayers(); m.marks.clearLayers(); m.drawn = new Set();
+    if (!g) return;
+    S.drawn.filter(d => d.road && d.status !== 'Rejected' && spellKey(d.from) === spellKey(g.from) && spellKey(d.to) === spellKey(g.to)).forEach(d => {
+      const ok = d.status === 'Approved', w = d.way || (d.way = { pts: polyDecode(d.road), km: +d.km || 0, min: +d.min || 0, code: d.code, dname: d.via });
+      flowLine(m, g.A, g.B, { rd: w, color: ok ? '#0f9d58' : '#f0a30a', edge: ok ? '#0b5d36' : '#a86b00', look: 'faint', w: 4,
+        tip: (ok ? 'In Route & Hub as ' + esc(d.code) : 'Waiting for the Director') + ' · drawn by ' + esc(d.by) });
+    });
+    const pin = (ll, kind, name) => {
+      const mk = L.marker(ll, { zIndexOffset: 500, icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in mk-pinw"><div class="mk-pin ' + kind + '"><i>' + (kind === 'b' ? 'B' : 'A') + '</i></div></div>' }) });
+      mk.bindTooltip(esc(name), { permanent: true, direction: 'right', offset: [14, -16], className: 'mk-lbl major' });
+      if (kind === 'b') mk.on('click', drawJoin);   // tap B: the road goes to B
+      m.marks.addLayer(mk);
+    };
+    pin(g.A, 'a', g.from);
+    pin(g.B, 'b', g.to);
+    if (D.road) flowLine(m, g.A, g.B, { rd: D.road, color: '#1a73e8', edge: '#0b3d91', look: 'sel', w: 6, tip: 'Your road' });
+    if (!D.done) {
+      const last = D.pts.length ? D.pts[D.pts.length - 1] : g.A;
+      m.lines.addLayer(L.polyline([last, g.B], { color: '#5f6368', weight: 2.5, opacity: .75, dashArray: '2 9', interactive: false }));
+    }
+    D.pts.forEach((p, i) => {
+      const mk = L.marker(p, { draggable: true, keyboard: false, zIndexOffset: 900,
+        icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in dw-pt">' + (i + 1) + '</div>' }) });
+      mk.bindTooltip('Point ' + (i + 1) + ' · drag to move · tap to remove', { direction: 'top', offset: [0, -14] });
+      mk.on('dragend', e => { const ll = e.target.getLatLng(); D.pts[i] = [+ll.lat.toFixed(5), +ll.lng.toFixed(5)]; drawChanged(); });
+      mk.on('click', () => { D.pts.splice(i, 1); drawChanged(); });
+      m.marks.addLayer(mk);
+    });
+  }
+  function drawSum(g) {
+    const w = D.road, n = D.pts.length;
+    $('#drawSum').innerHTML = !g
+      ? (D.key ? '<b>' + esc(D.key.replace('→', ' → ')) + '</b> — this place is not on the map yet (tell the office where it is)' : 'Pick a route at the top — its A (loading) and B (unloading) are pinned on the map.')
+      : '<b>' + esc(g.from + ' → ' + g.to) + '</b> · ' + (n ? n + ' point' + (n > 1 ? 's' : '') : 'no point yet') +
+        (w ? ' · <b>' + w.km + ' km</b> · ≈ ' + esc(truckTime(w.min, w.km)) + ' by truck' + (w.pts.length > 2 ? ' · via ' + esc(wayNames([w], g.A, g.B)[0] || '—') : '') : '') + ' · ' +
+        (D.busy ? '<span class="dw-busy">Finding the road…</span>' : D.done ? '<span class="dw-ok">✓ Joined to B — check it and Save</span>'
+          : '<span class="dw-next">' + (n ? 'Tap the next place towards B — or tap B / “Join to B”' : 'Tap the map where the road goes first from A') + '</span>');
+    $('#drawNote').innerHTML = (D.msg ? '<b>' + esc(D.msg) + '</b><br>' : '') + 'Tap the map to add a point · drag a point to move it · tap a point to take it out · tap B or “Join to B” to finish. ' +
+      (D.follow ? 'The road follows the real roads (OpenStreetMap).' : 'Straight lines between your points.');
+    $('#drawUndo').disabled = !n && !D.done;
+    $('#drawClear').disabled = !n && !D.done;
+    $('#drawJoin').disabled = !g || D.done;
+    $('#drawSave').disabled = !(g && D.done && w && !D.busy);
+  }
+  function drawTap(ll) {
+    const g = drawSel(), m = MAPS.drawMap, now = Date.now();
+    if (D.tapAt && now - D.tapAt.t < 600 && kmApart(D.tapAt.ll, ll) < 1) return;   // one tap on a phone can come twice
+    D.tapAt = { t: now, ll: ll };
+    if (!g) { toast('Pick a route first (at the top)'); return; }
+    if (D.done) { toast('The road is joined to B — Undo or Clear to change it'); return; }
+    const px = q => m.map.latLngToContainerPoint(q);
+    if (px(ll).distanceTo(px(g.B)) < 24) { drawJoin(); return; }   // tapped on B
+    D.pts.push(ll);
+    drawChanged();
+  }
+  function drawJoin() {
+    if (!drawSel() || D.done) return;
+    D.done = true;
+    drawChanged();
+  }
+  function drawChanged() { keepDraft(); drawRoad(); }
+  /** the road A → points (→ B) along the real roads, one OSRM ask for the whole chain; straight lines when it cannot */
+  async function drawRoad() {
+    const g = drawSel();
+    if (!g) return;
+    const chain = [g.A].concat(D.pts, D.done ? [g.B] : []), seq = ++D.seq;
+    const straight = () => { let km = 0; for (let i = 1; i < chain.length; i++) km += kmApart(chain[i - 1], chain[i]); return { pts: chain.slice(), km: Math.round(km), min: Math.round(km) }; };
+    D.msg = '';
+    if (chain.length < 2 || !D.follow) { D.road = chain.length < 2 ? null : straight(); D.busy = false; drawPaint(); return; }
+    D.busy = true;
+    drawPaint();
+    let road = null, msg = '';
+    try {
+      const r = await fetchWithTimeout('https://router.project-osrm.org/route/v1/driving/' + chain.map(p => p[1] + ',' + p[0]).join(';') + '?overview=full&geometries=polyline', {}, 20000);
+      const j = r.ok ? await r.json() : null, rt = j && j.code === 'Ok' && j.routes[0];
+      if (rt) road = { pts: simplify(polyDecode(rt.geometry), 0.0012), km: Math.round(rt.distance / 1000), min: Math.round(rt.duration / 60) };
+      else msg = 'No road found through these points — joined with straight lines';
+    } catch (e) { msg = 'The road finder did not answer — joined with straight lines (Undo and tap again to retry)'; }
+    if (seq !== D.seq) return;   // changed again meanwhile: that answer counts
+    D.road = road || straight(); D.msg = msg; D.busy = false;
+    drawPaint();
+  }
+  async function drawSave() {
+    const g = drawSel();
+    if (!g || !D.done || !D.road || D.busy) return;
+    if (!S.drawOk) { toast('Saving needs the new Apps Script (Code.gs) — see the note under the map', true); renderDrawList(); return; }
+    if (!(await ensureUser())) return;
+    if (!S.auth.token) { toast('Log in first to save a road', true); return; }
+    const b = $('#drawSave');
+    b.disabled = true; b.textContent = 'Saving…';
+    try {
+      const res = await api('saveRoute', { token: S.auth.token, from: g.from, to: g.to, road: polyEncode(simplify(D.road.pts, 0.0015)),
+        km: D.road.km, min: D.road.min, via: wayNames([D.road], g.A, g.B)[0] || '', points: polyEncode(D.pts) });
+      setDrawn(S.drawn.concat([res.route]));
+      D.pts = []; D.done = false; D.road = null; keepDraft();
+      toast('Saved ✓ — waiting for the Director to add it to Route & Hub');
+      renderDraw();
+    } catch (e) {
+      if (e.code === 'auth') { logoutLocal(); openLogin(); }
+      toast(e.message, true);
+    } finally { b.textContent = '💾 Save'; drawSum(drawSel()); }
+  }
+  /** the Director: Approved (with a Route ID) / Rejected; whoever drew a waiting road (or the Director) may delete it */
+  async function drawSet(id, status, code) {
+    if (!S.drawOk) { toast('This needs the new Apps Script (Code.gs) — see the note under the map', true); return; }
+    if (!(await ensureUser()) || !S.auth.token) return;
+    try {
+      const res = await api('setRoute', { token: S.auth.token, id: id, status: status, code: code || '' });
+      setDrawn(status === 'Deleted' ? S.drawn.filter(d => d.id !== id) : S.drawn.map(d => (d.id === id ? Object.assign({}, d, res.route) : d)));
+      toast(status === 'Approved' ? 'Added to Route & Hub as ' + code + ' ✓' : status === 'Deleted' ? 'Deleted' : status === 'Rejected' ? 'Taken out — not used in Route & Hub' : 'Done');
+      renderDraw();
+    } catch (e) {
+      if (e.code === 'auth') { logoutLocal(); openLogin(); }
+      toast(e.message, true);
+    }
+  }
+  /** a saved road on the map again (to check it, or to change it and save it as a new one) */
+  function drawShow(id) {
+    const d = S.drawn.find(x => x.id === id);
+    if (!d) return;
+    D.key = d.from + '→' + d.to; D.pts = d.points ? polyDecode(d.points) : []; D.done = true; D.busy = false; D.msg = '';
+    D.road = { pts: polyDecode(d.road), km: +d.km || 0, min: +d.min || 0 };
+    keepDraft();
+    S.drawPickSig = '';
+    renderDraw().then(() => { const m = MAPS.drawMap; if (m) m.map.fitBounds(window.L.latLngBounds(D.road.pts), { padding: [40, 40] }); });
+    $('#drawMap').scrollIntoView({ block: 'center' });
+  }
+  function renderDrawList() {
+    const boss = canCheck(), me = String(S.user || '').toLowerCase();
+    const rank = { Waiting: 0, Approved: 1, Rejected: 2 };
+    const list = S.drawn.slice().sort((a, b) => (rank[a.status] == null ? 3 : rank[a.status]) - (rank[b.status] == null ? 3 : rank[b.status]) || String(b.at).localeCompare(String(a.at)));
+    const n = st => S.drawn.filter(d => d.status === st).length;
+    const next = 'R-' + (101 + n('Approved'));
+    const card = d => {
+      const st = d.status === 'Approved' ? 'ok' : d.status === 'Rejected' ? 'no' : 'wait', own = String(d.by).toLowerCase() === me && st === 'wait';
+      return '<div class="dl-card dl-' + st + '"><div class="dl-top"><b>' + esc(d.from + ' → ' + d.to) + '</b><span class="dl-st">' +
+        (st === 'ok' ? '✓ In Route &amp; Hub · ' + esc(d.code) : st === 'no' ? '✕ Not used' : '⏳ Waiting for the Director') + '</span></div>' +
+        '<div class="dl-meta">' + esc(d.km) + ' km · ≈ ' + esc(truckTime(+d.min || 0, +d.km || 0)) + ' by truck' + (d.via ? ' · via ' + esc(d.via) : '') +
+        ' · drawn by <b>' + esc(d.by) + '</b> ' + esc(d.at) + (d.okBy && st !== 'wait' ? ' · ' + (st === 'ok' ? 'added' : 'checked') + ' by ' + esc(d.okBy) : '') + '</div>' +
+        '<div class="dl-act"><button type="button" class="btn sm" data-dshow="' + esc(d.id) + '">🗺️ Show</button>' +
+        (boss && st !== 'ok' ? '<input class="dl-code" data-dcode="' + esc(d.id) + '" value="' + esc(d.code || next) + '" maxlength="30" aria-label="Route ID">' +
+          '<button type="button" class="btn sm primary" data-dok="' + esc(d.id) + '">✓ Add to Route &amp; Hub</button>' : '') +
+        (boss && st === 'wait' ? '<button type="button" class="btn sm" data-dno="' + esc(d.id) + '">✕ Don’t use</button>' : '') +
+        (boss && st === 'ok' ? '<button type="button" class="btn sm" data-dno="' + esc(d.id) + '">Take out of Route &amp; Hub</button>' : '') +
+        (boss || own ? '<button type="button" class="btn sm dl-del" data-ddel="' + esc(d.id) + '">🗑 Delete</button>' : '') + '</div></div>';
+    };
+    $('#drawList').innerHTML = '<div class="dl-head"><h3>Drawn roads</h3><span>' + n('Waiting') + ' waiting · ' + n('Approved') + ' in Route &amp; Hub</span>' +
+      (boss ? '<em>Director: check a road (🗺️ Show), give it a Route ID and “Add to Route &amp; Hub”.</em>' : '<em>The Director checks each saved road and adds it to Route &amp; Hub.</em>') + '</div>' +
+      (S.drawOk ? '' : '<p class="dl-warn">⚠ Saving needs the new Apps Script once: Apps Script → paste the new Code.gs → Save → Deploy → Manage deployments → ✏ Edit → Version: New version → Deploy. Until then you can draw, but not save.</p>') +
+      (list.length ? list.map(card).join('') : '<p class="dl-empty">No road drawn yet. Pick a route above and draw its road from A to B.</p>');
   }
 
   /** sticky group headings sit right under the header (two rows high on phones) */
@@ -3736,6 +4023,34 @@
     $('#hubViewSeg').addEventListener('click', e => { const b = e.target.closest('[data-hview]'); if (b) setHubView(b.dataset.hview); });
     $('#routePick').addEventListener('change', e => { S.rpick = e.target.value; S.rplace = ''; renderRouteMap(); });
     $('#placePick').addEventListener('change', e => { S.rplace = e.target.value; S.rpick = ''; renderRouteMap(); });
+    // Route Finder: pick a route, tap points from A towards B, undo / clear, follow roads or straight, join to B, save;
+    // the list: show a saved road, the Director adds it to Route & Hub (Route ID) / does not use it / deletes it
+    $('#drawPick').addEventListener('change', e => {
+      D.key = e.target.value; D.pts = []; D.done = false; D.road = null; D.msg = ''; D.busy = false; D.seq++;
+      keepDraft();
+      const g = drawSel();
+      if (g) drawFit(g);
+      drawPaint();
+    });
+    $('#drawUndo').addEventListener('click', () => { if (D.done) D.done = false; else D.pts.pop(); drawChanged(); });
+    $('#drawClear').addEventListener('click', () => {
+      if (D.pts.length > 2 && !confirm('Clear the road you drew and start again from A?')) return;
+      D.pts = []; D.done = false; drawChanged();
+    });
+    $('#drawFollow').addEventListener('change', e => { D.follow = e.target.checked; store.set('vpt_draw_follow', D.follow); drawRoad(); });
+    $('#drawJoin').addEventListener('click', drawJoin);
+    $('#drawSave').addEventListener('click', drawSave);
+    $('#drawList').addEventListener('click', e => {
+      const t = e.target.closest('button');
+      if (!t) return;
+      if (t.dataset.dshow) drawShow(t.dataset.dshow);
+      else if (t.dataset.dok) {
+        const inp = $$('#drawList [data-dcode]').find(x => x.dataset.dcode === t.dataset.dok), code = inp ? inp.value.trim() : '';
+        if (!code) { toast('Give the road a Route ID first', true); return; }
+        drawSet(t.dataset.dok, 'Approved', code);
+      } else if (t.dataset.dno) drawSet(t.dataset.dno, 'Rejected');
+      else if (t.dataset.ddel && confirm('Delete this drawn road?')) drawSet(t.dataset.ddel, 'Deleted');
+    });
     // full-screen map: the back button / Esc close it (but a detail sheet over it closes first)
     window.addEventListener('popstate', () => { const f = $('.mp-map.mp-full'); if (f && !(history.state && history.state.vpt === 'map')) mapFull(f, false); });
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && !S.detail && $('.mp-map.mp-full')) history.back(); });
