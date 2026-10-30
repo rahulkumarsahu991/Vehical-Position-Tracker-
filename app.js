@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v60';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v61';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -93,6 +93,7 @@
     rq: '', rcat: '', // route view: search, one status only
     hmode: 'load', hub: '', hubAll: {}, // hub analyzer: loading / unloading point, which hub, sides showing every place
     rmode: store.get('vpt_rmode', 'road'), hview: store.get('vpt_hview', 'flow'), // route: road / map · hub: flow / map
+    hstat: '', hstatShut: !!store.get('vpt_hstat_shut', false), hscope: store.get('vpt_hscope', 'all'),   // hub map's status box: status picked · folded · all trucks / this hub
     rpick: '', rplace: '', // on the map: the route chosen, or the loading / unloading point whose routes light up ('' = all)
     drafts: {}, editing: {},
     print: Object.assign({ rep: 'caller', caller: '', orient: 'auto', cols: 'auto' }, store.get(K.print, {})),
@@ -3697,6 +3698,60 @@
     declutterSoon(m);
   }
 
+  /** trucks by status in a small box on the map (Loading 13 · Unloading 4 · Repair 2 …) — the whole fleet ("All trucks")
+   *  or this hub's trucks ("This hub"). Tap a status: its trucks are listed under it (tap one: its details) and only
+   *  they are on the map; tap it again: the hub's trucks again. redraw: put the trucks on the map again */
+  function hubStat(m, redraw) {
+    const L = window.L, h = m.hs;
+    if (!m.stat) {
+      const Box = L.Control.extend({ options: { position: 'topright' }, onAdd: () => {
+        const el = L.DomUtil.create('div', 'mp-stat');
+        L.DomEvent.disableClickPropagation(el);
+        L.DomEvent.disableScrollPropagation(el);   // the wheel scrolls the truck list, not the map
+        el.addEventListener('click', e => {
+          const v = e.target.closest('[data-v]'), t = e.target.closest('[data-hs]'), sc = e.target.closest('[data-hsc]');
+          if (v) { openDetail(v.dataset.v); return; }
+          if (sc) { if (sc.dataset.hsc !== S.hscope) { S.hscope = sc.dataset.hsc; store.set('vpt_hscope', S.hscope); const had = S.hstat; S.hstat = ''; hubStat(m, !!had); } return; }
+          if (!t) return;
+          if (t.dataset.hs === '~') { S.hstatShut = !S.hstatShut; store.set('vpt_hstat_shut', S.hstatShut); hubStat(m, false); }
+          else { S.hstat = S.hstat === t.dataset.hs ? '' : t.dataset.hs; hubStat(m, true); }
+        });
+        return el;
+      } });
+      m.stat = new Box().addTo(m.map);
+    }
+    const all = S.hscope !== 'hub', fleet = S.vehicles.filter(v => v.cat !== 'sold'), list = all ? fleet : h.vs;
+    const by = {}, where = {}, load = S.hmode === 'load';
+    h.d.at.forEach(v => { where[v.vno] = 0; });
+    h.d.inn.forEach(gp => gp.vs.forEach(v => { if (!(v.vno in where)) where[v.vno] = 1; }));
+    h.d.out.forEach(gp => gp.vs.forEach(v => { if (!(v.vno in where)) where[v.vno] = 2; }));
+    const said = [load ? 'loading here' : 'unloading here', load ? 'coming to load' : 'coming to unload', load ? 'loaded, going' : 'going next'];
+    // under each truck: what it is to this hub, else where it is now (or its route)
+    const line = v => v.vno in where ? said[where[v.vno]] + (v.cur && where[v.vno] ? ' · now ' + v.cur : '')
+      : v.cur ? 'now ' + v.cur : (v.from || v.to ? (v.from || '?') + ' → ' + (v.to || '?') : 'no location');
+    list.forEach(v => (by[v.cat] = by[v.cat] || []).push(v));
+    if (S.hstat && !by[S.hstat]) S.hstat = '';
+    const cats = Object.keys(by).sort((a, b) => CAT[a].i - CAT[b].i), shut = S.hstatShut && !S.hstat;
+    m.stat.getContainer().innerHTML = '<button type="button" class="hs-head" data-hs="~" title="' + (shut ? 'Show' : 'Hide') + ' the status list">Status<b>' + list.length + '</b><i>' + (shut ? '▸' : '▾') + '</i></button>' +
+      (shut ? '' : '<div class="hs-seg"><button type="button" data-hsc="all"' + (all ? ' class="on"' : '') + '>All trucks <b>' + fleet.length + '</b></button>' +
+        '<button type="button" data-hsc="hub"' + (all ? '' : ' class="on"') + ' title="' + esc(S.hub) + '">This hub <b>' + h.vs.length + '</b></button></div>' +
+        '<div class="hs-rows">' + cats.map(k => {
+          const c = CAT[k], on = S.hstat === k;
+          const vs = by[k].slice().sort((a, b) => (a.vno in where ? where[a.vno] : 9) - (b.vno in where ? where[b.vno] : 9) || (a.cur || '').localeCompare(b.cur || ''));
+          return '<button type="button" class="hs-row' + (on ? ' on' : '') + '" data-hs="' + k + '" style="--c:' + c.color + '" title="' + (on ? 'Show the hub\'s trucks again' : 'Only the ' + esc(c.label) + ' trucks') + '">' +
+            '<i></i><span>' + esc(c.label) + '</span><b>' + by[k].length + '</b>' + (on ? '<em>✕</em>' : '') + '</button>' +
+            (on ? '<div class="hs-list" style="--c:' + c.color + '">' + vs.map(v => '<button type="button" class="hs-v" data-v="' + esc(v.vno) + '"><b>' + esc(shortNo(v.vno)) + '</b>' +
+              '<small>' + esc(line(v)) + '</small></button>').join('') + '</div>' : '');
+        }).join('') + '</div>');
+    if (!redraw) return;
+    m.trucks.clearLayers();
+    truckMarks(m, S.hstat ? by[S.hstat] : h.vs);
+    // the picked trucks all in view (the hub too)
+    const b = L.latLngBounds([]);
+    m.trucks.eachLayer(l => b.extend(l.getLatLng()));
+    if (S.hstat && b.isValid() && !m.map.getBounds().contains(b)) m.map.fitBounds(h.hub ? b.extend(h.hub) : b, { paddingTopLeft: [40, 40], paddingBottomRight: [IS_PHONE ? 150 : 200, 40], maxZoom: 9 });
+    declutterSoon(m);
+  }
   /** Hub Analyzer on the map: places trucks come from → hub → places they go to, and the trucks where they are now */
   async function renderHubMap(d) {
     const note = $('#hubMapNote'), seq = S.hmapSeq = (S.hmapSeq || 0) + 1;
@@ -3743,6 +3798,9 @@
     const lost = truckMarks(m, vs);
     m.trucks.eachLayer(l => pts.push([l.getLatLng().lat, l.getLatLng().lng]));
     mapFit(m, pts, S.hmode + '|' + S.hub, false);
+    if (m.hs && m.hs.key !== S.hmode + '|' + S.hub) S.hstat = '';   // another hub: all its trucks again
+    m.hs = { key: S.hmode + '|' + S.hub, d: d, vs: vs, hub: hub };
+    hubStat(m, !!S.hstat);
     mapNote(note, lost, missing, vs, [[col.in, load ? 'empty trucks coming to load' : 'loaded trucks coming to unload'], [col.out, load ? 'loaded, going out' : 'leaving after unloading'],
       ['', 'trucks now (colour = status)', 'ring'], ['', 'thicker line = more trucks · tap a place for its trucks', 'tip']]);
     declutterSoon(m);

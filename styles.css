@@ -1825,3 +1825,56 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
   .mk-tag small { display: none; }   /* phones: km / time in the tag's window (tap) — the tags stay short */
 }
 @media print { .map-wrap { display: none !important; } }
+
+/* Hub map: the hub's trucks by status in a small box (top right, under the layers button);
+   a picked status lists its trucks under it and only they stay on the map */
+.mp-stat {
+  width: 172px; background: rgba(255, 255, 255, .97); border: 1px solid rgba(0, 0, 0, .1); border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .18); font: 12px/1.25 var(--font); color: var(--ink); overflow: hidden;
+}
+.hs-head {
+  display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: var(--navy); color: #fff; padding: 6px 9px;
+  font: 700 11.5px var(--font); letter-spacing: .4px; text-transform: uppercase; text-align: left; cursor: pointer;
+}
+.hs-head b { margin-left: auto; background: rgba(255, 255, 255, .2); border-radius: 999px; padding: 0 7px; font-size: 11.5px; letter-spacing: 0; }
+.hs-head i { font-style: normal; font-size: 10px; opacity: .85; }
+/* All trucks | This hub */
+.hs-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 4px 4px 0; }
+.hs-seg button {
+  border: 1px solid var(--line); background: #f6f7fb; border-radius: 6px; padding: 3px 2px; font: 600 10.5px var(--font); color: var(--ink-2);
+  cursor: pointer; white-space: nowrap;
+}
+.hs-seg button b { font-weight: 700; }
+.hs-seg button.on { background: var(--orange); border-color: transparent; color: #fff; }
+.hs-rows { display: grid; gap: 1px; padding: 4px; max-height: 340px; overflow-y: auto; }
+.hs-row {
+  display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; padding: 4px 6px; border-radius: 6px;
+  font: 600 12px var(--font); color: var(--ink); text-align: left; cursor: pointer;
+}
+.hs-row:hover { background: #f1f3f9; }
+.hs-row i { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+.hs-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hs-row b { min-width: 18px; text-align: right; font: 700 12px var(--font); color: var(--c); }
+.hs-row em { font-style: normal; font-size: 10px; opacity: .85; }
+.hs-row.on, .hs-row.on:hover { background: var(--c); color: #fff; }
+.hs-row.on i { background: #fff; }
+.hs-row.on b { color: #fff; }
+.hs-list { display: grid; gap: 3px; margin: 2px 0 4px 6px; padding-left: 6px; border-left: 3px solid var(--c); max-height: 200px; overflow-y: auto; }
+.hs-v {
+  display: grid; gap: 0; border: 0; background: #f6f7fb; border-radius: 6px; padding: 3px 7px; font: inherit; color: var(--ink);
+  text-align: left; cursor: pointer;
+}
+.hs-v:hover { background: #eceef8; }
+.hs-v b { font: 700 12px var(--font); }
+.hs-v small { font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 760px) {
+  .mp-stat { width: 138px; font-size: 11px; }
+  .hs-head { padding: 5px 8px; font-size: 10.5px; }
+  .hs-seg button { font-size: 9.5px; padding: 3px 1px; }
+  .hs-rows { max-height: 46vh; padding: 3px; }
+  .hs-row { padding: 3px 5px; font-size: 11px; gap: 5px; }
+  .hs-row b { font-size: 11px; }
+  .hs-list { max-height: 30vh; }
+  .hs-v { padding: 2px 6px; }
+  .hs-v b { font-size: 11px; }
+}
