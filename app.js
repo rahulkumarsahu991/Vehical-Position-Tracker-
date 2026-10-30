@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v61';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v62';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -3472,6 +3472,23 @@
       .setLatLng(at).setContent('<div class="mp-eta mp-way" style="--lc:' + l.col + '">' + (ls.length > 1 ? '<i class="rw-no">' + (i + 1) + '</i>' : ICO.truck) +
         '<div><b>~' + esc(truckTime(l.w.min, l.w.km)) + '</b><small>' + (l.code ? esc(l.code) + ' · ' : '') + (l.name ? 'via ' + esc(l.name) + ' · ' : '') + l.w.km + ' km</small></div></div>'));
   }
+  /** one route with 2–3 ways (the same From → To): every way on the map in its own colour — pink, gold, sky, lime as in
+   *  the Road view — the ways with trucks on them bold, the others light. Returns its ways (busiest first), or null when
+   *  the route has just one road. o: { look ('all' | 'sel'), n, w, click } */
+  function laneLines(m, r, a, b, o) {
+    const ls = routeLanes(r).lanes.filter(l => l.w);
+    if (ls.length < 2) return null;
+    m.ways[roadKey(a, b)] = ls.map(l => l.w.pts);   // trucks stand on the way they are on
+    const any = ls.some(l => l.stops.length);
+    ls.slice().reverse().sort((x, y) => !!x.stops.length - !!y.stops.length).forEach(l => {   // the ways with trucks on top
+      const i = ls.indexOf(l), busy = l.stops.length > 0 || (!any && !i);   // no truck on any way: route 1 stays bold
+      flowLine(m, a, b, { rd: l.w, color: l.col, edge: l.edge, n: o.n, look: busy ? o.look : 'faint', w: busy && o.w ? (i ? o.w * .8 : o.w) : undefined, click: o.click,
+        tip: esc(r.from + ' → ' + r.to) + ' · route ' + (i + 1) + ' of ' + ls.length + (l.name ? ' · via ' + esc(l.name) : '') + ' · ' + l.n + ' truck' + (l.n === 1 ? '' : 's') + ' on it' });
+    });
+    return ls;
+  }
+  /** the colour key line for those: one line in the three first way colours */
+  const LANE_KEY = ['linear-gradient(90deg, ' + LANES[0][0] + ' 0 33%, ' + LANES[1][0] + ' 0 66%, ' + LANES[2][0] + ' 0)', 'one route, 2–3 ways — each its own colour'];
   /** trucks at their current location (loading / unloading ones at From / To when the location is empty):
    *  one truck = a small lorry with its number, more = a ring in their status colours with the count */
   function truckMarks(m, vs) {
@@ -3597,7 +3614,7 @@
       const k = ll.join(','), e = ends[k] = ends[k] || { ll: ll, name: name, roles: {}, n: 0 };
       e.roles[kind] = 1; e.n += n;
     };
-    let selRoad = null, boxes = 0;
+    let selRoad = null, boxes = 0, multi = false;   // multi: a route drawn with its 2–3 ways
     const sum = { in: [0, 0], out: [0, 0] };   // routes, vehicles
     // the dimmed ones first (under), then going out, then coming in / the chosen one (on top); busiest first
     const rank = r => (r === sel || role(r) === 'in' ? 3 : role(r) === 'out' ? 2 : 1);
@@ -3627,13 +3644,16 @@
           return;
         }
       }
+      const click = () => { S.rplace = ''; S.rpick = rkey(r); renderRouteMap(); };
+      // 2–3 ways from the same From to the same To: each way in its own colour (a dimmed route keeps one grey line)
+      const ls = !some || on ? laneLines(m, r, a, b, { look: some ? 'sel' : 'all', n: n, click: click }) : null;
+      if (ls) multi = true;
       const dr = drawnFor(r.from, r.to)[0];   // the Director's drawn road, when there is one, is the route's line
-      if (dr) m.ways[roadKey(a, b)] = [dr.pts];
-      const rd = flowLine(m, a, b, { rd: dr, color: rl === 'out' ? '#188038' : on ? '#1a73e8' : '#4285f4', edge: rl === 'out' ? '#0b5d1e' : on ? '#0b3d91' : '#fff', n: n,
-        look: some ? (on ? 'sel' : 'dim') : 'all', tip: esc(r.from + ' → ' + r.to) + ' · ' + n + ' vehicle' + (n > 1 ? 's' : ''),
-        click: () => { S.rplace = ''; S.rpick = rkey(r); renderRouteMap(); } });
+      if (dr && !ls) m.ways[roadKey(a, b)] = [dr.pts];
+      const rd = ls ? ls[0].w : flowLine(m, a, b, { rd: dr, color: rl === 'out' ? '#188038' : on ? '#1a73e8' : '#4285f4', edge: rl === 'out' ? '#0b5d1e' : on ? '#0b3d91' : '#fff', n: n,
+        look: some ? (on ? 'sel' : 'dim') : 'all', tip: esc(r.from + ' → ' + r.to) + ' · ' + n + ' vehicle' + (n > 1 ? 's' : ''), click: click });
       if (!rd || !on) return;
-      rd.pts.forEach(p => pts.push(p));
+      (ls ? ls.map(l => l.w) : [rd]).forEach(w => w.pts.forEach(p => pts.push(p)));
       if (rl === 'in' && boxes < (narrow ? 4 : 10)) etaBox(m, rd, r.from, boxes++);   // time and km on the busiest roads coming in
     });
     // a loading point also has empty trucks driving to it to load (their From is it): a road from where each group is now
@@ -3692,9 +3712,10 @@
     const lost = truckMarks(m, vs);
     m.trucks.eachLayer(l => pts.push([l.getLatLng().lat, l.getLatLng().lng]));
     mapFit(m, pts, [S.f.caller, S.rq, S.rcat, sel ? rkey(sel) + (selRoad ? '+road' : '') : '', focus ? '@' + fk : ''].join('|'), !some);
-    mapNote(note, lost, missing, vs, focus ? [['#1a73e8', 'coming in'], ['#188038', 'going out'], ['#9aa0a6', 'other routes'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a number for its trucks', 'tip']]
+    const lk = multi ? [LANE_KEY] : [];
+    mapNote(note, lost, missing, vs, focus ? [['#1a73e8', 'coming in'], ['#188038', 'going out']].concat(lk, [['#9aa0a6', 'other routes'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a number for its trucks', 'tip']])
       : sel ? (selRoad && selRoad.length > 1 ? selRoad.map((l, i) => [l.col, 'route ' + (i + 1) + (l.name ? ' (via ' + l.name + ')' : '') + (l.stops.length ? '' : ' · no truck now')]) : [['#1a73e8', 'this route']]).concat([['#9aa0a6', 'other routes'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a truck for details', 'tip']])
-      : [['#4285f4', 'route (from A to B)'], ['#5b8def', 'a truck’s own way'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a pin: every route there · tap a line: that route', 'tip']]);
+      : [['#4285f4', 'route (from A to B)']].concat(lk, [['#5b8def', 'a truck’s own way'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a pin: every route there · tap a line: that route', 'tip']]));
     declutterSoon(m);
   }
 
@@ -3771,19 +3792,27 @@
     // every road into the hub and out of it lit up (dark edge, running dashes; thicker = more trucks); each place's tag
     // says its km and truck time — no separate boxes on this map, they crowd it
     const EDGE = { '#0e9fb8': '#075e6e', '#16a34a': '#0b5d2a' };
+    const RG = routeGroups().routes, routeOf = (f, t) => RG.find(r => spellKey(r.from) === spellKey(f) && spellKey(r.to) === spellKey(t));
+    let multi = false;   // a route drawn with its 2–3 ways
     const side = (gs, into) => gs.forEach(gp => {
       const ll = placeLL(gp.place, !into && !load); // programs are free text: only places already known
       if (!ll) { missing.push(gp.place); return; }
       pts.push(ll);
-      const c = into ? col.in : col.out, n = gp.vs.length;
+      const c = into ? col.in : col.out, n = gp.vs.length, w = 3.5 + Math.min(3.5, Math.sqrt(n) * 0.9);
+      // a route of the sheet (loading point: hub → where they go · unloading point: where they come from → hub)
+      // with 2–3 ways from the same From to the same To: each way in its own colour
+      const rt = hub && ll.join() !== hub.join() && into !== load ? routeOf(into ? gp.place : S.hub, into ? S.hub : gp.place) : null;
+      const ls = rt ? laneLines(m, rt, into ? ll : hub, into ? hub : ll, { look: 'sel', n: n, w: w }) : null;
+      if (ls) multi = true;
       const dr = drawnFor(into ? gp.place : S.hub, into ? S.hub : gp.place)[0];   // the Director's drawn road for it, if any
-      const rd = hub && ll.join() !== hub.join() ? flowLine(m, into ? ll : hub, into ? hub : ll, { rd: dr, color: c, edge: EDGE[c], n: n, look: 'sel', w: 3.5 + Math.min(3.5, Math.sqrt(n) * 0.9),
+      const rd = ls ? ls[0].w : hub && ll.join() !== hub.join() ? flowLine(m, into ? ll : hub, into ? hub : ll, { rd: dr, color: c, edge: EDGE[c], n: n, look: 'sel', w: w,
         tip: esc(into ? gp.place + ' → ' + S.hub : S.hub + ' → ' + gp.place) + ' · ' + n + ' truck' + (n > 1 ? 's' : '') }) : null;
-      if (rd) rd.pts.forEach(p => pts.push(p));
+      if (rd) (ls ? ls.map(l => l.w) : [rd]).forEach(x => x.pts.forEach(p => pts.push(p)));
+      const ways = ls ? ' · ' + ls.length + ' ways' : '';
       const mk = L.marker(ll, { icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in mk-tag" data-n="' + n + '" style="--c:' + c + '">' +
-        '<span class="t">' + esc(gp.place) + (rd ? '<small>' + rd.km + ' km · ~' + esc(truckTime(rd.min, rd.km).replace(' hr', 'h').replace(' min', 'm')) + '</small>' : '') + '</span><b>' + n + '</b></div>' }), zIndexOffset: 800 + n });
+        '<span class="t">' + esc(gp.place) + (rd ? '<small>' + rd.km + ' km · ~' + esc(truckTime(rd.min, rd.km).replace(' hr', 'h').replace(' min', 'm')) + ways + '</small>' : '') + '</span><b>' + n + '</b></div>' }), zIndexOffset: 800 + n });
       mk.bindPopup(() => mapPopup(gp.place, gp.vs, (into ? (load ? 'Coming to load' : 'Coming to unload') : (load ? 'Loaded, going here' : 'Going here next')) +
-        (rd ? ' · ' + rd.km + ' km · ~' + truckTime(rd.min, rd.km) : '')), { maxWidth: 290, className: 'mp-pop' });
+        (rd ? ' · ' + rd.km + ' km · ~' + truckTime(rd.min, rd.km) + ways : '')), { maxWidth: 290, className: 'mp-pop' });
       m.marks.addLayer(mk);
     });
     side(d.inn, true);
@@ -3801,8 +3830,8 @@
     if (m.hs && m.hs.key !== S.hmode + '|' + S.hub) S.hstat = '';   // another hub: all its trucks again
     m.hs = { key: S.hmode + '|' + S.hub, d: d, vs: vs, hub: hub };
     hubStat(m, !!S.hstat);
-    mapNote(note, lost, missing, vs, [[col.in, load ? 'empty trucks coming to load' : 'loaded trucks coming to unload'], [col.out, load ? 'loaded, going out' : 'leaving after unloading'],
-      ['', 'trucks now (colour = status)', 'ring'], ['', 'thicker line = more trucks · tap a place for its trucks', 'tip']]);
+    mapNote(note, lost, missing, vs, [[col.in, load ? 'empty trucks coming to load' : 'loaded trucks coming to unload'], [col.out, load ? 'loaded, going out' : 'leaving after unloading']]
+      .concat(multi ? [LANE_KEY] : [], [['', 'trucks now (colour = status)', 'ring'], ['', 'thicker line = more trucks · tap a place for its trucks', 'tip']]));
     declutterSoon(m);
   }
   /** road ⇄ map on the Route tab (quiet: only set the buttons, the view draws itself when shown) */
