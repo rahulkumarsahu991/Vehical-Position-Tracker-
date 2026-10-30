@@ -1754,6 +1754,20 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
   .dw-bar { bottom: max(14px, env(safe-area-inset-bottom)); }
   .dw-follow { bottom: 80px; }
 }
+/* tolls on the drawn road: ₹ badges on the plazas (the road near them in red-orange), the list under the map */
+.dw-toll {
+  display: inline-flex; align-items: center; gap: 1px; padding: 2px 6px 2px 5px; border-radius: 8px; border: 2px solid #fff;
+  background: #e8590c; color: #fff; font: 800 12px/1.1 var(--font); box-shadow: 0 2px 6px rgba(0, 0, 0, .35); cursor: pointer;
+}
+.dw-toll b { font: 700 10px var(--cond); opacity: .9; }
+.dw-tollc { color: #c2410c; }
+.dw-tolls { margin: 8px 0 0; padding: 8px 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; background: #fff4ec; border: 1px solid #fbc8a5; border-radius: 12px; font-size: 12.5px; color: #7c2d12; }
+.dw-tolls[hidden] { display: none; }
+.dw-tolls > b { margin-right: 4px; }
+.dw-tolls small { color: #9a5b3a; font-weight: 500; }
+.dw-tchip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px 4px 4px; border: 1px solid #fbc8a5; border-radius: 999px; background: #fff; font: 600 12px var(--font); color: #7c2d12; cursor: pointer; }
+.dw-tchip i { padding: 1px 5px; border-radius: 6px; background: #e8590c; color: #fff; font: 800 10.5px var(--font); font-style: normal; }
+.dl-note { margin: -3px 0 7px; font-size: 12px; font-weight: 600; color: #9a3412; }
 .dw-busy { color: #1a73e8; font-weight: 700; animation: off-blink 1s steps(2, jump-none) infinite; }
 .dw-ok { color: #188038; font-weight: 700; }
 .dw-next { color: var(--orange-d); font-weight: 700; }

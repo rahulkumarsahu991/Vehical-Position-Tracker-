@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v59';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v60';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -4074,6 +4074,7 @@
    *  take out), and this route's roads drawn before (faint: green = in Route & Hub, amber = waiting for the Director) */
   function drawPaint() {
     const m = MAPS.drawMap, g = drawSel(), L = window.L;
+    if (D.road) drawTollsFor(D.road); else { D.tolls = null; D.tollKey = ''; }   // its toll plazas, before the summary that counts them
     drawSum(g);
     drawChips(g);
     if (!m || !L) return;
@@ -4094,6 +4095,17 @@
     pin(g.B, 'b', g.to);
     if (D.road) flowLine(m, g.A, g.B, { rd: D.road, color: '#1a73e8', edge: '#0b3d91', look: 'sel', w: 6, tip: 'Your road' });
     else m.lines.addLayer(L.polyline([g.A, g.B], { color: '#5f6368', weight: 2.5, opacity: .75, dashArray: '2 9', interactive: false }));
+    // tolls: the road a little before / after each toll plaza in red-orange, a ₹ badge on the plaza
+    D.tollMk = [];
+    if (D.road && Array.isArray(D.tolls)) D.tolls.forEach((t, i) => {
+      const near = lineAround(D.road.pts, t.ll, 2);
+      m.lines.addLayer(L.polyline(near, { color: '#7a1f00', weight: 13, opacity: .9, interactive: false }));
+      m.lines.addLayer(L.polyline(near, { color: '#ff6d00', weight: 9, opacity: 1, interactive: false }));
+      const mk = L.marker(t.ll, { zIndexOffset: 950, icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in dw-toll">₹<b>' + (i + 1) + '</b></div>' }) });
+      mk.bindTooltip(esc(tollName(t)) + ' · ≈ ' + t.km + ' km from A', { direction: 'top', offset: [0, -14] });
+      m.marks.addLayer(mk);
+      D.tollMk[i] = mk;
+    });
     D.pts.forEach((p, i) => {
       const mk = L.marker(p, { draggable: canMake(), keyboard: false, zIndexOffset: 900,
         icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in dw-pt">' + (i + 1) + '</div>' }) });
@@ -4114,7 +4126,9 @@
       el.innerHTML = !canMake() && !g ? 'Director: tap <b>🗺️ Show</b> on a road below to see it here'
         : !D.from || !D.to ? '<b>1.</b> Choose <b>From</b> and <b>To</b> above the map'
         : !g ? '<b>' + esc(D.from + ' → ' + D.to) + '</b> — finding this place on the map… (if it never shows, check the spelling)'
-        : '<b>' + esc(g.from + ' → ' + g.to) + '</b>' + (w ? ' · <b>' + w.km + ' km</b> · ≈ ' + esc(truckTime(w.min, w.km)) : '') + ' · ' +
+        : '<b>' + esc(g.from + ' → ' + g.to) + '</b>' + (w ? ' · <b>' + w.km + ' km</b> · ≈ ' + esc(truckTime(w.min, w.km)) : '') +
+          (!w ? '' : D.tolls === 'busy' ? ' · <span class="dw-busy">₹ looking for tolls…</span>'
+            : Array.isArray(D.tolls) ? (D.tolls.length ? ' · <b class="dw-tollc">₹ ' + D.tolls.length + ' toll' + (D.tolls.length > 1 ? 's' : '') + '</b>' : ' · no toll') : '') + ' · ' +
           (!canMake() ? '<span class="dw-ok">the road the Manager drew</span> — Route ID + password below to add it'
             : D.busy ? '<span class="dw-busy">Finding the road…</span>'
             : n ? '<span class="dw-ok">' + n + ' point' + (n > 1 ? 's' : '') + ' ✓</span> add more or 💾 Save'
@@ -4124,6 +4138,13 @@
     $('#drawNote').innerHTML = !canMake() ? 'Director: check each road the Manager drew on the map (🗺️ Show), then give it a Route ID, type the password and “Add to Route &amp; Hub”.'
       : (D.msg ? '<b>' + esc(D.msg) + '</b><br>' : '') + 'Add the places the lorries pass in any order — each goes where it fits between A and B. ' +
       'Drag a point to move it, tap it to take it out. ' + (D.follow ? 'The road follows the real roads (OpenStreetMap).' : 'Straight lines between your points.');
+    // the toll plazas on the road, under the map: tap one to see it
+    const tl = $('#drawTolls'), tolls = g && w && Array.isArray(D.tolls) ? D.tolls : null;
+    tl.hidden = !tolls && !(g && w && D.tolls === 'err');
+    tl.innerHTML = !tolls ? (D.tolls === 'err' ? '₹ The toll finder (OpenStreetMap) did not answer — tolls are not known for this road yet.' : '')
+      : !tolls.length ? '₹ <b>No toll plaza</b> on this road (OpenStreetMap)'
+      : '<b>₹ ' + tolls.length + ' toll plaza' + (tolls.length > 1 ? 's' : '') + ' on this road</b> <small>(OpenStreetMap — tap one to see it)</small>' +
+        tolls.map((t, i) => '<button type="button" class="dw-tchip" data-tgo="' + i + '"><i>₹' + (i + 1) + '</i>' + esc(tollName(t)) + ' <small>≈ ' + t.km + ' km</small></button>').join('');
     const off = (id, v) => { const b = $(id); if (b) b.disabled = v; };
     off('#drawUndo', !n); off('#drawClear', !n); off('#drawHere', !g);
     const sv = $('#drawSave');   // never disabled: a tap always says what is still missing
@@ -4165,6 +4186,53 @@
     drawChanged();
   }
   function drawChanged() { keepDraft(); drawRoad(); }
+
+  /* ---- tolls on a road: the toll plazas of tolls.js (OpenStreetMap, the fleet's area) within 600 m of it, in the order
+   *  a lorry meets them — found at once, nothing to wait for ---- */
+  const TOLLS = window.VPT_TOLLS || [];
+  const tollKey = w => w.km + ':' + w.pts.length + ':' + w.pts[0].join() + ':' + w.pts[w.pts.length - 1].join();
+  function roadTolls(w) {
+    const la = w.pts.map(p => p[0]), lo = w.pts.map(p => p[1]);
+    const box = [Math.min(...la) - .02, Math.max(...la) + .02, Math.min(...lo) - .02, Math.max(...lo) + .02];   // a quick test first
+    return TOLLS.filter(t => t[0] > box[0] && t[0] < box[1] && t[1] > box[2] && t[1] < box[3])
+      .map(t => ({ ll: [t[0], t[1]], name: t[2], on: alongLine(w.pts, [t[0], t[1]]) }))
+      .filter(z => z.on.off <= 0.6)   // on this road, not one beside it
+      .map(z => ({ ll: z.ll, name: z.name, km: Math.round(z.on.along) }))
+      .sort((a, b) => a.km - b.km);
+  }
+  /** the tolls of the road on the map now (worked out once per road) */
+  function drawTollsFor(w) {
+    if (!w || w.pts.length < 3 || (!D.follow && !w.saved)) { D.tolls = null; D.tollKey = ''; return; }   // straight lines: no road to look along
+    const k = tollKey(w);
+    if (D.tollKey === k) return;
+    D.tollKey = k;
+    D.tolls = roadTolls(w);
+  }
+  /** the road a little before and after p (km each way), cut out of the line pts — even where the line has few points */
+  function lineAround(pts, p, km) {
+    let best = Infinity, at = 1, q = p;
+    for (let i = 1; i < pts.length; i++) {   // the place of the line nearest to p
+      const a = pts[i - 1], b = pts[i], kx = Math.cos(a[0] * Math.PI / 180);
+      const dx = (b[1] - a[1]) * kx, dy = b[0] - a[0], L = dx * dx + dy * dy;
+      const t = L ? Math.max(0, Math.min(1, ((p[1] - a[1]) * kx * dx + (p[0] - a[0]) * dy) / L)) : 0;
+      const c = [a[0] + t * dy, a[1] + t * (b[1] - a[1])], d = kmApart(c, p);
+      if (d < best) { best = d; at = i; q = c; }
+    }
+    const walk = (i, step) => {   // from there along the line, one way, till km is used up
+      const out = [];
+      let left = km, cur = q;
+      for (; i >= 0 && i < pts.length; i += step) {
+        const d = kmApart(cur, pts[i]);
+        if (d >= left) { const f = left / d; out.push([cur[0] + f * (pts[i][0] - cur[0]), cur[1] + f * (pts[i][1] - cur[1])]); break; }
+        out.push(pts[i]); left -= d; cur = pts[i];
+      }
+      return out;
+    };
+    return walk(at - 1, -1).reverse().concat([q], walk(at, 1));
+  }
+  const tollName = t => (t.name || 'Toll plaza near ' + nearTown(t.ll).replace(/^near /, ''));
+  /** "Tolls: 3 — Kumhari Toll Plaza, …" for the saved road's note (the Director sees it on its card) */
+  const tollNote = () => Array.isArray(D.tolls) ? (D.tolls.length ? 'Tolls: ' + D.tolls.length + ' — ' + D.tolls.map(tollName).join(', ') : 'Tolls: none') : '';
   /** the road A → points → B along the real roads (one OSRM ask for the whole chain); straight lines when it cannot */
   async function drawRoad() {
     const g = drawSel(), seq = ++D.seq;
@@ -4203,7 +4271,7 @@
     b.querySelector('span').textContent = 'Saving…';
     try {
       const res = await api('saveRoute', { token: S.auth.token, from: g.from, to: g.to, road: polyEncode(simplify(D.road.pts, 0.0015)),
-        km: D.road.km, min: D.road.min, via: wayNames([D.road], g.A, g.B)[0] || '', points: polyEncode(D.pts) });
+        km: D.road.km, min: D.road.min, via: wayNames([D.road], g.A, g.B)[0] || '', points: polyEncode(D.pts), note: tollNote() });
       setDrawn(S.drawn.concat([res.route]));
       D.pts = []; D.hist = []; D.road = null; D.idle = true; keepDraft();   // idle: the same road is not offered again at once
       toast('Saved ✓ — waiting for the Director to add it to Route & Hub');
@@ -4233,7 +4301,7 @@
     const d = S.drawn.find(x => x.id === id);
     if (!d) return;
     D.from = d.from; D.to = d.to; D.pts = d.points ? polyDecode(d.points) : []; D.hist = D.pts.slice(); D.busy = false; D.msg = ''; D.seq++;
-    D.road = { pts: polyDecode(d.road), km: +d.km || 0, min: +d.min || 0 };
+    D.road = { pts: polyDecode(d.road), km: +d.km || 0, min: +d.min || 0, saved: true };   // saved: its tolls are looked for too
     keepDraft();
     D.fitKey = D.from + '→' + D.to;   // fit to the road itself, below
     renderDraw().then(() => { const m = MAPS.drawMap; if (m) m.map.fitBounds(window.L.latLngBounds(D.road.pts), { paddingTopLeft: [40, 80], paddingBottomRight: [40, 100] }); });
@@ -4251,6 +4319,7 @@
         (st === 'ok' ? '✓ In Route &amp; Hub · ' + esc(d.code) : st === 'no' ? '✕ Not used' : '⏳ Waiting for the Director') + '</span></div>' +
         '<div class="dl-meta">' + esc(d.km) + ' km · ≈ ' + esc(truckTime(+d.min || 0, +d.km || 0)) + ' by truck' + (d.via ? ' · via ' + esc(d.via) : '') +
         ' · drawn by <b>' + esc(d.by) + '</b> ' + esc(d.at) + (d.okBy && st !== 'wait' ? ' · ' + (st === 'ok' ? 'added' : 'checked') + ' by ' + esc(d.okBy) : '') + '</div>' +
+        (d.note ? '<div class="dl-note">' + (/^Tolls:/.test(d.note) ? '₹ ' : '') + esc(d.note) + '</div>' : '') +
         '<div class="dl-act"><button type="button" class="btn sm" data-dshow="' + esc(d.id) + '">🗺️ Show</button>' +
         (boss && st !== 'ok' ? '<input class="dl-code" data-dcode="' + esc(d.id) + '" value="' + esc(d.code || next) + '" maxlength="30" aria-label="Route ID" title="Route ID">' : '') +
         // the Director's password: into Route & Hub (or out of it) only with it
@@ -4418,6 +4487,15 @@
     $('#drawSwap').addEventListener('click', () => {
       [D.from, D.to] = [D.to, D.from]; D.pts.reverse(); D.road = null; D.seq++;
       keepDraft(); drawDropdowns(); drawRoad();
+    });
+    $('#drawTolls').addEventListener('click', e => {   // a toll plaza: the map to it
+      const b = e.target.closest('[data-tgo]'), t = b && Array.isArray(D.tolls) ? D.tolls[+b.dataset.tgo] : null;
+      if (!t || !MAPS.drawMap) return;
+      const map = MAPS.drawMap.map, z = 14;
+      map.setView(map.unproject(map.project(t.ll, z).add([0, 70]), z), z);   // the plaza a little above the cross, not under it
+      const mk = (D.tollMk || [])[+b.dataset.tgo];
+      if (mk) mk.openTooltip();
+      $('#drawMap').scrollIntoView({ block: 'center', behavior: 'smooth' });
     });
     $('#drawPts').addEventListener('click', e => {
       const go = e.target.closest('[data-pgo]'), del = e.target.closest('[data-pdel]');
