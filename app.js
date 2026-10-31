@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v63';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v64';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -1150,10 +1150,21 @@
     const box = $('#pselBox'), P = S.print;
     box.hidden = P.rep !== 'un';
     if (box.hidden) { renderBulkBar(); return; }
-    const vs = S.vehicles.filter(v => NEEDS_PROGRAM[v.cat] && (!P.caller || v.callerName === P.caller)), have = new Set(vs.map(v => v.vno));
-    [...S.sel].forEach(vno => { if (!have.has(vno)) S.sel.delete(vno); });   // only vehicles of this U&N stay ticked
-    const head = '<button type="button" class="ps-head' + (S.pselOpen ? ' on' : '') + '" data-ps="~" aria-expanded="' + !!S.pselOpen + '"><span class="ps-ico">☑</span>' +
-      '<b>Give one program to many</b><span class="ps-sub">' + (S.pselOpen ? 'tick the vehicles, then write the program in the bar below' : 'tick 2 or more Unloading / No Program vehicles') + '</span><i>' + (S.pselOpen ? '▴' : '▾') + '</i></button>';
+    const every = S.vehicles.filter(v => NEEDS_PROGRAM[v.cat] && (!P.caller || v.callerName === P.caller));
+    // the location dropdown: every location of this U&N with how many vehicles stand there (busiest first)
+    const locs = {};
+    every.forEach(v => { const l = progPlace(v); locs[l] = (locs[l] || 0) + 1; });
+    if (S.pselLoc && !locs[S.pselLoc]) S.pselLoc = '';
+    const vs = S.pselLoc ? every.filter(v => progPlace(v) === S.pselLoc) : every, have = new Set(vs.map(v => v.vno));
+    [...S.sel].forEach(vno => { if (!have.has(vno)) S.sel.delete(vno); });   // only vehicles of this U&N (and location) stay ticked
+    const sub = !S.pselOpen ? 'pick a location, or tick 2 or more Unloading / No Program vehicles'
+      : S.pselLoc ? S.sel.size + ' of ' + vs.length + ' at ' + S.pselLoc + ' ticked — write the program in the bar below (untick any that should not get it)'
+        : 'tick the vehicles, then write the program in the bar below';
+    const head = '<div class="ps-head' + (S.pselOpen ? ' on' : '') + '">' +
+      '<button type="button" class="ps-tog" data-ps="~" aria-expanded="' + !!S.pselOpen + '"><span class="ps-ico">☑</span><b>Give one program to many</b><span class="ps-sub">' + esc(sub) + '</span></button>' +
+      '<label class="ps-loc"><span>Location</span><select id="pselLoc"><option value="">All locations (' + every.length + ')</option>' +
+      Object.keys(locs).sort((a, b) => locs[b] - locs[a] || a.localeCompare(b)).map(l => '<option value="' + esc(l) + '"' + (l === S.pselLoc ? ' selected' : '') + '>' + esc(l) + ' (' + locs[l] + ')</option>').join('') +
+      '</select></label><button type="button" class="ps-arrow" data-ps="~" aria-label="' + (S.pselOpen ? 'Close' : 'Open') + '">' + (S.pselOpen ? '▴' : '▾') + '</button></div>';
     const grp = k => {
       const list = vs.filter(v => v.cat === k).sort((a, b) => progPlace(a).localeCompare(progPlace(b)) || a.vno.localeCompare(b.vno));
       if (!list.length) return '';
@@ -1166,7 +1177,7 @@
             '<b>' + esc(v.vno) + '</b><small>' + esc(progPlace(v)) + (p && p.program ? ' · 📋 ' + esc(p.program) : '') + (P.caller ? '' : ' · ' + esc(v.callerName || '')) + '</small></button>';
         }).join('') + '</div></div>';
     };
-    const body = S.pselOpen ? (grp('unloading') + grp('noprog') || '<p class="ps-none">No Unloading / No Program vehicle' + (P.caller ? ' for ' + esc(P.caller) : '') + '.</p>') : '';
+    const body = S.pselOpen ? (grp('unloading') + grp('noprog') || '<p class="ps-none">No Unloading / No Program vehicle' + (P.caller ? ' for ' + esc(P.caller) : '') + (S.pselLoc ? ' at ' + esc(S.pselLoc) : '') + '.</p>') : '';
     box.innerHTML = head + body;
     renderBulkBar();
   }
@@ -4796,13 +4807,23 @@
     $('#pselBox').addEventListener('click', e => {
       const t = e.target.closest('[data-ps], [data-psall], [data-psv]');
       if (!t) return;
-      if (t.dataset.ps) { S.pselOpen = !S.pselOpen; if (!S.pselOpen) S.sel.clear(); }
+      if (t.dataset.ps) { S.pselOpen = !S.pselOpen; if (!S.pselOpen) { S.sel.clear(); S.pselLoc = ''; } }
       else if (t.dataset.psv) { if (S.sel.has(t.dataset.psv)) S.sel.delete(t.dataset.psv); else S.sel.add(t.dataset.psv); }
       else {
         const vnos = [...$('#pselBox').querySelectorAll('.ps-grp[data-k="' + t.dataset.psall + '"] [data-psv]')].map(x => x.dataset.psv), all = vnos.every(x => S.sel.has(x));
         vnos.forEach(x => { if (all) S.sel.delete(x); else S.sel.add(x); });
       }
       renderPsel();
+    });
+    // a location picked: the list shows only it and every vehicle there is ticked, ready for one program
+    $('#pselBox').addEventListener('change', e => {
+      if (e.target.id !== 'pselLoc') return;
+      S.pselLoc = e.target.value;
+      S.pselOpen = true;
+      S.sel.clear();
+      if (S.pselLoc) S.vehicles.forEach(v => { if (NEEDS_PROGRAM[v.cat] && (!S.print.caller || v.callerName === S.print.caller) && progPlace(v) === S.pselLoc) S.sel.add(v.vno); });
+      renderPsel();
+      if (S.pselLoc) setTimeout(() => { const p = $('#bulkProg'); if (p && !IS_PHONE) p.focus(); }, 50);   // straight to writing the program (a phone keeps its keyboard down)
     });
     $('#tunStatus').addEventListener('click', e => { if (e.target.closest('[data-tun-again]')) { S.tunAt = 0; loadTun(); } });   // the T,U&N tab again, now
     $('#repCaller').addEventListener('change', e => { S.print.caller = e.target.value; savePrint(); renderPrint(); });

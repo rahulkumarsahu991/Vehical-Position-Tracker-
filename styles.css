@@ -1882,16 +1882,24 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 /* Print → U&N: tick several Unloading / No Program vehicles → one program for all (the bottom bar) */
 .psel { margin: 0 0 12px; background: var(--card, #fff); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
 .psel[hidden] { display: none; }
-.ps-head {
-  display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; padding: 10px 14px; font: inherit; color: var(--ink);
-  text-align: left; cursor: pointer;
-}
-.ps-head:hover { background: #f6f7fb; }
-.ps-head .ps-ico { font-size: 18px; color: var(--orange-d); }
-.ps-head b { font: 700 15px var(--cond); letter-spacing: .3px; color: var(--navy); white-space: nowrap; }
-.ps-head .ps-sub { flex: 1; min-width: 0; color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ps-head i { font-style: normal; color: var(--muted); font-size: 12px; }
+.ps-head { display: flex; align-items: center; gap: 10px; padding: 6px 10px 6px 4px; }
 .ps-head.on { border-bottom: 1px solid var(--line-2); background: var(--orange-l); }
+.ps-tog {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 4px 10px; border-radius: 10px;
+  font: inherit; color: var(--ink); text-align: left; cursor: pointer;
+}
+.ps-tog:hover { background: rgba(0, 0, 0, .04); }
+.ps-tog .ps-ico { font-size: 18px; color: var(--orange-d); }
+.ps-tog b { font: 700 15px var(--cond); letter-spacing: .3px; color: var(--navy); white-space: nowrap; }
+.ps-tog .ps-sub { flex: 1; min-width: 0; color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the location dropdown: pick one → every vehicle there ticked */
+.ps-loc { display: flex; align-items: center; gap: 6px; margin: 0; font: 600 11px var(--font); color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+.ps-loc select {
+  min-width: 210px; max-width: 280px; height: 34px; border: 1.5px solid var(--orange); border-radius: 9px; background: #fff; padding: 0 8px;
+  font: 600 13px var(--font); color: var(--ink); text-transform: none; letter-spacing: 0; cursor: pointer;
+}
+.ps-arrow { border: 0; background: none; width: 30px; height: 30px; border-radius: 8px; color: var(--muted); font-size: 13px; cursor: pointer; }
+.ps-arrow:hover { background: rgba(0, 0, 0, .05); }
 .ps-grp { padding: 8px 14px 10px; }
 .ps-grp + .ps-grp { border-top: 1px dashed var(--line-2); }
 .ps-gh { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font: 700 13px var(--font); color: var(--c); }
@@ -1915,9 +1923,13 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 .ps-none { margin: 0; padding: 10px 14px; color: var(--muted); }
 @media print { .psel { display: none !important; } }
 @media (max-width: 760px) {
-  .ps-head { padding: 9px 12px; flex-wrap: wrap; row-gap: 0; }
-  .ps-head .ps-sub { flex-basis: 100%; order: 3; padding-left: 26px; font-size: 11.5px; white-space: normal; }
-  .ps-head i { margin-left: auto; }
+  .ps-head { flex-wrap: wrap; gap: 4px 6px; padding: 6px 8px 8px 2px; }
+  .ps-tog { flex-wrap: wrap; row-gap: 0; padding: 4px 8px; flex-basis: calc(100% - 40px); }
+  .ps-tog .ps-sub { flex-basis: 100%; padding-left: 26px; font-size: 11.5px; white-space: normal; }
+  .ps-loc { flex: 1; padding-left: 8px; }
+  .ps-loc select { flex: 1; min-width: 0; max-width: none; height: 38px; font-size: 14px; }
+  .ps-arrow { position: absolute; right: 8px; top: 8px; }
+  .psel { position: relative; }
   .ps-grp { padding: 8px 10px 10px; }
   .ps-chips { grid-template-columns: 1fr 1fr; max-height: 46vh; }
   .ps-v { grid-template-columns: 18px 1fr; column-gap: 6px; padding: 5px 7px; }
