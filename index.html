@@ -152,6 +152,19 @@
         <button type="button" class="btn danger sm" id="bulkRemove" hidden title="Take the program off the ticked vehicles that have one">🗑 <span>Remove program</span></button>
         <button type="button" class="btn link sm" id="bulkClear">Clear</button>
       </div>
+      <!-- Print → U&N: one program or two for all ticked vehicles, each From / To / Rate (like a vehicle's own box) -->
+      <div class="bb-trips" id="bulkTrips" hidden>
+        <div class="bb-ph"><i>1</i>1st program</div>
+        <label class="field"><span class="pg-lbl">From</span><input id="bulkFrom1" list="locList" placeholder="From" autocomplete="off"></label>
+        <label class="field"><span class="pg-lbl">To</span><input id="bulkTo1" list="locList" placeholder="To" autocomplete="off"></label>
+        <label class="field"><span class="pg-lbl">Rate ₹</span><input id="bulkRate1" inputmode="decimal" placeholder="Rate ₹" autocomplete="off"></label>
+        <label class="field"><span class="pg-lbl">Broker / Party</span><input id="bulkBroker1" placeholder="Broker / Party" autocomplete="off"></label>
+        <div class="bb-ph bb-ph2"><i>2</i>2nd program</div>
+        <label class="field bb-2"><span class="pg-lbl">From</span><input id="bulkFrom2" list="locList" placeholder="From" autocomplete="off"></label>
+        <label class="field bb-2"><span class="pg-lbl">To</span><input id="bulkTo2" list="locList" placeholder="To" autocomplete="off"></label>
+        <label class="field bb-2"><span class="pg-lbl">Rate ₹</span><input id="bulkRate2" inputmode="decimal" placeholder="Rate ₹" autocomplete="off"></label>
+        <label class="field bb-2"><span class="pg-lbl">Broker / Party</span><input id="bulkBroker2" placeholder="Broker / Party" autocomplete="off"></label>
+      </div>
       <div class="bb-row">
         <label class="field"><span class="pg-lbl">Program</span><input id="bulkProg" list="locList" autocomplete="off"></label>
         <label class="field"><span class="pg-lbl">Broker / Party</span><input id="bulkBroker" autocomplete="off"></label>

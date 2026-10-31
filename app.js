@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v69';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v70';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -1147,7 +1147,14 @@
     const n = S.sel.size, bar = $('#bulkBar');
     bar.hidden = !n || !(S.view === 'programs' || pselOn());
     document.body.classList.toggle('has-bulk', !bar.hidden);
-    if (bar.hidden) return;
+    if (bar.hidden) { $('main').style.paddingBottom = ''; return; }
+    // Print → U&N: the 1st / 2nd program boxes (From / To / Rate) instead of one Program box
+    const trips = pselOn();
+    bar.classList.toggle('trips', trips);
+    $('#bulkTrips').hidden = !trips;
+    $('#bulkProg').closest('label').hidden = trips;
+    $('#bulkBroker').closest('label').hidden = trips;
+    $('main').style.paddingBottom = (bar.offsetHeight + 24) + 'px';   // the page scrolls clear of the (taller) bar
     $('#bulkCount').textContent = n + ' vehicle' + (n > 1 ? 's' : '') + ' selected';
     const places = [...new Set([...S.sel].map(vno => (S.byVno[vno] ? progPlace(S.byVno[vno]) : '')))].filter(Boolean);
     $('#bulkWhere').textContent = places.length === 1 ? '· ' + places[0] : '· ' + places.length + ' locations';
@@ -1174,9 +1181,16 @@
   /** one program (and broker) for every ticked vehicle — saved at once, sent to the sheet in the background */
   async function bulkGive(direct) {
     direct = direct === true; // the Director's "Direct": straight to each vehicle's caller
-    const program = $('#bulkProg').value.trim(), broker = $('#bulkBroker').value.trim(), note = $('#bulkNote').value.trim();
+    const val = id => $('#' + id).value.trim(), trips = !$('#bulkTrips').hidden, note = val('bulkNote');
+    let program = val('bulkProg'), broker = val('bulkBroker');
+    if (trips) {   // two programs, each From → To ₹rate: "1) … 2) …" in the one cell, as from a vehicle's own box
+      let p1 = tripText(val('bulkFrom1'), val('bulkTo1'), val('bulkRate1')), p2 = tripText(val('bulkFrom2'), val('bulkTo2'), val('bulkRate2'));
+      let b1 = val('bulkBroker1'), b2 = val('bulkBroker2');
+      if (!p1 && p2) { p1 = p2; p2 = ''; b1 = b1 || b2; b2 = ''; }
+      program = twoJoin(p1, p2); broker = p2 && b2 ? twoJoin(b1, b2) : b1;
+    }
     if (!S.sel.size) return;
-    if (!program) { toast('Write the program first (where to go / load from)', true); $('#bulkProg').focus(); return; }
+    if (!program) { toast('Write the program first (where to go / load from)', true); $(trips ? '#bulkFrom1' : '#bulkProg').focus(); return; }
     if (!(await ensureUser())) return;
     const vnos = [...S.sel], r = flowRole(null);
     for (const vno of vnos) {
@@ -1185,7 +1199,7 @@
       await saveProgram(vno, body, false);
     }
     S.sel.clear();
-    $('#bulkProg').value = ''; $('#bulkBroker').value = ''; $('#bulkNote').value = '';
+    $$('#bulkBar input').forEach(i => { i.value = ''; });
     toast('Program given to ' + vnos.length + ' vehicle' + (vnos.length > 1 ? 's' : '') +
       (direct ? ' — sent straight to the callers ✓' : r.on && isTop(S.user) ? ' — sent to ' + FLOW.MID : r.on && isMid(S.user) ? ' — sent to the callers' : ' — now call the drivers'));
     renderAll();
@@ -4816,6 +4830,8 @@
     $('#bulkGive').addEventListener('click', () => bulkGive(false));
     $('#bulkDirect').addEventListener('click', () => bulkGive(true));
     $('#bulkProg').addEventListener('keydown', e => { if (e.key === 'Enter') bulkGive(); });
+    // Enter in a Rate / Broker / Remark box gives too (not in a place box: there Enter picks a suggestion)
+    $('#bulkBar').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id !== 'bulkProg' && e.target.matches('input:not([list])')) bulkGive(); });
     $('#progList').addEventListener('click', e => {
       if (e.target.closest('[data-sendall]')) { sendToCaller(S.mgrShown || []); return; }
       if (e.target.closest('a, button, input, label')) return;
@@ -4894,7 +4910,7 @@
       S.sel.clear();
       if (S.pselLoc) S.vehicles.forEach(v => { if (NEEDS_PROGRAM[v.cat] && (!S.print.caller || v.callerName === S.print.caller) && progPlace(v) === S.pselLoc) S.sel.add(v.vno); });
       renderPsel();
-      if (S.pselLoc) setTimeout(() => { const p = $('#bulkProg'); if (p && !IS_PHONE) p.focus(); }, 50);   // straight to writing the program (a phone keeps its keyboard down)
+      if (S.pselLoc) setTimeout(() => { const p = $('#bulkTrips').hidden ? $('#bulkProg') : $('#bulkFrom1'); if (p && !IS_PHONE) p.focus(); }, 50);   // straight to writing the program (a phone keeps its keyboard down)
     });
     $('#tunStatus').addEventListener('click', e => { if (e.target.closest('[data-tun-again]')) { S.tunAt = 0; loadTun(); } });   // the T,U&N tab again, now
     $('#repCaller').addEventListener('change', e => { S.print.caller = e.target.value; savePrint(); renderPrint(); });
