@@ -1951,3 +1951,25 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
   .bulk-bar .bb-top #bulkWhere { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bulk-bar .bb-top .btn { flex: none; }
 }
+
+/* Route Finder: every toll plaza on the road blinks — the ₹ badge flashes orange ⇄ yellow with a ring
+   spreading out, the road around it flashes and glows yellow; the toll list's ₹ marks blink with it */
+.dw-toll { position: relative; animation: toll-blink 1s ease-in-out infinite; }
+.dw-toll::after {
+  content: ""; position: absolute; inset: -5px; border-radius: 12px; border: 3px solid #ff6d00; pointer-events: none;
+  animation: toll-ring 1.2s ease-out infinite;
+}
+@keyframes toll-blink {
+  0%, 100% { background: #e8590c; color: #fff; scale: 1; }
+  50% { background: #ffc400; color: #3b1a00; scale: 1.15; }
+}
+@keyframes toll-ring { 0% { opacity: .9; scale: .85; } 100% { opacity: 0; scale: 1.7; } }
+.mp-map path.dw-tollway { animation: toll-way 1s ease-in-out infinite; }
+.mp-map path.dw-tollglow { animation: toll-glow 1s ease-in-out infinite; }
+@keyframes toll-way { 0%, 100% { stroke: #ff6d00; } 50% { stroke: #ffd400; } }
+@keyframes toll-glow { 0%, 100% { stroke-opacity: .12; } 50% { stroke-opacity: .6; } }
+.dw-tchip i { display: inline-block; animation: toll-blink 1s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .dw-toll, .dw-tchip i, .mp-map path.dw-tollway, .mp-map path.dw-tollglow { animation: none; }
+  .dw-toll::after { display: none; }
+}

@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v66';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v67';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -4265,8 +4265,10 @@
     D.tollMk = [];
     if (D.road && Array.isArray(D.tolls)) D.tolls.forEach((t, i) => {
       const near = lineAround(D.road.pts, t.ll, 2);
-      m.lines.addLayer(L.polyline(near, { color: '#7a1f00', weight: 13, opacity: .9, interactive: false }));
-      m.lines.addLayer(L.polyline(near, { color: '#ff6d00', weight: 9, opacity: 1, interactive: false }));
+      // a wide yellow glow under it and the stretch itself flash (CSS), so every toll on the road stands out
+      m.lines.addLayer(L.polyline(near, { color: '#ffd400', weight: 24, opacity: .35, interactive: false, className: 'dw-tollglow' }));
+      m.lines.addLayer(L.polyline(near, { color: '#7a1f00', weight: 13, opacity: .9, interactive: false, className: 'dw-tolledge' }));
+      m.lines.addLayer(L.polyline(near, { color: '#ff6d00', weight: 9, opacity: 1, interactive: false, className: 'dw-tollway' }));
       const mk = L.marker(t.ll, { zIndexOffset: 950, icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in dw-toll">₹<b>' + (i + 1) + '</b></div>' }) });
       mk.bindTooltip(esc(tollName(t)) + ' · ≈ ' + t.km + ' km from A', { direction: 'top', offset: [0, -14] });
       m.marks.addLayer(mk);
