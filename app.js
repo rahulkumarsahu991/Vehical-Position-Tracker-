@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v62';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v63';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -1110,10 +1110,10 @@
     if (okMsg !== false) toast(okMsg || 'Saved'); // false = quiet (one note for many vehicles)
     return true;
   }
-  /** bottom bar while vehicles are ticked in Programs */
+  /** bottom bar while vehicles are ticked in Programs (or in Print → U&N) */
   function renderBulkBar() {
     const n = S.sel.size, bar = $('#bulkBar');
-    bar.hidden = !n || S.view !== 'programs';
+    bar.hidden = !n || !(S.view === 'programs' || pselOn());
     document.body.classList.toggle('has-bulk', !bar.hidden);
     if (bar.hidden) return;
     $('#bulkCount').textContent = n + ' vehicle' + (n > 1 ? 's' : '') + ' selected';
@@ -1142,6 +1142,33 @@
     toast('Program given to ' + vnos.length + ' vehicle' + (vnos.length > 1 ? 's' : '') +
       (direct ? ' — sent straight to the callers ✓' : r.on && isTop(S.user) ? ' — sent to ' + FLOW.MID : r.on && isMid(S.user) ? ' — sent to the callers' : ' — now call the drivers'));
     renderAll();
+  }
+  /* ---- Print → U&N: tick several Unloading / No Program vehicles (all callers or one) and give them one program
+   *  together with the same bottom bar as Programs ---- */
+  const pselOn = () => S.view === 'print' && S.print.rep === 'un' && S.pselOpen;
+  function renderPsel() {
+    const box = $('#pselBox'), P = S.print;
+    box.hidden = P.rep !== 'un';
+    if (box.hidden) { renderBulkBar(); return; }
+    const vs = S.vehicles.filter(v => NEEDS_PROGRAM[v.cat] && (!P.caller || v.callerName === P.caller)), have = new Set(vs.map(v => v.vno));
+    [...S.sel].forEach(vno => { if (!have.has(vno)) S.sel.delete(vno); });   // only vehicles of this U&N stay ticked
+    const head = '<button type="button" class="ps-head' + (S.pselOpen ? ' on' : '') + '" data-ps="~" aria-expanded="' + !!S.pselOpen + '"><span class="ps-ico">☑</span>' +
+      '<b>Give one program to many</b><span class="ps-sub">' + (S.pselOpen ? 'tick the vehicles, then write the program in the bar below' : 'tick 2 or more Unloading / No Program vehicles') + '</span><i>' + (S.pselOpen ? '▴' : '▾') + '</i></button>';
+    const grp = k => {
+      const list = vs.filter(v => v.cat === k).sort((a, b) => progPlace(a).localeCompare(progPlace(b)) || a.vno.localeCompare(b.vno));
+      if (!list.length) return '';
+      const all = list.every(v => S.sel.has(v.vno));
+      return '<div class="ps-grp" data-k="' + k + '" style="--c:' + CAT[k].color + '"><div class="ps-gh"><span>' + esc(CAT[k].label) + '</span><b>' + list.length + '</b>' +
+        '<button type="button" class="btn link sm" data-psall="' + k + '">' + (all ? 'Unselect all' : 'Select all ' + list.length) + '</button></div><div class="ps-chips">' +
+        list.map(v => {
+          const p = S.active[v.vno], on = S.sel.has(v.vno);
+          return '<button type="button" class="ps-v' + (on ? ' on' : '') + '" data-psv="' + esc(v.vno) + '" aria-pressed="' + on + '"><i>' + (on ? '✓' : '') + '</i>' +
+            '<b>' + esc(v.vno) + '</b><small>' + esc(progPlace(v)) + (p && p.program ? ' · 📋 ' + esc(p.program) : '') + (P.caller ? '' : ' · ' + esc(v.callerName || '')) + '</small></button>';
+        }).join('') + '</div></div>';
+    };
+    const body = S.pselOpen ? (grp('unloading') + grp('noprog') || '<p class="ps-none">No Unloading / No Program vehicle' + (P.caller ? ' for ' + esc(P.caller) : '') + '.</p>') : '';
+    box.innerHTML = head + body;
+    renderBulkBar();
   }
   function upsertProgram(rec) {
     const i = S.programs.findIndex(p => p.id === rec.id);
@@ -2066,6 +2093,7 @@
       names.map(n => '<option value="' + esc(n) + '"' + (P.caller === n ? ' selected' : '') + '>' + esc(n) + '</option>').join('');
     $('#repOrient').value = P.orient; $('#repCols').value = P.cols;
     $('#repHint').textContent = rep.hint;
+    renderPsel();
     const area = $('#printArea');
     if (!S.vehicles.length) { area.innerHTML = '<div class="empty"><b>No data yet</b>Waiting for the Calling Sheet…</div>'; return; }
 
@@ -4764,6 +4792,18 @@
       setTimeout(() => { const i = $('#sheet .pg [data-f="program"]'); if (i) i.focus(); }, 250);
     });
     $('#repSeg').addEventListener('click', e => { const b = e.target.closest('[data-rep]'); if (b) { S.print.rep = b.dataset.rep; savePrint(); renderPrint(); } });
+    // U&N: tick vehicles → one program for all of them (the bottom bar)
+    $('#pselBox').addEventListener('click', e => {
+      const t = e.target.closest('[data-ps], [data-psall], [data-psv]');
+      if (!t) return;
+      if (t.dataset.ps) { S.pselOpen = !S.pselOpen; if (!S.pselOpen) S.sel.clear(); }
+      else if (t.dataset.psv) { if (S.sel.has(t.dataset.psv)) S.sel.delete(t.dataset.psv); else S.sel.add(t.dataset.psv); }
+      else {
+        const vnos = [...$('#pselBox').querySelectorAll('.ps-grp[data-k="' + t.dataset.psall + '"] [data-psv]')].map(x => x.dataset.psv), all = vnos.every(x => S.sel.has(x));
+        vnos.forEach(x => { if (all) S.sel.delete(x); else S.sel.add(x); });
+      }
+      renderPsel();
+    });
     $('#tunStatus').addEventListener('click', e => { if (e.target.closest('[data-tun-again]')) { S.tunAt = 0; loadTun(); } });   // the T,U&N tab again, now
     $('#repCaller').addEventListener('change', e => { S.print.caller = e.target.value; savePrint(); renderPrint(); });
     $('#repOrient').addEventListener('change', e => { S.print.orient = e.target.value; savePrint(); renderPrint(); });
