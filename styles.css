@@ -515,6 +515,11 @@ table.vt td.rem { min-width: 180px; color: var(--ink-2); }
 /* program box while writing: Program, then Broker | Remark side by side, then the buttons */
 .pg.editing { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px 8px; align-items: end; }
 .pg.editing > .field:first-child, .pg.editing .pg-actions { grid-column: 1 / -1; }
+/* two programs: 1st program | broker 1, 2nd program | broker 2, remark across */
+.pg.editing.two > .field:first-child { grid-column: auto; }
+.pg.editing.two > .field.pg-rm { grid-column: 1 / -1; }
+.pg.editing .field.pg-2 input:not(:focus) { background: var(--orange-l); }
+.pg.editing .pg-add2 { color: var(--orange-d); font-weight: 700; }
 .pg.editing .pg-lbl .hi { display: none; }   /* short labels (the boxes have no placeholder text) */
 .pg.editing .field input { padding: 7px 9px; font-size: 13.5px; background: #fafbfe; }
 .pg.editing .field input:focus { background: #fff; }

@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v65';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v66';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -95,7 +95,7 @@
     rmode: store.get('vpt_rmode', 'road'), hview: store.get('vpt_hview', 'flow'), // route: road / map · hub: flow / map
     hstat: '', hstatShut: !!store.get('vpt_hstat_shut', false), hscope: store.get('vpt_hscope', 'all'),   // hub map's status box: status picked · folded · all trucks / this hub
     rpick: '', rplace: '', // on the map: the route chosen, or the loading / unloading point whose routes light up ('' = all)
-    drafts: {}, editing: {},
+    drafts: {}, editing: {}, two: {},   // two: a vehicle whose program box shows a 2nd program row
     print: Object.assign({ rep: 'caller', caller: '', orient: 'auto', cols: 'auto' }, store.get(K.print, {})),
     detail: null, pending: false,
     changedAt: {}, gridSig: '', progSig: '', fromCache: false, fails: 0, sheetChangedAt: 0,
@@ -722,9 +722,9 @@
    *  Phones open the WhatsApp app; computers open WhatsApp Web straight in that chat. */
   const IS_PHONE = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   function waLink(v, prog) {
-    const p = prog || S.active[v.vno];
+    const p = prog || S.active[v.vno], ps = twoParts(p && p.program);   // two programs: each on its own line
     const text = '*' + COMPANY.toUpperCase() + '*' + (v.driver ? '\nDriver: ' + v.driver : '') + '\nVehicle: *' + v.vno + '*' +
-      (p && p.program ? '\n' + (v.cat === 'unloading' ? 'Next Loading' : 'Program') + ': *' + p.program + '*' : '') +
+      (p && p.program ? '\n' + (v.cat === 'unloading' ? 'Next Loading' : 'Program') + ':' + (ps.length > 1 ? ps.map((x, i) => '\n' + (i + 1) + ') *' + x + '*').join('') : ' *' + p.program + '*') : '') +
       (p && p.program && p.note ? '\nRemark: ' + p.note : '');
     return IS_PHONE
       ? 'https://wa.me/91' + v.phoneDigits + '?text=' + encodeURIComponent(text)
@@ -1014,6 +1014,11 @@
       '</article>';
   }
 
+  /** two programs for one vehicle live in one cell as "1) KONSARI 2) EMAMI" (the sheet keeps a cell on one line) */
+  const twoParts = s => { const m = String(s || '').match(/^\s*1\)\s*(.*?)\s+2\)\s*(.*)$/); return m ? [m[1].trim(), m[2].trim()] : [String(s || '').trim()]; };
+  const twoJoin = (a, b) => (b ? '1) ' + (a || '—') + ' 2) ' + b : a);
+  /** each program on its own line: "1) KONSARI<br>2) EMAMI" (escaped) */
+  const twoLines = s => { const ps = twoParts(s); return ps.length > 1 ? ps.map((x, i) => (i + 1) + ') ' + esc(x)).join('<br>') : esc(ps[0]); };
   /** Program box — used on program cards and in the vehicle detail */
   function progEditor(v) {
     const p = S.active[v.vno];
@@ -1021,13 +1026,14 @@
     const has = !!(p && p.program);
     const editing = !has || S.editing[v.vno];
     const r = flowRole(v);
-    let h = '<div class="pg' + (editing ? ' editing' : '') + (S.saving[v.vno] ? ' busy' : '') + '" data-v="' + esc(v.vno) + '">';
+    const pp = twoParts(p && p.program), two = S.two[v.vno] != null ? S.two[v.vno] : pp.length > 1;   // a 2nd program row
+    let h = '<div class="pg' + (editing ? ' editing' : '') + (editing && two ? ' two' : '') + (S.saving[v.vno] ? ' busy' : '') + '" data-v="' + esc(v.vno) + '">';
     if (!editing) {
       const ok = p.informed === 'Yes', atMgr = r.on && p.stage === 'manager';
       h += '<div class="pg-given' + (ok ? ' ok' : '') + (atMgr ? ' at-mgr' : '') + '">' +
         '<span class="pg-lbl">' + (v.cat === 'unloading' ? 'Next load program' : 'Program') + '</span>' +
-        '<div class="pg-text">' + esc(p.program) + '</div>' +
-        (p.broker ? '<div class="pg-meta">Broker / Party: <b>' + esc(p.broker) + '</b></div>' : '') +
+        '<div class="pg-text">' + twoLines(p.program) + '</div>' +
+        (p.broker ? '<div class="pg-meta">Broker / Party: <b>' + twoLines(p.broker) + '</b></div>' : '') +
         // Director's remark: the Director and Manager see the latest; the caller sees what the Manager sent on
         ((dn => (dn ? '<div class="pg-meta">' + esc(FLOW.TOP) + '’s remark: <b>' + esc(dn) + '</b></div>' : ''))(r.on ? (isBoss(S.user) ? p.dnote : p.dnoteSent) : '')) +
         (p.note ? '<div class="pg-meta">Remark' + (r.on && p.noteBy ? ' (' + esc(p.noteBy) + ')' : '') + ': <b>' + esc(p.note) + '</b></div>' : '') +
@@ -1048,18 +1054,25 @@
           '</div>';
       }
     } else {
-      const progVal = d.program != null ? d.program : (p && p.program) || '';
-      const brokerVal = d.broker != null ? d.broker : (p && p.broker) || '';
+      const bb = twoParts(p && p.broker), dash = x => (x === '—' ? '' : x);
+      const progVal = d.program != null ? d.program : pp[0];
+      const brokerVal = d.broker != null ? d.broker : dash(bb[0]);
+      const prog2Val = d.program2 != null ? d.program2 : pp[1] || '';
+      const broker2Val = d.broker2 != null ? d.broker2 : dash(bb[1] || '');
       const noteVal = d[r.nk] != null ? d[r.nk] : (p && p[r.nk]) || '';
-      h += '<label class="field"><span class="pg-lbl">' + (v.cat === 'unloading' ? 'Next load program' : 'Program') + ' <span class="hi">— where to go / load from</span></span>' +
+      h += '<label class="field"><span class="pg-lbl">' + (two ? '1st program' : v.cat === 'unloading' ? 'Next load program' : 'Program') + ' <span class="hi">— where to go / load from</span></span>' +
         '<input data-f="program" list="locList" value="' + esc(progVal) + '" autocomplete="off"></label>' +
-        '<label class="field"><span class="pg-lbl">Broker / Party <span class="hi">(optional)</span></span>' +
+        '<label class="field"><span class="pg-lbl">' + (two ? 'Broker / Party 1' : 'Broker / Party') + ' <span class="hi">(optional)</span></span>' +
         '<input data-f="broker" value="' + esc(brokerVal) + '" autocomplete="off"></label>' +
-        '<label class="field" title="' + (r.on ? 'Only a remark? Leave Program empty and tap the button.' : '') + '"><span class="pg-lbl">' + esc(r.noteLbl) + ' <span class="hi">(optional)</span></span>' +
+        // the 2nd program (and its broker): saved with the 1st as "1) … 2) …"
+        (two ? '<label class="field pg-2"><span class="pg-lbl">2nd program</span><input data-f="program2" list="locList" value="' + esc(prog2Val) + '" autocomplete="off"></label>' +
+          '<label class="field pg-2"><span class="pg-lbl">Broker / Party 2 <span class="hi">(optional)</span></span><input data-f="broker2" value="' + esc(broker2Val) + '" autocomplete="off"></label>' : '') +
+        '<label class="field pg-rm" title="' + (r.on ? 'Only a remark? Leave Program empty and tap the button.' : '') + '"><span class="pg-lbl">' + esc(r.noteLbl) + ' <span class="hi">(optional)</span></span>' +
         '<input data-f="' + r.nk + '" value="' + esc(noteVal) + '" autocomplete="off"></label>' +
         '<div class="pg-actions"><button type="button" class="btn primary" data-act="give">' + ICO.check + esc(r.giveLbl) + '</button>' +
         (r.on && isTop(S.user) ? '<button type="button" class="btn direct-btn" data-act="give-direct" title="Skip the ' + esc(FLOW.MID) + ': straight to the caller">Direct → ' + esc(r.caller) + '</button>' : '') +
         (v.phoneDigits && !(r.on && isTop(S.user)) ? '<button type="button" class="btn wa-give" data-act="give-wa" title="Give the program and send it to the driver on WhatsApp">' + ICO.wa + '<span>Give + WhatsApp</span></button>' : '') +
+        '<button type="button" class="btn link sm pg-add2" data-act="p2">' + (two ? '✕ Only 1 program' : '＋ 2nd program') + '</button>' +
         (has ? '<button type="button" class="btn" data-act="cancel">Cancel</button><button type="button" class="btn link sm" data-act="remove">Remove program</button>' : '') +
         '</div>' + deliveryHtml(v.vno);
     }
@@ -1273,11 +1286,23 @@
     let ok = true;
     if (act === 'edit') { S.editing[vno] = true; }
     const r = flowRole(S.byVno[vno]), p = S.active[vno];
-    const clearDraft = () => { S.editing[vno] = false; delete d.program; delete d.broker; delete d.note; delete d.dnote; };
+    const clearDraft = () => { S.editing[vno] = false; delete d.program; delete d.broker; delete d.note; delete d.dnote; delete d.program2; delete d.broker2; delete S.two[vno]; };
+    const two = S.two[vno] != null ? S.two[vno] : twoParts(p && p.program).length > 1;
     if (act === 'cancel') clearDraft();
     else if (act === 'send') { await sendToCaller([vno]); return; }
+    else if (act === 'p2') {   // a 2nd program row on / off
+      S.two[vno] = !two;
+      if (two) { d.program2 = ''; d.broker2 = ''; }
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // a box still being typed in would hold the redraw back
+      renderAll();
+      setTimeout(() => { const i = $('.pg[data-v="' + vno + '"] [data-f="' + (two ? 'program' : 'program2') + '"]'); if (i) i.focus(); }, 30);
+      return;
+    }
     else if (act === 'give' || act === 'give-wa' || act === 'give-direct') {
-      const program = String(d.program || '').trim(), broker = String(d.broker || '').trim(), note = String(d[r.nk] || '').trim();
+      // two programs: one cell "1) KONSARI 2) EMAMI" (and the brokers the same way)
+      let p1 = String(d.program || '').trim(), p2 = two ? String(d.program2 || '').trim() : '', b1 = String(d.broker || '').trim(), b2 = two ? String(d.broker2 || '').trim() : '';
+      if (!p1 && p2) { p1 = p2; p2 = ''; b1 = b1 || b2; b2 = ''; }
+      const program = twoJoin(p1, p2), broker = p2 && b2 ? twoJoin(b1, b2) : b1, note = String(d[r.nk] || '').trim();
       const direct = act === 'give-direct'; // the Director, straight to the caller
       if (!program && note && r.on && act !== 'give-wa') { // a remark on its own
         const body = { [r.nk]: note };
@@ -2041,7 +2066,7 @@
     if (!p) return '';
     let s = '';
     if (p.program) {
-      s += esc(p.program) +
+      s += twoLines(p.program) +   // two programs: 1) … and 2) … on their own lines
         (/^director$/i.test(String(p.givenBy || '').trim()) ? ' <b class="by-d" title="Given by the Director">(D)</b>' : '') +
         (p.informed === 'Yes' ? ' <span class="ok">✓</span>' : '');
     }
@@ -2059,7 +2084,7 @@
       case 'unloading': head = ['To Location', 'Item', 'Next Load']; cells = v => [placeN(v), esc(v.item), progCell(v)]; break;
       case 'running': head = ['Route', 'Current Location']; cells = v => [placeN(v), esc(v.cur)]; break;
       case 'empty': head = ['Current Location', 'From Location']; cells = v => [placeN(v), esc(v.from)]; break;
-      case 'noprog': head = ['Current Location', 'Next Load', 'Broker']; cells = v => { const p = S.active[v.vno]; return [placeN(v), progCell(v), esc(p ? p.broker : '')]; }; break;
+      case 'noprog': head = ['Current Location', 'Next Load', 'Broker']; cells = v => { const p = S.active[v.vno]; return [placeN(v), progCell(v), twoLines(p ? p.broker : '')]; }; break;
       case 'repair': head = ['Location', 'Reason']; cells = v => [esc(v.cur), esc(v.remarks)]; break;
       case 'halted': head = ['Location']; cells = v => [placeN(v)]; break;
       case 'emergency': head = ['Location', 'Reason']; cells = v => [esc(v.cur), esc(v.remarks)]; break;
@@ -2336,7 +2361,7 @@
         const h = heads[i] || '', next = /^next\s*load$/i.test(h), broker = /^broker$/i.test(h);
         let x = esc(c(i));
         if (vno && !c(i) && next) x = progCell(S.byVno[vno] || { vno: vno });   // the website's program where the sheet has none
-        if (vno && !c(i) && broker && p) x = esc(p.broker || '');
+        if (vno && !c(i) && broker && p) x = twoLines(p.broker || '');
         return '<td' + (vno && (next || broker) ? ' class="prog" data-edit="' + esc(vno) + '"' : '') + '>' + x + '</td>';
       }).join('') + '</tr>';
     }).join('');
