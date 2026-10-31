@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v71';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v72';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -3516,7 +3516,7 @@
         maxClusterRadius: 38, showCoverageOnHover: false, spiderfyOnMaxZoom: true, zoomToBoundsOnClick: true,
         iconCreateFunction: cl => L.divIcon({ className: 'mk', iconSize: null, html: ringHtml(cl.getAllChildMarkers().flatMap(x => x.options.vs || [])) })
       });
-      m = MAPS[id] = { map: map, lines: L.layerGroup().addTo(map), marks: L.layerGroup().addTo(map), trucks: trucks.addTo(map), fit: '' };
+      m = MAPS[id] = { map: map, lines: L.layerGroup().addTo(map), marks: L.layerGroup().addTo(map), trucks: trucks.addTo(map), fit: '', office: officeMark(L, map) };
       if (!plain) L.control.layers(null, { 'Trucks now': m.trucks, 'Route lines': m.lines }, { position: 'topright' }).addTo(map);
       el.addEventListener('click', e => {
         const v = e.target.closest('[data-v]'), p = e.target.closest('[data-rplace]');
@@ -3528,7 +3528,25 @@
     m.lines.clearLayers(); m.marks.clearLayers(); m.trucks.clearLayers();
     m.drawn = new Set();   // roads on the map now (a → b), so a truck's own road is not drawn twice
     m.ways = {};           // a → b: every way of it drawn (the chosen route), [pts, …]
+    const oc = m.office && m.office.getElement() && m.office.getElement().querySelector('.mk-office span');
+    if (oc) oc.textContent = officeVs().length || '';   // how many vehicles are at the office now
     return m;
+  }
+  /** every vehicle whose current location is the office */
+  const officeVs = () => S.vehicles.filter(v => v.cat !== 'sold' && /\bOFFICE\b/.test(up(v.cur)));
+  /** the company office — Daman Mandeep Roadlines, NH53 just past the Rajnandgaon bypass — on every map: an OFFICE tag
+   *  with how many vehicles are there; tap it: all of them (status, route), tap one for its details */
+  function officeMark(L, map) {
+    const ll = PLACES.OFFICE;
+    if (!ll) return null;
+    const mk = L.marker(ll, { zIndexOffset: 1800, riseOnHover: true, keyboard: false,
+      icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in mk-office" title="Daman Mandeep Roadlines"><i>🏢</i><b>OFFICE</b><span></span></div>' }) });
+    mk.bindPopup(() => {
+      const vs = officeVs();
+      return vs.length ? mapPopup('OFFICE', vs, 'Daman Mandeep Roadlines · here now')
+        : '<div class="mp-h">' + ICO.pin + '<b>OFFICE</b><span>Daman Mandeep Roadlines</span></div><div class="mp-tip">No vehicle at the office now</div>';
+    }, { maxWidth: 290, className: 'mp-pop' });
+    return mk.addTo(map);
   }
   /** a gentle curve from a to b, so A → B and B → A do not lie on top of each other */
   function arc(a, b, bend) {
@@ -3656,7 +3674,7 @@
     all.forEach(e => { e.classList.remove('mk-small', 'mk-off', 'mk-flip'); e.style.marginLeft = e.style.marginTop = ''; });
     const rank = e => e.classList.contains('mk-hub') ? 1e6 : e.classList.contains('mk-tag') ? 1e4 + (+e.dataset.n || 0)
       : e.classList.contains('mp-eta-tip') ? (e.classList.contains('mp-faint') ? 4e3 : 5e3) : e.classList.contains('major') ? 2e3 : 1e3;
-    const kept = [...el.querySelectorAll('.mk-pinw')].map(e => e.getBoundingClientRect()), pad = 2;   // the big A / B pins stay uncovered
+    const kept = [...el.querySelectorAll('.mk-pinw, .mk-office')].map(e => e.getBoundingClientRect()), pad = 2;   // the big A / B pins and the OFFICE tag stay uncovered
     const hits = r => kept.some(k => r.left < k.right + pad && k.left < r.right + pad && r.top < k.bottom + pad && k.top < r.bottom + pad);
     all.filter(e => e.offsetParent !== null).sort((a, b) => rank(b) - rank(a)).forEach(e => {
       let r = e.getBoundingClientRect();

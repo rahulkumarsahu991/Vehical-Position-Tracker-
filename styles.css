@@ -1996,3 +1996,14 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
   .bulk-bar .bb-ph { grid-column: 1 / -1; padding: 2px 0 0; }
   .bulk-bar .bb-trips .pg-lbl { display: none; }
 }
+
+/* the company office on every map: a navy OFFICE tag standing just above its spot (the arrow points at it),
+   with how many vehicles are there now */
+.mk-in.mk-office {
+  transform: translate(-50%, calc(-100% - 10px)); display: flex; align-items: center; gap: 4px; padding: 3px 7px 3px 5px; border-radius: 8px;
+  background: var(--navy); color: #fff; border: 2px solid #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .35); font: 700 12.5px/1.1 var(--cond); letter-spacing: .6px;
+}
+.mk-office::after { content: ""; position: absolute; left: 50%; bottom: -9px; margin-left: -6px; border: 6px solid transparent; border-bottom: 0; border-top-color: var(--navy); }
+.mk-office i { font-style: normal; font-size: 13px; }
+.mk-office span { background: var(--orange); border-radius: 999px; padding: 0 6px; font: 700 11px/1.4 var(--font); letter-spacing: 0; }
+.mk-office span:empty { display: none; }
