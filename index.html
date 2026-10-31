@@ -152,8 +152,8 @@
         <button type="button" class="btn danger sm" id="bulkRemove" hidden title="Take the program off the ticked vehicles that have one">🗑 <span>Remove program</span></button>
         <button type="button" class="btn link sm" id="bulkClear">Clear</button>
       </div>
-      <!-- Print → U&N: one program or two for all ticked vehicles, each From / To / Rate (like a vehicle's own box) -->
-      <div class="bb-trips" id="bulkTrips" hidden>
+      <!-- one program or two for all ticked vehicles (Programs tab and Print → U&N), each From / To / Rate — like a vehicle's own box -->
+      <div class="bb-trips" id="bulkTrips">
         <div class="bb-ph"><i>1</i>1st program</div>
         <label class="field"><span class="pg-lbl">From</span><input id="bulkFrom1" list="locList" placeholder="From" autocomplete="off"></label>
         <label class="field"><span class="pg-lbl">To</span><input id="bulkTo1" list="locList" placeholder="To" autocomplete="off"></label>
@@ -166,8 +166,6 @@
         <label class="field bb-2"><span class="pg-lbl">Broker / Party</span><input id="bulkBroker2" placeholder="Broker / Party" autocomplete="off"></label>
       </div>
       <div class="bb-row">
-        <label class="field"><span class="pg-lbl">Program</span><input id="bulkProg" list="locList" autocomplete="off"></label>
-        <label class="field"><span class="pg-lbl">Broker / Party</span><input id="bulkBroker" autocomplete="off"></label>
         <label class="field"><span class="pg-lbl">Remark</span><input id="bulkNote" autocomplete="off"></label>
         <div class="bb-btns">
           <button type="button" class="btn primary" id="bulkGive">Give program</button>

@@ -703,7 +703,7 @@ table.vt td.rem { min-width: 180px; color: var(--ink-2); }
 .bulk-bar .bb-top .btn { margin-left: auto; }
 .bulk-bar .bb-top .btn:not([hidden]) + .btn { margin-left: 0; }
 .bulk-bar .bb-top .btn.danger { padding: 4px 10px; min-height: 0; font-size: 12.5px; }
-.bulk-bar .bb-row { display: grid; grid-template-columns: 1.4fr 1fr 1fr auto; gap: 8px; align-items: end; }
+.bulk-bar .bb-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }   /* Remark | Give (the programs sit above it) */
 body.has-bulk main { padding-bottom: 180px; }
 
 /* login / PIN screens */
@@ -1981,7 +1981,7 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
   .dw-toll::after { display: none; }
 }
 
-/* Print → U&N bar: 1st / 2nd program, each From | To | Rate | Broker on one line (phone: two lines, the boxes
+/* the bulk bar (Programs tab and Print → U&N): 1st / 2nd program, each From | To | Rate | Broker on one line (phone: two lines, the boxes
    name themselves) — the same boxes as a vehicle's own program box */
 .bulk-bar .bb-trips { display: grid; grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1fr) 84px minmax(0, 1fr); gap: 6px 8px; align-items: end; }
 .bulk-bar .bb-ph {
@@ -1991,10 +1991,8 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 .bulk-bar .bb-ph i { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; background: var(--navy); color: #fff; font: 700 11px var(--font); font-style: normal; }
 .bulk-bar .bb-ph2 i { background: var(--orange); }
 .bulk-bar .field.bb-2 input:not(:focus) { background: var(--orange-l); }
-.bulk-bar.trips .bb-row { grid-template-columns: minmax(0, 1fr) auto; }
 @media (max-width: 760px) {
   .bulk-bar .bb-trips { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 5px 6px; }
   .bulk-bar .bb-ph { grid-column: 1 / -1; padding: 2px 0 0; }
   .bulk-bar .bb-trips .pg-lbl { display: none; }
-  .bulk-bar.trips .bb-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
