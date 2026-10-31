@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v64';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v65';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -1123,6 +1123,21 @@
     $('#bulkDirect').hidden = !(S.flow && isTop(S.user));
     bar.classList.toggle('two-btn', !$('#bulkDirect').hidden);
     $('#bulkNote').closest('label').querySelector('.pg-lbl').textContent = S.flow && isTop(S.user) ? 'Remark for ' + FLOW.MID : 'Remark';
+    const k = withProgram([...S.sel]).length;   // ticked vehicles that already have a program: they can lose it together
+    $('#bulkRemove').hidden = !k;
+    $('#bulkRemove span').textContent = (IS_PHONE ? 'Remove (' : 'Remove program (') + k + ')';
+  }
+  const withProgram = vnos => vnos.filter(vno => S.active[vno] && (S.active[vno].program || S.active[vno].broker));
+  /** the program off every ticked vehicle that has one — they go back to "Need program" */
+  async function bulkRemove() {
+    const vnos = withProgram([...S.sel]);
+    if (!vnos.length) return;
+    if (!confirm('Remove the program of ' + vnos.length + ' vehicle' + (vnos.length > 1 ? 's' : '') + '?\nThey go back to “Need program”.')) return;
+    if (!(await ensureUser())) return;
+    for (const vno of vnos) await saveProgram(vno, { program: '', broker: '', note: '', dnote: '' }, false);
+    S.sel.clear();
+    toast('Program removed from ' + vnos.length + ' vehicle' + (vnos.length > 1 ? 's' : ''));
+    renderAll();
   }
   /** one program (and broker) for every ticked vehicle — saved at once, sent to the sheet in the background */
   async function bulkGive(direct) {
@@ -4741,7 +4756,8 @@
       vnos.forEach(x => { if (all) S.sel.delete(x); else S.sel.add(x); });
       renderPrograms();
     });
-    $('#bulkClear').addEventListener('click', () => { S.sel.clear(); renderPrograms(); });
+    $('#bulkClear').addEventListener('click', () => { S.sel.clear(); if (S.view === 'print') renderPsel(); else renderPrograms(); });
+    $('#bulkRemove').addEventListener('click', bulkRemove);
     $('#bulkGive').addEventListener('click', () => bulkGive(false));
     $('#bulkDirect').addEventListener('click', () => bulkGive(true));
     $('#bulkProg').addEventListener('keydown', e => { if (e.key === 'Enter') bulkGive(); });
