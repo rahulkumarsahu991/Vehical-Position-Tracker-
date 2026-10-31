@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v68';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v69';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -1035,14 +1035,14 @@
   /** a program for the eye: From → To and the rate in a small box; two programs on two lines 1) … 2) … */
   const tripHtml = s => { const t = progTrip(s); return esc(t.from) + (t.to ? ' → ' + esc(t.to) : '') + (t.rate ? ' <span class="pp-rate">₹' + esc(t.rate) + '</span>' : ''); };
   const progLines = s => { const ps = twoParts(s); return ps.length > 1 ? ps.map((x, i) => (i + 1) + ') ' + tripHtml(x)).join('<br>') : tripHtml(ps[0]); };
-  /** Program box — used on program cards and in the vehicle detail */
-  function progEditor(v) {
+  /** Program box — used on program cards and in the vehicle detail (full: the detail — both programs open at once) */
+  function progEditor(v, full) {
     const p = S.active[v.vno];
     const d = S.drafts[v.vno] || {};
     const has = !!(p && p.program);
     const editing = !has || S.editing[v.vno];
     const r = flowRole(v);
-    const pp = twoParts(p && p.program), two = S.two[v.vno] != null ? S.two[v.vno] : pp.length > 1;   // a 2nd program row
+    const pp = twoParts(p && p.program), two = S.two[v.vno] != null ? S.two[v.vno] : full || pp.length > 1;   // the 1st + 2nd program boxes
     let h = '<div class="pg' + (editing ? ' editing' : '') + (editing && two ? ' two' : '') + (S.saving[v.vno] ? ' busy' : '') + '" data-v="' + esc(v.vno) + '">';
     if (!editing) {
       const ok = p.informed === 'Yes', atMgr = r.on && p.stage === 'manager';
@@ -1307,7 +1307,7 @@
     const r = flowRole(S.byVno[vno]), p = S.active[vno];
     const TRIP = ['from1', 'to1', 'rate1', 'from2', 'to2', 'rate2'];
     const clearDraft = () => { S.editing[vno] = false; delete d.program; delete d.broker; delete d.note; delete d.dnote; delete d.broker2; TRIP.forEach(k => { delete d[k]; }); delete S.two[vno]; };
-    const two = S.two[vno] != null ? S.two[vno] : twoParts(p && p.program).length > 1;
+    const two = box.classList.contains('two');   // what the box shows now: two programs (From / To / Rate) or one
     if (act === 'cancel') clearDraft();
     else if (act === 'send') { await sendToCaller([vno]); return; }
     else if (act === 'p2') {   // two programs (From / To / Rate each) on / off
@@ -1337,7 +1337,7 @@
         if (direct) body.send = true;
         ok = await saveProgram(vno, body, direct ? 'Remark sent to ' + r.caller : r.to ? 'Remark sent to ' + r.to : 'Remark saved');
         if (ok) { delete d[r.nk]; if (!(p && p.program)) S.editing[vno] = false; }
-      } else if (!program) { toast('Write the program first (where to go / load from)', true); const i = $('[data-f="program"]', box); if (i) i.focus(); return; }
+      } else if (!program) { toast('Write the program first (where to go / load from)', true); const i = $('[data-f="from1"], [data-f="program"]', box); if (i) i.focus(); return; }
       else {
         // WhatsApp has to open right inside the tap (before any waiting), or the browser blocks the new tab
         const sendNow = act === 'give-wa' && S.user && S.byVno[vno];
@@ -1404,7 +1404,7 @@
         esc(c.label + (v.from && v.to ? ' · ' + v.from + ' → ' + v.to : v.from ? ' · from ' + v.from : v.to ? ' · to ' + v.to : '') + (v.item ? ' · ' + v.item : '')) + '</div></div>' +
       (v.phoneDigits ? '<div class="quick"><a href="tel:+91' + v.phoneDigits + '" class="btn call-btn">' + ICO.phone + 'Call ' + esc((v.driver || 'driver').split(' ')[0]) + '</a>' +
         '<a href="' + esc(waLink(v)) + '" target="_blank" rel="noopener" class="btn wa-btn">' + ICO.wa + 'WhatsApp' + (p && p.program ? ' program' : '') + '</a></div>' : '') +
-      '<div class="card"><h4>Program</h4>' + progEditor(v) + '</div>' + detailMsgsHtml(v) +
+      '<div class="card"><h4>Program</h4>' + progEditor(v, true) + '</div>' + detailMsgsHtml(v) +
       '<div class="card"><h4>Calling Sheet</h4><dl class="kv">' + kv.map(x => '<dt>' + esc(x[0]) + '</dt><dd>' + esc(x[1]) + '</dd>').join('') + '</dl></div>' +
       (hist.length ? '<div class="card"><h4>Program history</h4><div class="hist">' + hist.map(x =>
         '<div class="hist-item">' + (x.program ? '<b>' + esc(x.program) + '</b>' : '<i>No program</i>') + (x.broker ? ' (' + esc(x.broker) + ')' : '') +
@@ -4871,7 +4871,7 @@
       const vno = c.dataset.edit;
       if (S.active[vno] && S.active[vno].program) S.editing[vno] = true;
       openDetail(vno);
-      setTimeout(() => { const i = $('#sheet .pg [data-f="program"]'); if (i) i.focus(); }, 250);
+      setTimeout(() => { const i = $('#sheet .pg [data-f="from1"], #sheet .pg [data-f="program"]'); if (i) i.focus(); }, 250);
     });
     $('#repSeg').addEventListener('click', e => { const b = e.target.closest('[data-rep]'); if (b) { S.print.rep = b.dataset.rep; savePrint(); renderPrint(); } });
     // U&N: tick vehicles → one program for all of them (the bottom bar)
