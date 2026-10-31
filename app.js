@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v67';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v68';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -494,6 +494,7 @@
     S.callers = callers;
     const places = {}, items = {};
     S.vehicles.forEach(v => { [v.from, v.to, v.cur].forEach(p => { if (p) places[p] = 1; }); if (v.item) items[v.item] = 1; });
+    Object.keys(window.VPT_PLACES || {}).forEach(p => { places[p] = 1; });   // the known towns too, for the From / To suggestions
     S.places = Object.keys(places).sort();
     S.items = Object.keys(items).sort();
     $('#locList').innerHTML = S.places.map(p => '<option value="' + esc(p) + '">').join('');
@@ -1019,6 +1020,21 @@
   const twoJoin = (a, b) => (b ? '1) ' + (a || '—') + ' 2) ' + b : a);
   /** each program on its own line: "1) KONSARI<br>2) EMAMI" (escaped) */
   const twoLines = s => { const ps = twoParts(s); return ps.length > 1 ? ps.map((x, i) => (i + 1) + ') ' + esc(x)).join('<br>') : esc(ps[0]); };
+  /** one program as a trip "KONSARI → VIZAG ₹1200" ⇄ { from, to, rate } (plain text "KONSARI" = from only) */
+  const progTrip = s => {
+    let t = String(s || '').trim(), rate = '';
+    const m = t.match(/\s*₹\s*([^\s₹]+)\s*$/);
+    if (m) { rate = m[1]; t = t.slice(0, m.index).trim(); }
+    const i = t.indexOf('→');
+    return i < 0 ? { from: t, to: '', rate: rate } : { from: t.slice(0, i).trim(), to: t.slice(i + 1).trim(), rate: rate };
+  };
+  const tripText = (f, t, r) => {
+    f = String(f || '').trim(); t = String(t || '').trim(); r = String(r || '').replace(/₹/g, '').replace(/\s+/g, '');
+    return ((f + (t ? ' → ' + t : '')).trim() + (r ? ' ₹' + r : '')).trim();
+  };
+  /** a program for the eye: From → To and the rate in a small box; two programs on two lines 1) … 2) … */
+  const tripHtml = s => { const t = progTrip(s); return esc(t.from) + (t.to ? ' → ' + esc(t.to) : '') + (t.rate ? ' <span class="pp-rate">₹' + esc(t.rate) + '</span>' : ''); };
+  const progLines = s => { const ps = twoParts(s); return ps.length > 1 ? ps.map((x, i) => (i + 1) + ') ' + tripHtml(x)).join('<br>') : tripHtml(ps[0]); };
   /** Program box — used on program cards and in the vehicle detail */
   function progEditor(v) {
     const p = S.active[v.vno];
@@ -1032,7 +1048,7 @@
       const ok = p.informed === 'Yes', atMgr = r.on && p.stage === 'manager';
       h += '<div class="pg-given' + (ok ? ' ok' : '') + (atMgr ? ' at-mgr' : '') + '">' +
         '<span class="pg-lbl">' + (v.cat === 'unloading' ? 'Next load program' : 'Program') + '</span>' +
-        '<div class="pg-text">' + twoLines(p.program) + '</div>' +
+        '<div class="pg-text">' + progLines(p.program) + '</div>' +
         (p.broker ? '<div class="pg-meta">Broker / Party: <b>' + twoLines(p.broker) + '</b></div>' : '') +
         // Director's remark: the Director and Manager see the latest; the caller sees what the Manager sent on
         ((dn => (dn ? '<div class="pg-meta">' + esc(FLOW.TOP) + '’s remark: <b>' + esc(dn) + '</b></div>' : ''))(r.on ? (isBoss(S.user) ? p.dnote : p.dnoteSent) : '')) +
@@ -1054,19 +1070,22 @@
           '</div>';
       }
     } else {
-      const bb = twoParts(p && p.broker), dash = x => (x === '—' ? '' : x);
-      const progVal = d.program != null ? d.program : pp[0];
-      const brokerVal = d.broker != null ? d.broker : dash(bb[0]);
-      const prog2Val = d.program2 != null ? d.program2 : pp[1] || '';
-      const broker2Val = d.broker2 != null ? d.broker2 : dash(bb[1] || '');
+      const bb = twoParts(p && p.broker), dash = x => (x === '—' ? '' : x), val = (k, dflt) => (d[k] != null ? d[k] : dflt);
+      const progVal = val('program', pp[0]);
+      const brokerVal = val('broker', dash(bb[0]));
       const noteVal = d[r.nk] != null ? d[r.nk] : (p && p[r.nk]) || '';
-      h += '<label class="field"><span class="pg-lbl">' + (two ? '1st program' : v.cat === 'unloading' ? 'Next load program' : 'Program') + ' <span class="hi">— where to go / load from</span></span>' +
-        '<input data-f="program" list="locList" value="' + esc(progVal) + '" autocomplete="off"></label>' +
-        '<label class="field"><span class="pg-lbl">' + (two ? 'Broker / Party 1' : 'Broker / Party') + ' <span class="hi">(optional)</span></span>' +
-        '<input data-f="broker" value="' + esc(brokerVal) + '" autocomplete="off"></label>' +
-        // the 2nd program (and its broker): saved with the 1st as "1) … 2) …"
-        (two ? '<label class="field pg-2"><span class="pg-lbl">2nd program</span><input data-f="program2" list="locList" value="' + esc(prog2Val) + '" autocomplete="off"></label>' +
-          '<label class="field pg-2"><span class="pg-lbl">Broker / Party 2 <span class="hi">(optional)</span></span><input data-f="broker2" value="' + esc(broker2Val) + '" autocomplete="off"></label>' : '') +
+      // two programs: each one From → To with its rate (place names suggested while typing) and its broker
+      const trip = (n, t, b) => '<div class="pg-ph' + (n > 1 ? ' pg-ph2' : '') + '"><i>' + n + '</i>' + (n > 1 ? '2nd' : '1st') + ' program</div>' +
+        '<label class="field' + (n > 1 ? ' pg-2' : '') + '"><span class="pg-lbl">From</span><input data-f="from' + n + '" list="locList" value="' + esc(val('from' + n, t.from)) + '" autocomplete="off"></label>' +
+        '<label class="field' + (n > 1 ? ' pg-2' : '') + '"><span class="pg-lbl">To</span><input data-f="to' + n + '" list="locList" value="' + esc(val('to' + n, t.to)) + '" autocomplete="off"></label>' +
+        '<label class="field' + (n > 1 ? ' pg-2' : '') + '"><span class="pg-lbl">Rate ₹</span><input data-f="rate' + n + '" inputmode="decimal" value="' + esc(val('rate' + n, t.rate)) + '" autocomplete="off"></label>' +
+        '<label class="field' + (n > 1 ? ' pg-2' : '') + '"><span class="pg-lbl">Broker / Party <span class="hi">(optional)</span></span><input data-f="' + (n > 1 ? 'broker2' : 'broker') + '" value="' + esc(b) + '" autocomplete="off"></label>';
+      h += (two
+        ? trip(1, progTrip(d.program != null ? d.program : pp[0]), brokerVal) + trip(2, progTrip(pp[1] || ''), val('broker2', dash(bb[1] || '')))
+        : '<label class="field"><span class="pg-lbl">' + (v.cat === 'unloading' ? 'Next load program' : 'Program') + ' <span class="hi">— where to go / load from</span></span>' +
+          '<input data-f="program" list="locList" value="' + esc(progVal) + '" autocomplete="off"></label>' +
+          '<label class="field"><span class="pg-lbl">Broker / Party <span class="hi">(optional)</span></span>' +
+          '<input data-f="broker" value="' + esc(brokerVal) + '" autocomplete="off"></label>') +
         '<label class="field pg-rm" title="' + (r.on ? 'Only a remark? Leave Program empty and tap the button.' : '') + '"><span class="pg-lbl">' + esc(r.noteLbl) + ' <span class="hi">(optional)</span></span>' +
         '<input data-f="' + r.nk + '" value="' + esc(noteVal) + '" autocomplete="off"></label>' +
         '<div class="pg-actions"><button type="button" class="btn primary" data-act="give">' + ICO.check + esc(r.giveLbl) + '</button>' +
@@ -1286,21 +1305,30 @@
     let ok = true;
     if (act === 'edit') { S.editing[vno] = true; }
     const r = flowRole(S.byVno[vno]), p = S.active[vno];
-    const clearDraft = () => { S.editing[vno] = false; delete d.program; delete d.broker; delete d.note; delete d.dnote; delete d.program2; delete d.broker2; delete S.two[vno]; };
+    const TRIP = ['from1', 'to1', 'rate1', 'from2', 'to2', 'rate2'];
+    const clearDraft = () => { S.editing[vno] = false; delete d.program; delete d.broker; delete d.note; delete d.dnote; delete d.broker2; TRIP.forEach(k => { delete d[k]; }); delete S.two[vno]; };
     const two = S.two[vno] != null ? S.two[vno] : twoParts(p && p.program).length > 1;
     if (act === 'cancel') clearDraft();
     else if (act === 'send') { await sendToCaller([vno]); return; }
-    else if (act === 'p2') {   // a 2nd program row on / off
+    else if (act === 'p2') {   // two programs (From / To / Rate each) on / off
       S.two[vno] = !two;
-      if (two) { d.program2 = ''; d.broker2 = ''; }
+      if (two) {   // back to one: the 1st trip stays as the program, the 2nd goes
+        if (d.from1 != null) d.program = tripText(d.from1, d.to1, d.rate1);
+        TRIP.forEach(k => { delete d[k]; }); d.broker2 = '';
+      }
       if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // a box still being typed in would hold the redraw back
       renderAll();
-      setTimeout(() => { const i = $('.pg[data-v="' + vno + '"] [data-f="' + (two ? 'program' : 'program2') + '"]'); if (i) i.focus(); }, 30);
+      setTimeout(() => {
+        const box2 = $('.pg[data-v="' + vno + '"]'), f1 = box2 && $('[data-f="from1"]', box2);
+        const i = box2 && $('[data-f="' + (two ? 'program' : f1 && f1.value ? 'from2' : 'from1') + '"]', box2);
+        if (i) i.focus();
+      }, 30);
       return;
     }
     else if (act === 'give' || act === 'give-wa' || act === 'give-direct') {
-      // two programs: one cell "1) KONSARI 2) EMAMI" (and the brokers the same way)
-      let p1 = String(d.program || '').trim(), p2 = two ? String(d.program2 || '').trim() : '', b1 = String(d.broker || '').trim(), b2 = two ? String(d.broker2 || '').trim() : '';
+      // two programs: one cell "1) KONSARI → VIZAG ₹1200 2) VIZAG → RAIPUR ₹900" (and the brokers the same way)
+      let p1 = two ? tripText(d.from1, d.to1, d.rate1) : String(d.program || '').trim(), p2 = two ? tripText(d.from2, d.to2, d.rate2) : '';
+      let b1 = String(d.broker || '').trim(), b2 = two ? String(d.broker2 || '').trim() : '';
       if (!p1 && p2) { p1 = p2; p2 = ''; b1 = b1 || b2; b2 = ''; }
       const program = twoJoin(p1, p2), broker = p2 && b2 ? twoJoin(b1, b2) : b1, note = String(d[r.nk] || '').trim();
       const direct = act === 'give-direct'; // the Director, straight to the caller
@@ -2066,7 +2094,7 @@
     if (!p) return '';
     let s = '';
     if (p.program) {
-      s += twoLines(p.program) +   // two programs: 1) … and 2) … on their own lines
+      s += progLines(p.program) +   // two programs: 1) From → To ₹rate and 2) … on their own lines
         (/^director$/i.test(String(p.givenBy || '').trim()) ? ' <b class="by-d" title="Given by the Director">(D)</b>' : '') +
         (p.informed === 'Yes' ? ' <span class="ok">✓</span>' : '');
     }

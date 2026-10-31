@@ -520,6 +520,13 @@ table.vt td.rem { min-width: 180px; color: var(--ink-2); }
 .pg.editing.two > .field.pg-rm { grid-column: 1 / -1; }
 .pg.editing .field.pg-2 input:not(:focus) { background: var(--orange-l); }
 .pg.editing .pg-add2 { color: var(--orange-d); font-weight: 700; }
+/* two programs: a small heading over each one's From | To / Rate | Broker */
+.pg.editing .pg-ph { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; margin-top: 2px; font: 700 12.5px var(--cond); letter-spacing: .4px; text-transform: uppercase; color: var(--navy); }
+.pg.editing .pg-ph i { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; background: var(--navy); color: #fff; font: 700 11px var(--font); font-style: normal; }
+.pg.editing .pg-ph2 { border-top: 1px dashed var(--line); padding-top: 6px; }
+.pg.editing .pg-ph2 i { background: var(--orange); }
+/* a program's rate in a small box (program cards and prints) */
+.pp-rate { display: inline-block; padding: 0 4px; border: 1px solid currentColor; border-radius: 4px; font-weight: 700; white-space: nowrap; line-height: 1.25; }
 .pg.editing .pg-lbl .hi { display: none; }   /* short labels (the boxes have no placeholder text) */
 .pg.editing .field input { padding: 7px 9px; font-size: 13.5px; background: #fafbfe; }
 .pg.editing .field input:focus { background: #fff; }
