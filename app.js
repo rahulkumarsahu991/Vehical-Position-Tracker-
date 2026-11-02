@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v72';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v73';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -100,6 +100,7 @@
     detail: null, pending: false,
     changedAt: {}, gridSig: '', progSig: '', fromCache: false, fails: 0, sheetChangedAt: 0,
     saving: {}, lastSaveAt: 0, outbox: store.get(K.outbox, []), flushing: false, outboxError: '', retryTimer: null,
+    batchOk: !!store.get('vpt_batch_ok', false),   // the Apps Script saves many vehicles in one call (Code.gs "batch-1")
     repairInfo: {}, repairAt: 0, repairLoading: false,
     // Director → Manager → caller messages (Messages tab); flow is on once the deployed Code.gs has it
     flow: !LOCAL && !!store.get(K.flow, false), msgs: store.get(K.msgCache, []), msgSig: '', msgKnown: new Set(), msgSeeded: false,
@@ -1136,7 +1137,7 @@
       if (tmpMsgs.length) { S.msgs = S.msgs.concat(tmpMsgs); renderInboxBtn(); }
       S.outbox.push({ vno: vno, body: body, tmpMsgs: tmpMsgs.map(m => m.id) });
       store.set(K.outbox, S.outbox);
-      flushOutbox();
+      clearTimeout(S.flushSoon); S.flushSoon = setTimeout(flushOutbox, 0);   // after a whole "give to many" is queued: it goes in one call
     }
     computeActive();
     if (okMsg !== false) toast(okMsg || 'Saved'); // false = quiet (one note for many vehicles)
@@ -1239,53 +1240,85 @@
     if (i >= 0) S.programs[i] = rec; else S.programs.push(rec);
   }
 
-  /** Sends waiting saves one by one, in order. */
+  /** Sends the waiting saves. The first waiting save of every vehicle goes together — in ONE call when the Apps Script
+   *  takes many (Code.gs "batch-1"), else 4 calls at a time — so "one program for many" (11 vehicles at Shree Cement)
+   *  reaches the sheet in a few seconds instead of 3–5 s per vehicle. A vehicle's later change waits for its earlier one. */
   async function flushOutbox() {
     if (S.flushing || !S.outbox.length) return;
     S.flushing = true; setSaveState();
+    const token = () => S.auth.token || '';
+    // the row to write: the one the server gave this vehicle, else the server reuses today's row of the vehicle
+    const withId = job => {
+      const a = S.programs.filter(p => p.vno === job.vno).sort((x, y) => String(y.updatedAt).localeCompare(String(x.updatedAt)))[0];
+      return Object.assign({}, job.body, { id: a && !/^tmp-/.test(a.id) ? a.id : '' });
+    };
+    const done = (job, res) => {
+      S.outbox = S.outbox.filter(j => j !== job);
+      store.set(K.outbox, S.outbox);
+      S.outboxError = '';
+      if (job.action === 'seen') return;
+      const srv = res.program;
+      S.savedAt[srv.id] = Date.now();
+      // the server's messages replace the ones shown while saving
+      const gone = new Set(job.tmpMsgs || []);
+      if (gone.size || (res.messages || []).length) {
+        S.msgs = S.msgs.filter(m => !gone.has(m.id)).concat(res.messages || []);
+        (res.messages || []).forEach(m => { S.msgAddedAt[m.id] = Date.now(); S.msgKnown.add(m.id); });
+        store.set(K.msgCache, S.msgs);
+        renderInboxBtn();
+      }
+      const local = S.programs.find(p => p.vno === job.vno && (p.id === srv.id || /^tmp-/.test(p.id)));
+      if (S.outbox.some(j => j.vno === job.vno)) { if (local) local.id = srv.id; } // newer local change still to send
+      else {
+        S.programs = S.programs.filter(p => !(p.vno === job.vno && (p.id === srv.id || /^tmp-/.test(p.id))));
+        S.programs.push(srv);
+        computeActive();
+      }
+    };
     try {
       while (S.outbox.length) {
-        const job = S.outbox[0];
-        const a = S.programs.filter(p => p.vno === job.vno).sort((x, y) => String(y.updatedAt).localeCompare(String(x.updatedAt)))[0];
-        const id = a && !/^tmp-/.test(a.id) ? a.id : ''; // server also reuses today's row of the vehicle
-        let srv, res;
+        const first = S.outbox[0], jobs = [];
+        if (first.action === 'seen') jobs.push(first);
+        else {
+          const vnos = new Set();
+          for (const j of S.outbox) {
+            if (j.action === 'seen') break;
+            if (vnos.has(j.vno)) continue;
+            vnos.add(j.vno); jobs.push(j);
+            if (jobs.length >= 40) break;
+          }
+        }
+        let results = [], err = null;
         try {
-          if (job.action === 'seen') res = await api('seen', { ids: job.ids, token: S.auth.token || '' });
-          else { res = await api('saveProgram', Object.assign({}, job.body, { id: id, token: S.auth.token || '' })); srv = res.program; }
-        } catch (e) {
-          if (e.code === 'auth') { // login ended → ask for the PIN, then the waiting saves go on
+          if (first.action === 'seen') results = [await api('seen', { ids: first.ids, token: token() })];
+          else if (S.batchOk && jobs.length > 1) results = (await api('savePrograms', { items: jobs.map(withId), token: token() })).results || [];
+          else {
+            for (let i = 0; i < jobs.length; i += 4) {
+              results.push(...await Promise.all(jobs.slice(i, i + 4).map(j => api('saveProgram', Object.assign(withId(j), { token: token() }))
+                .catch(e => ({ ok: false, error: e.message, code: e.code })))));
+            }
+          }
+        } catch (e) { err = e; }
+        jobs.forEach((job, i) => {
+          const r = results[i];
+          if (r && r.ok !== false) done(job, r);
+          else if (!err) { err = new Error((r && r.error) || 'Could not save'); err.code = (r && r.code) || ''; }
+        });
+        if (err) {
+          if (err.code === 'auth') { // login ended → ask for the PIN, then the waiting saves go on
             S.outboxError = 'Log in to save';
             setSaveState();
             logoutLocal();
             openLogin();
             return;
           }
-          S.outboxError = e.message || 'Could not save';
+          S.outboxError = err.message || 'Could not save';
           setSaveState();
           clearTimeout(S.retryTimer);
           S.retryTimer = setTimeout(flushOutbox, 8000);
           return;
         }
-        S.outbox.shift();
-        store.set(K.outbox, S.outbox);
-        S.outboxError = '';
-        if (job.action === 'seen') continue;
-        S.savedAt[srv.id] = Date.now();
-        // the server's messages replace the ones shown while saving
-        const gone = new Set(job.tmpMsgs || []);
-        if (gone.size || (res.messages || []).length) {
-          S.msgs = S.msgs.filter(m => !gone.has(m.id)).concat(res.messages || []);
-          (res.messages || []).forEach(m => { S.msgAddedAt[m.id] = Date.now(); S.msgKnown.add(m.id); });
-          store.set(K.msgCache, S.msgs);
-          renderInboxBtn();
-        }
-        const local = S.programs.find(p => p.vno === job.vno && (p.id === srv.id || /^tmp-/.test(p.id)));
-        if (S.outbox.some(j => j.vno === job.vno)) { if (local) local.id = srv.id; } // newer local change still to send
-        else {
-          S.programs = S.programs.filter(p => !(p.vno === job.vno && (p.id === srv.id || /^tmp-/.test(p.id))));
-          S.programs.push(srv);
-          computeActive();
-        }
+        setSaveState();
       }
     } finally {
       S.flushing = false;
@@ -1807,6 +1840,7 @@
         S.drawPass = !!ping.routePass; store.set('vpt_draw_pass', S.drawPass);
         if (S.view === 'draw') renderDrawList();
       }
+      S.batchOk = !!ping.batch; store.set('vpt_batch_ok', S.batchOk);   // Code.gs "batch-1": many vehicles' programs in one call
       loadDrawn(true);
     } catch (e) { return; } // offline: keep what we knew
     if (!S.auth.on) { closeAuth(); return; }
