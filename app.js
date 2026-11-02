@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v75';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v76';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -2454,7 +2454,23 @@
         pg.w.map(w => '<col style="width:' + (w / sum * 100).toFixed(2) + '%">').join('') + '</colgroup>' + rows.join('') + '</table></div></div>';
     }).join('');
   }
+  /** the sheet puts what does not fit — vehicle 56 on, and the blocks after it — in a second column set (G–L);
+   *  the print goes on below instead, one list: the right set's rows follow the left set's, its repeated block name
+   *  ("Unloading (56)" again) left out, so the numbers simply run on 55, 56, … */
+  function tunFlow(grid) {
+    const W = 6, filled = r => r.some(Boolean);
+    const cut = (r, a) => Array.from({ length: W }, (_, i) => String(r[a + i] == null ? '' : r[a + i]).trim());
+    const left = grid.slice(1).map(r => cut(r, 0)), right = grid.slice(1).map(r => cut(r, W));
+    if (!right.some(filled)) return grid;
+    [left, right].forEach(rows => { while (rows.length && !filled(rows[rows.length - 1])) rows.pop(); });
+    while (right.length && !filled(right[0])) right.shift();
+    const isHead = x => /\(\d+\+?\)\s*$/.test(x) && !/^\d+\./.test(x), name = x => x.replace(/\s*\(\d+\+?\)\s*$/, '').toUpperCase();
+    const open = left.slice().reverse().find(r => isHead(r[0]));   // the block the left set ends in
+    if (right.length && open && isHead(right[0][0]) && name(right[0][0]) === name(open[0])) right.shift();
+    return [grid[0]].concat(left, right);
+  }
   function tunPageHtml(grid, orient) {
+    grid = tunFlow(grid);
     const W = [178, 233, 111, 307, 120, 120, 105];   // the tab's column widths (px)
     const cols =Math.min(Math.max(...grid.map(r => { let k = r.length; while (k && !String(r[k - 1] || '').trim()) k--; return k; })), 10) || W.length;
     const widths = Array.from({ length: cols }, (_, i) => W[i] || 110), sum = widths.reduce((a, b) => a + b, 0);
