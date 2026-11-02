@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v73';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v74';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -321,9 +321,9 @@
     }
   }
 
-  async function api(action, payload) {
+  async function api(action, payload, waitMs) {   // waitMs: how long to wait for the answer (40 s; longer for a big "program for many")
     const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const t = ctrl ? setTimeout(() => ctrl.abort(), 40000) : null;
+    const t = ctrl ? setTimeout(() => ctrl.abort(), waitMs || 40000) : null;
     let text;
     try {
       const r = await fetch(API_URL, {
@@ -1291,7 +1291,7 @@
         let results = [], err = null;
         try {
           if (first.action === 'seen') results = [await api('seen', { ids: first.ids, token: token() })];
-          else if (S.batchOk && jobs.length > 1) results = (await api('savePrograms', { items: jobs.map(withId), token: token() })).results || [];
+          else if (S.batchOk && jobs.length > 1) results = (await api('savePrograms', { items: jobs.map(withId), token: token() }, 90000)).results || [];
           else {
             for (let i = 0; i < jobs.length; i += 4) {
               results.push(...await Promise.all(jobs.slice(i, i + 4).map(j => api('saveProgram', Object.assign(withId(j), { token: token() }))
