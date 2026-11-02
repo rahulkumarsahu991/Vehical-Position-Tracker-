@@ -1371,6 +1371,9 @@ table.tun .tun-top td, table.tun .tun-cat, table.tun .tun-hd { font-weight: 700;
 table.tun .tun-top td { padding: 1mm; }
 table.tun .tun-cat { background: #f39c12; }
 table.tun .tun-hd { background: #2d77b7; color: #fff; }
+/* R&H: Repair yellow, Emergency navy (the other blocks orange), as in the sheet */
+table.tun .tun-rep { background: #fcc202; font-weight: 700; }
+table.tun .tun-emg { background: #1f395f; color: #fff; font-weight: 700; }
 table.tun .ok { color: #15803d; font-weight: 700; }
 table.tun .prog { cursor: pointer; }
 .pfoot { margin-top: auto; font-size: calc(var(--fs) * .85); color: #666; display: flex; justify-content: space-between; border-top: .25mm solid #ccc; padding-top: 1mm; }

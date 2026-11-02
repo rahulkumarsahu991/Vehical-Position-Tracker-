@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v74';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v75';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -2222,15 +2222,19 @@
     else sets = [{ caller: P.caller, vs: P.caller ? all.filter(v => v.callerName === P.caller) : all }];
     if (!sets.length) { area.innerHTML = '<div class="empty"><b>No vehicles</b>Nothing to print for this caller.</div>'; return; }
     $('#repCols').disabled = !!rep.printf;
-    // U&N for all callers: the sheet's "T,U&N" tab as it is (the website's own U&N while it loads / if it cannot be read)
+    // for all callers U&N / L&R / R&H are the sheet's own "T,U&N" / "T,L&R" / "R&H" tabs as they are
+    // (the website's own report while the tab loads / if it cannot be read)
     tunStatus();
-    if (P.rep === 'un' && !P.caller && CFG.TUN_GID) {
-      loadTun();
-      if (S.tun) {
+    const sp = tabRep();
+    if (sp) {
+      loadTun(sp);
+      const t = tabOf(sp);
+      if (t.grid) {
         const o = P.orient === 'auto' ? 'portrait' : P.orient;
         $('#repCols').disabled = true;
-        $('#repHint').textContent = 'Same as the sheet’s “T,U&N” tab (read live from the sheet). A Next Load / Broker the sheet leaves blank shows the program given on this website (✓ = driver informed) — tap it to give one.';
-        area.innerHTML = '<div class="pages">' + tunPageHtml(S.tun, o) + '</div>';
+        $('#repHint').textContent = 'Same as the sheet’s “' + SHEET_PRINTS[sp].tab + '” tab (read live from the sheet).' +
+          (sp === 'un' ? ' A Next Load / Broker the sheet leaves blank shows the program given on this website (✓ = driver informed) — tap it to give one.' : '');
+        area.innerHTML = '<div class="pages">' + (sp === 'un' ? tunPageHtml(t.grid, o) : sheetPagesHtml(sp, t.grid, o)) + '</div>';
         setPageSize(o);
         fitPages();
         return;
@@ -2354,22 +2358,30 @@
     }
   }
 
-  /* ---------------- U&N for all callers = the sheet's "T,U&N" tab, as the sheet shows it ----------------
-   * Read live (public CSV, again after a minute): the date line, then each block — its name + count in orange, its
-   * headings in blue, its rows — in Calibri, bold headings, centred, black grid. A Next Load / Broker the sheet leaves
-   * blank shows the program given on this website (✓ = driver informed); tap it to give / change one. */
-  S.tun = null; S.tunAt = 0;
-  const tunShown = () => S.view === 'print' && S.print.rep === 'un' && !S.print.caller;
-  async function loadTun() {
-    if (S.tunBusy || !CFG.TUN_GID || Date.now() - S.tunAt < 60000) return;
-    S.tunBusy = true;
+  /* ---------------- for all callers U&N / L&R / R&H = the sheet's "T,U&N" / "T,L&R" / "R&H" tabs, as the sheet shows them ----------------
+   * Read live (public CSV, again after a minute): the date line, then each block — its name + count in colour, its
+   * headings in blue, its rows — in Calibri, bold headings, centred, black grid. On U&N a Next Load / Broker the sheet
+   * leaves blank shows the program given on this website (✓ = driver informed); tap it to give / change one. */
+  const SHEET_PRINTS = {
+    un: { gid: () => CFG.TUN_GID, tab: 'T,U&N', own: 'U&N', test: /^\s*unloading\s*\(\d+\)/i },
+    lr: { gid: () => CFG.TLR_GID, tab: 'T,L&R', own: 'L&R', test: /^\s*loading\s*\(\d+\)/i },
+    rh: { gid: () => CFG.RH_GID, tab: 'R&H', own: 'R&H', test: /^\s*repair\s*\(\d+\)/i }
+  };
+  S.tabs = {};   // report → { grid, at, via, errs, busy } of its sheet tab
+  const tabOf = rep => (S.tabs[rep] = S.tabs[rep] || { grid: null, at: 0 });
+  /** the report on the Print tab now when it comes from a sheet tab (all callers), else '' */
+  const tabRep = () => (S.view === 'print' && !S.print.caller && SHEET_PRINTS[S.print.rep] && SHEET_PRINTS[S.print.rep].gid() ? S.print.rep : '');
+  async function loadTun(rep) {
+    const sp = SHEET_PRINTS[rep], t = tabOf(rep), gidv = sp && sp.gid();
+    if (!gidv || t.busy || Date.now() - t.at < 60000) return;
+    t.busy = true;
     tunStatus();
     // three ways to read the tab: the CSV file, gviz, and the Apps Script (Google reads it on its side) — some office
     // networks / antivirus / browser add-ons stop the browser reading the sheet itself
-    const base = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(CFG.SHEET_ID), gid = encodeURIComponent(CFG.TUN_GID);
+    const base = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(CFG.SHEET_ID), gid = encodeURIComponent(gidv);
     const check = g => {
       while (g.length && g[g.length - 1].every(c => !String(c || '').trim())) g.pop();
-      if (!g.some(row => /^\s*unloading\s*\(\d+\)/i.test(row[0] || ''))) throw new Error('not the U&N layout');
+      if (!g.some(row => sp.test.test(row[0] || ''))) throw new Error('not the ' + sp.own + ' layout');
       return g;
     };
     const csv = async url => {
@@ -2379,34 +2391,68 @@
       return check(parseCsv(text));
     };
     const ways = [['file', () => csv(base + '/export?format=csv&gid=' + gid)], ['gviz', () => csv(base + '/gviz/tq?tqx=out:csv&headers=0&gid=' + gid)]];
-    if (!LOCAL) ways.push(['Apps Script', () => api('sheetTab', { gid: CFG.TUN_GID }).then(r => check(r.grid || []))]);
+    if (!LOCAL) ways.push(['Apps Script', () => api('sheetTab', { gid: gidv }).then(r => check(r.grid || []))]);
     const errs = [];
     let grid = null, via = '';
     for (const [name, get] of ways) {
       try { grid = await get(); via = name; break; } catch (e) { errs.push(name + ': ' + String((e && e.message) || e).slice(0, 60)); }
     }
-    S.tunBusy = false;
+    t.busy = false;
     if (grid) {
-      const changed = JSON.stringify(grid) !== JSON.stringify(S.tun);
-      S.tun = grid; S.tunAt = Date.now(); S.tunVia = via; S.tunErrs = [];
-      if (changed && tunShown()) renderPrint(); else tunStatus();
+      const changed = JSON.stringify(grid) !== JSON.stringify(t.grid);
+      t.grid = grid; t.at = Date.now(); t.via = via; t.errs = [];
+      if (changed && tabRep() === rep) renderPrint(); else tunStatus();
     } else {
-      S.tunErrs = errs; S.tunAt = Date.now() - 30000;   // try again in half a minute
-      if (tunShown()) renderPrint();
+      t.errs = errs; t.at = Date.now() - 30000;   // try again in half a minute
+      if (tabRep() === rep) renderPrint();
     }
   }
-  /** the line over the print: read from the sheet's "T,U&N" tab (and how), reading, or why it could not be read */
+  /** the line over the print: read from the sheet's tab (and how), reading, or why it could not be read */
   function tunStatus() {
     const el = $('#tunStatus');
     if (!el) return;
-    el.hidden = !tunShown() || !CFG.TUN_GID;
-    if (el.hidden) return;
+    const rep = tabRep();
+    el.hidden = !rep;
+    if (!rep) return;
+    const t = tabOf(rep), name = '“' + SHEET_PRINTS[rep].tab + '”';
     const again = ' <button type="button" class="link" data-tun-again>Read again</button>', ver = ' <small>· site ' + APP_VER + '</small>';
-    el.className = 'tun-status' + (S.tun ? ' ok' : S.tunErrs && S.tunErrs.length ? ' bad' : '');
-    el.innerHTML = S.tunBusy && !S.tun ? '⏳ Reading the sheet’s “T,U&N” tab…' + ver
-      : S.tun ? '✓ From the sheet’s “T,U&N” tab · read ' + clock(new Date(S.tunAt)) + ' (via ' + esc(S.tunVia || 'file') + ')' + again + ver
-      : S.tunErrs && S.tunErrs.length ? '⚠ The sheet’s “T,U&N” tab could not be read on this computer (' + esc(S.tunErrs.join(' · ')) + ') — below is the website’s own U&N.' + again + ver
-      : '⏳ Reading the sheet’s “T,U&N” tab…' + ver;
+    el.className = 'tun-status' + (t.grid ? ' ok' : t.errs && t.errs.length ? ' bad' : '');
+    el.innerHTML = t.busy && !t.grid ? '⏳ Reading the sheet’s ' + esc(name) + ' tab…' + ver
+      : t.grid ? '✓ From the sheet’s ' + esc(name) + ' tab · read ' + clock(new Date(t.at)) + ' (via ' + esc(t.via || 'file') + ')' + again + ver
+      : t.errs && t.errs.length ? '⚠ The sheet’s ' + esc(name) + ' tab could not be read on this computer (' + esc(t.errs.join(' · ')) + ') — below is the website’s own ' + esc(SHEET_PRINTS[rep].own) + '.' + again + ver
+      : '⏳ Reading the sheet’s ' + esc(name) + ' tab…' + ver;
+  }
+  /** "T,L&R" / "R&H" as the sheet shows them: its pages (side by side in the sheet: T,L&R = Loading in A–F, Running +
+   *  Empty Running in H–M), its column widths, a block's name coloured (Repair yellow, Emergency navy, the others orange)
+   *  with its headings in blue (the first row: every column set, as in the sheet), and a black grid */
+  const SHEET_LAYOUT = {
+    lr: [{ from: 0, w: [22.6, 31.4, 18.9, 22.6, 31.4, 18.9], sets: [[0, 2], [3, 5]], name: 'Loading' },
+      { from: 7, w: [22.6, 43.9, 25.1, 22.6, 43.9, 25.1], sets: [[0, 2], [3, 5]], name: 'Running' }],
+    rh: [{ from: 0, w: [29.4, 17.4, 32.2, 38.6, 2.6, 26.5, 23.4], sets: [[0, 3], [5, 6]], name: '' }]
+  };
+  function sheetPagesHtml(rep, grid, orient) {
+    const isHead = x => /\(\d+\+?\)\s*$/.test(x) && !/^\d+\./.test(x);
+    const headCls = x => (/^repair/i.test(x) ? 'tun-rep' : /^emergency/i.test(x) ? 'tun-emg' : 'tun-cat');
+    return SHEET_LAYOUT[rep].map(pg => {
+      const n = pg.w.length, sum = pg.w.reduce((a, b) => a + b, 0);
+      const cell = (r, i) => String((grid[r] || [])[pg.from + i] == null ? '' : grid[r][pg.from + i]).trim();
+      let last = grid.length - 1;   // this page's last row with something in it
+      while (last > 0 && !pg.w.some((_, i) => cell(last, i))) last--;
+      const rows = [];
+      for (let r = 0; r <= last; r++) {
+        if (r === 0) { rows.push('<tr class="tun-top"><td colspan="' + n + '">' + esc(cell(0, 0)) + '</td></tr>'); continue; }
+        const cls = Array(n).fill('');
+        pg.sets.forEach(([a, b]) => {
+          const h = cell(r, a);
+          if (!isHead(h) && r !== 1) return;
+          cls[a] = isHead(h) ? headCls(h) : 'tun-cat';
+          for (let i = a + 1; i <= b; i++) cls[i] = 'tun-hd';
+        });
+        rows.push('<tr>' + cls.map((c, i) => '<td' + (c ? ' class="' + c + '"' : '') + '>' + esc(cell(r, i)) + '</td>').join('') + '</tr>');
+      }
+      return '<div class="page ' + orient + '" data-maxfs="17" data-name="' + esc(SHEET_PRINTS[rep].own + ' All callers' + (pg.name ? ' ' + pg.name : '')) + '"><div class="page-inner"><table class="tun"><colgroup>' +
+        pg.w.map(w => '<col style="width:' + (w / sum * 100).toFixed(2) + '%">').join('') + '</colgroup>' + rows.join('') + '</table></div></div>';
+    }).join('');
   }
   function tunPageHtml(grid, orient) {
     const W = [178, 233, 111, 307, 120, 120, 105];   // the tab's column widths (px)
@@ -4955,7 +5001,7 @@
       renderPsel();
       if (S.pselLoc) setTimeout(() => { const p = $('#bulkFrom1'); if (p && !IS_PHONE) p.focus(); }, 50);   // straight to writing the program (a phone keeps its keyboard down)
     });
-    $('#tunStatus').addEventListener('click', e => { if (e.target.closest('[data-tun-again]')) { S.tunAt = 0; loadTun(); } });   // the T,U&N tab again, now
+    $('#tunStatus').addEventListener('click', e => { const rep = tabRep(); if (rep && e.target.closest('[data-tun-again]')) { tabOf(rep).at = 0; loadTun(rep); } });   // the sheet's tab again, now
     $('#repCaller').addEventListener('change', e => { S.print.caller = e.target.value; savePrint(); renderPrint(); });
     $('#repOrient').addEventListener('change', e => { S.print.orient = e.target.value; savePrint(); renderPrint(); });
     $('#repCols').addEventListener('change', e => { S.print.cols = e.target.value; savePrint(); renderPrint(); });

@@ -21,6 +21,8 @@ window.VPT_CONFIG = {
   CALLING_SOURCE: { SHEET_ID: "1wgG2K9phHMQPvIskvXF1OBHxNHFk8pegrKCi0hvuF6U", GID: "855099761", DATE_ORDER: "DMY" },
   RH_GID: "853440745",      // R&H tab: repair date + reason for the Caller wise print
   TUN_GID: "482471806",     // "T,U&N" tab: the U&N print for All callers is this tab, as the sheet shows it
+  TLR_GID: "872282533",     // "T,L&R" tab: the L&R print for All callers (page 1 Loading, page 2 Running + Empty Running)
+  RH_GID: "853440745",      // "R&H" tab: the R&H print for All callers
 
   // "Pending calls" button: caller-wise calls from the Dashboard tab of the Fleet sheet
   CALLS_SHEET_ID: "1wgG2K9phHMQPvIskvXF1OBHxNHFk8pegrKCi0hvuF6U",
