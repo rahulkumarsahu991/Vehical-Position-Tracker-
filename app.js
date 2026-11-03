@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v80';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v81';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -2443,11 +2443,13 @@
       : '⏳ Reading the sheet’s ' + esc(name) + ' tab…' + ver;
   }
   /** "T,L&R" / "R&H" as the sheet shows them: its pages (side by side in the sheet: T,L&R = Loading in A–F, Running +
-   *  Empty Running in H–M), its column widths, a block's name coloured (Repair yellow, Emergency navy, the others orange)
+   *  Empty Running in H–O), its column widths, a block's name coloured (Repair yellow, Emergency navy, the others orange)
    *  with its headings in blue (the first row: every column set, as in the sheet), and a black grid */
   const SHEET_LAYOUT = {
     lr: [{ from: 0, w: [22.6, 31.4, 18.9, 22.6, 31.4, 18.9], sets: [[0, 2], [3, 5]], name: 'Loading' },
-      { from: 7, w: [22.6, 43.9, 25.1, 22.6, 43.9, 25.1], sets: [[0, 2], [3, 5]], name: 'Running' }],
+      // H–O: Running · Route · Current Location · Loading Date, twice (sheet 22.6 / 43.9 / 25.1 / 18.9 — the vehicle
+      // number a little wider so "52. CG08AU0411" fits on one line at a readable size)
+      { from: 7, w: [24, 43, 24.6, 18.9, 24, 43, 24.6, 18.9], sets: [[0, 3], [4, 7]], name: 'Running' }],
     rh: [{ from: 0, w: [29.4, 17.4, 32.2, 38.6, 2.6, 26.5, 23.4], sets: [[0, 3], [5, 6]], name: '' }]
   };
   function sheetPagesHtml(rep, grid, orient) {
@@ -2468,7 +2470,9 @@
           cls[a] = isHead(h) ? headCls(h) : 'tun-cat';
           for (let i = a + 1; i <= b; i++) cls[i] = 'tun-hd';
         });
-        rows.push('<tr>' + cls.map((c, i) => '<td' + (c ? ' class="' + c + '"' : '') + '>' + esc(cell(r, i)) + '</td>').join('') + '</tr>');
+        // a vehicle number ("52. CG08AU0411") and a date stay on one line (fitOne makes the text smaller for that)
+        cls.forEach((c, i) => { if (!c && /^\d+\.\s*\S+$|^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(cell(r, i))) cls[i] = 'nw'; });
+        rows.push('<tr>' + cls.map((c, i) => '<td' + (c ? ' class="' + c + '"' : '') + '>' + (c === 'nw' ? '<span>' + esc(cell(r, i)) + '</span>' : esc(cell(r, i))) + '</td>').join('') + '</tr>');
       }
       return '<div class="page ' + orient + '" data-maxfs="17" data-name="' + esc(SHEET_PRINTS[rep].own + ' All callers' + (pg.name ? ' ' + pg.name : '')) + '"><div class="page-inner"><table class="tun"><colgroup>' +
         pg.w.map(w => '<col style="width:' + (w / sum * 100).toFixed(2) + '%">').join('') + '</colgroup>' + rows.join('') + '</table></div></div>';
@@ -2757,9 +2761,12 @@
     pg.classList.remove('flow');
     const inner = $('.page-inner', pg);
     const blocks = $$('.pblock', pg);
+    const nws = $$('td.nw > span', pg);   // text that must stay on one line, inside its cell's padding
+    const padX = nws.length ? (cs => parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight))(getComputedStyle(nws[0].parentNode)) : 0;
     const fits = fs => {
       pg.style.setProperty('--fs', fs + 'px');
       if (inner.scrollHeight > inner.clientHeight + 1) return false;
+      if (nws.some(s => s.offsetWidth > s.parentNode.clientWidth - padX + 1)) return false;
       // a table wider than its column would spill over the next column
       // (a table split over two columns has one client rect per column)
       return blocks.every(b => {
