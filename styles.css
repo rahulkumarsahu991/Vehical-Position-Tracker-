@@ -525,6 +525,12 @@ table.vt td.rem { min-width: 180px; color: var(--ink-2); }
 .pg.editing .pg-ph i { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; background: var(--navy); color: #fff; font: 700 11px var(--font); font-style: normal; }
 .pg.editing .pg-ph2 { border-top: 1px dashed var(--line); padding-top: 6px; }
 .pg.editing .pg-ph2 i { background: var(--orange); }
+/* ✕ on a program: delete it (a given one from the sheet) */
+.pg.editing .pg-ph .pg-del {
+  margin-left: auto; width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid #f1b0b0; border-radius: 7px;
+  background: #fff; color: var(--red); font: 700 13px/1 var(--font); cursor: pointer;
+}
+.pg.editing .pg-ph .pg-del:hover { background: var(--red-l); border-color: var(--red); }
 /* a program's rate in a small box (program cards and prints) */
 .pp-rate { display: inline-block; padding: 0 4px; border: 1px solid currentColor; border-radius: 4px; font-weight: 700; white-space: nowrap; line-height: 1.25; }
 .pg.editing .pg-lbl .hi { display: none; }   /* short labels (the boxes have no placeholder text) */

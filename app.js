@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v76';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v77';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -1076,7 +1076,10 @@
       const brokerVal = val('broker', dash(bb[0]));
       const noteVal = d[r.nk] != null ? d[r.nk] : (p && p[r.nk]) || '';
       // two programs: each one From → To with its rate (place names suggested while typing) and its broker
-      const trip = (n, t, b) => '<div class="pg-ph' + (n > 1 ? ' pg-ph2' : '') + '"><i>' + n + '</i>' + (n > 1 ? '2nd' : '1st') + ' program</div>' +
+      // ✕ on a program that has something in it: a given one is deleted from the sheet, one only typed is cleared
+      const filled = (n, t, b) => [val('from' + n, t.from), val('to' + n, t.to), val('rate' + n, t.rate), b].some(x => String(x || '').trim());
+      const trip = (n, t, b) => '<div class="pg-ph' + (n > 1 ? ' pg-ph2' : '') + '"><i>' + n + '</i>' + (n > 1 ? '2nd' : '1st') + ' program' +
+        (filled(n, t, b) ? '<button type="button" class="pg-del" data-act="del" data-n="' + n + '" title="Delete the ' + (n > 1 ? '2nd' : '1st') + ' program" aria-label="Delete the ' + (n > 1 ? '2nd' : '1st') + ' program">✕</button>' : '') + '</div>' +
         '<label class="field' + (n > 1 ? ' pg-2' : '') + '"><span class="pg-lbl">From</span><input data-f="from' + n + '" list="locList" value="' + esc(val('from' + n, t.from)) + '" autocomplete="off"></label>' +
         '<label class="field' + (n > 1 ? ' pg-2' : '') + '"><span class="pg-lbl">To</span><input data-f="to' + n + '" list="locList" value="' + esc(val('to' + n, t.to)) + '" autocomplete="off"></label>' +
         '<label class="field' + (n > 1 ? ' pg-2' : '') + '"><span class="pg-lbl">Rate ₹</span><input data-f="rate' + n + '" inputmode="decimal" value="' + esc(val('rate' + n, t.rate)) + '" autocomplete="off"></label>' +
@@ -1393,6 +1396,21 @@
       if (!confirm('Remove the program of ' + vno + '?')) return;
       ok = await saveProgram(vno, { program: '', broker: '', note: '', dnote: '' }, 'Program removed');
       if (ok) clearDraft();
+    } else if (act === 'del') {   // ✕ on the 1st / 2nd program
+      const i = +btn.dataset.n - 1, label = (i ? '2nd' : '1st') + ' program';
+      const saved = twoParts(p && p.program), sb = twoParts(p && p.broker), dash = x => (x === '—' ? '' : x);
+      if (p && p.program && saved[i] && saved[i] !== '—') {   // a given program: deleted from the sheet, the other one stays
+        if (!confirm('Delete the ' + label + ' of ' + vno + '?\n' + saved[i])) return;
+        const program = saved.length > 1 ? dash(saved[1 - i]) : '';   // the one left becomes the only program
+        // brokers: "1) a 2) b" when both had one, else just the 1st program's
+        const broker = !program ? '' : sb.length > 1 ? dash(sb[1 - i]) : i ? dash(sb[0]) : '';
+        ok = await saveProgram(vno, program ? { program: program, broker: broker } : { program: '', broker: '', note: '', dnote: '' },
+          program ? (i ? '2nd' : '1st') + ' program deleted' : 'Program removed');
+        if (ok) clearDraft();
+      } else {   // only typed here, not given yet: its boxes are emptied
+        ['from', 'to', 'rate'].forEach(k => { d[k + (i + 1)] = ''; });
+        d[i ? 'broker2' : 'broker'] = '';
+      }
     } else if (act === 'inform') {
       ok = await saveProgram(vno, { informed: btn.dataset.val }, btn.dataset.val === 'Yes' ? 'Marked: driver informed ✓' : 'Marked: driver not told yet');
     }
