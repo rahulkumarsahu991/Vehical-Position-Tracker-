@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v79';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v80';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -2504,19 +2504,40 @@
     }
     return tunOnePage(grid, orient, 'U&N All callers');
   }
-  /** U&N over two pages: every page in the same text size (15px, the size page 2 has) — page 1 keeps as many Unloading
-   *  as fit at that size and the rest move to page 2 over its "Unloading" headings; a page that still does not fit
-   *  goes on to one more page (the date line and that block's headings again) */
+  /** U&N over two pages: both pages in ONE text size — the biggest (up to 15px) at which it all still fits on the two
+   *  pages: page 1 keeps as many Unloading as fit, the rest move to page 2 over its "Unloading" headings (only when
+   *  even the smallest size does not fit does it go on to a 3rd page, then at full size) */
   function tunPaginate(pagesEl) {
     if (!pagesEl._tun) return;
     pagesEl.innerHTML = pagesEl._tun;   // start again from the pages as built (fonts may have loaded since)
+    const n = $$('.page', pagesEl).length, top = Number($('.page', pagesEl).dataset.maxfs) || 15;
+    // the same pages as last time (a refresh with nothing changed): the size found then, one layout instead of ~9
+    if (S.tunFs && S.tunFs.html === pagesEl._tun && tunLay(pagesEl, S.tunFs.fs) <= n) return;
+    let fs = top;
+    if (tunLay(pagesEl, top) > n) {
+      let lo = 26, hi = top * 4;   // in quarter px: 6.5px … 15px
+      while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (tunLay(pagesEl, mid / 4) <= n) lo = mid; else hi = mid; }
+      fs = tunLay(pagesEl, lo / 4) <= n ? lo / 4 : (tunLay(pagesEl, top), top);
+    }
+    S.tunFs = { html: pagesEl._tun, fs: fs };
+  }
+  /** lays the U&N pages out again at text size fs: each page filled, what does not fit moved on; returns the pages used */
+  function tunLay(pagesEl, fs) {
+    pagesEl.innerHTML = pagesEl._tun;
     const isHead = tr => !!tr.querySelector('td.tun-cat');
     const pages = $$('.page', pagesEl);
     for (let i = 0; i < pages.length; i++) {
       const pg = pages[i], inner = $('.page-inner', pg), tb = $('table.tun', pg).tBodies[0];
-      pg.style.setProperty('--fs', (Number(pg.dataset.maxfs) || 15) + 'px');
+      pg.style.setProperty('--fs', fs + 'px');
       const first = Array.from(tb.rows).findIndex(isHead);   // the date line and the first block name stay
       const moved = [];
+      let over = inner.scrollHeight - inner.clientHeight;
+      if (over > 1) {   // the rows' heights read in one go, then as many rows off the end as the page is too tall
+        const hs = Array.from(tb.rows, r => r.offsetHeight);
+        let k = hs.length;
+        while (over > 1 && k > first + 2) over -= hs[--k];
+        while (tb.rows.length > k) moved.unshift(tb.removeChild(tb.rows[tb.rows.length - 1]));
+      }
       while (inner.scrollHeight > inner.clientHeight + 1 && tb.rows.length > first + 2) moved.unshift(tb.removeChild(tb.rows[tb.rows.length - 1]));
       while (moved.length && !moved[0].textContent.trim()) moved.shift();   // no empty row at the top of a page
       if (!moved.length) continue;
@@ -2535,6 +2556,8 @@
         pages.push(next);
       }
     }
+    pages.forEach(p => { p.dataset.maxfs = fs; });   // fitOne then keeps every page at this size
+    return pages.length;
   }
   function tunOnePage(grid, orient, name) {
     const W = [178, 233, 111, 307, 120, 120, 105];   // the tab's column widths (px)
