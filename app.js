@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v77';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v78';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -2487,8 +2487,22 @@
     if (right.length && open && isHead(right[0][0]) && name(right[0][0]) === name(open[0])) right.shift();
     return [grid[0]].concat(left, right);
   }
+  /** U&N for all callers: one page — or, with more than 50 Unloading, two: page 1 Unloading 1–50, page 2 the rest
+   *  of Unloading (its block name and headings again) and No Program under it, each page in a readable size */
   function tunPageHtml(grid, orient) {
     grid = tunFlow(grid);
+    const isHead = r => /\(\d+\)\s*$/.test(String(r[0] || '').trim()) && !/^\d+\./.test(String(r[0] || '').trim());
+    const h = grid.findIndex(isHead);   // the first block: Unloading
+    if (h > 0) {
+      let n = 0, cut = -1;
+      for (let i = h + 1; i < grid.length && !isHead(grid[i]); i++) {
+        if (/^\d+\./.test(String(grid[i][0] || '').trim()) && ++n === 51) { cut = i; break; }
+      }
+      if (cut > 0) return tunOnePage(grid.slice(0, cut), orient, 'U&N All callers') + tunOnePage([grid[0], grid[h]].concat(grid.slice(cut)), orient, 'U&N All callers (2)');
+    }
+    return tunOnePage(grid, orient, 'U&N All callers');
+  }
+  function tunOnePage(grid, orient, name) {
     const W = [178, 233, 111, 307, 120, 120, 105];   // the tab's column widths (px)
     const cols =Math.min(Math.max(...grid.map(r => { let k = r.length; while (k && !String(r[k - 1] || '').trim()) k--; return k; })), 10) || W.length;
     const widths = Array.from({ length: cols }, (_, i) => W[i] || 110), sum = widths.reduce((a, b) => a + b, 0);
@@ -2513,7 +2527,7 @@
         return '<td' + (vno && (next || broker) ? ' class="prog" data-edit="' + esc(vno) + '"' : '') + '>' + x + '</td>';
       }).join('') + '</tr>';
     }).join('');
-    return '<div class="page ' + orient + '" data-maxfs="17" data-name="U&amp;N All callers"><div class="page-inner"><table class="tun"><colgroup>' +
+    return '<div class="page ' + orient + '" data-maxfs="15" data-name="' + esc(name) + '"><div class="page-inner"><table class="tun"><colgroup>' +   // 15: a vehicle number stays on one line
       widths.map(w => '<col style="width:' + (w / sum * 100).toFixed(2) + '%">').join('') + '</colgroup>' + rows + '</table></div></div>';
   }
 
