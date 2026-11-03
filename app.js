@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v78';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v79';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -2253,6 +2253,8 @@
         $('#repHint').textContent = 'Same as the sheet’s “' + SHEET_PRINTS[sp].tab + '” tab (read live from the sheet).' +
           (sp === 'un' ? ' A Next Load / Broker the sheet leaves blank shows the program given on this website (✓ = driver informed) — tap it to give one.' : '');
         area.innerHTML = '<div class="pages">' + (sp === 'un' ? tunPageHtml(t.grid, o) : sheetPagesHtml(sp, t.grid, o)) + '</div>';
+        const pe = $('.pages', area);
+        pe._tun = sp === 'un' && pe.children.length > 1 ? pe.innerHTML : null;   // U&N over 2 pages: laid out again by tunPaginate
         setPageSize(o);
         fitPages();
         return;
@@ -2502,6 +2504,38 @@
     }
     return tunOnePage(grid, orient, 'U&N All callers');
   }
+  /** U&N over two pages: every page in the same text size (15px, the size page 2 has) — page 1 keeps as many Unloading
+   *  as fit at that size and the rest move to page 2 over its "Unloading" headings; a page that still does not fit
+   *  goes on to one more page (the date line and that block's headings again) */
+  function tunPaginate(pagesEl) {
+    if (!pagesEl._tun) return;
+    pagesEl.innerHTML = pagesEl._tun;   // start again from the pages as built (fonts may have loaded since)
+    const isHead = tr => !!tr.querySelector('td.tun-cat');
+    const pages = $$('.page', pagesEl);
+    for (let i = 0; i < pages.length; i++) {
+      const pg = pages[i], inner = $('.page-inner', pg), tb = $('table.tun', pg).tBodies[0];
+      pg.style.setProperty('--fs', (Number(pg.dataset.maxfs) || 15) + 'px');
+      const first = Array.from(tb.rows).findIndex(isHead);   // the date line and the first block name stay
+      const moved = [];
+      while (inner.scrollHeight > inner.clientHeight + 1 && tb.rows.length > first + 2) moved.unshift(tb.removeChild(tb.rows[tb.rows.length - 1]));
+      while (moved.length && !moved[0].textContent.trim()) moved.shift();   // no empty row at the top of a page
+      if (!moved.length) continue;
+      let next = pages[i + 1];
+      if (next) {   // page 2: under its "Unloading" headings
+        const ntb = $('table.tun', next).tBodies[0], at = ntb.rows[Array.from(ntb.rows).findIndex(isHead) + 1] || null;
+        moved.forEach(r => ntb.insertBefore(r, at));
+      } else {
+        next = pg.cloneNode(true);
+        const ntb = $('table.tun', next).tBodies[0], head = Array.from(tb.rows).filter(isHead).pop();
+        while (ntb.rows.length > 1) ntb.deleteRow(1);   // keep the date line
+        if (!isHead(moved[0]) && head) ntb.appendChild(head.cloneNode(true));
+        moved.forEach(r => ntb.appendChild(r));
+        next.dataset.name = 'U&N All callers (' + (i + 2) + ')';
+        pg.after(next);
+        pages.push(next);
+      }
+    }
+  }
   function tunOnePage(grid, orient, name) {
     const W = [178, 233, 111, 307, 120, 120, 105];   // the tab's column widths (px)
     const cols =Math.min(Math.max(...grid.map(r => { let k = r.length; while (k && !String(r[k - 1] || '').trim()) k--; return k; })), 10) || W.length;
@@ -2691,6 +2725,7 @@
     const pagesEl = $('#printArea .pages');
     if (!pagesEl) return;
     pagesEl.style.zoom = '';
+    tunPaginate(pagesEl);
     $$('.page', pagesEl).forEach(fitOne);
     scalePreview();
   }
