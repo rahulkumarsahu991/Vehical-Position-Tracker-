@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v82';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v83';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -2127,8 +2127,8 @@
    *  Print
    * ===================================================================== */
   const REPORTS = {
-    caller: { name: 'Caller wise', cats: CATS.map(c => c.key), orient: 'landscape', cols: 1, perCaller: true, cw: true,
-      hint: 'Same as the sheet’s “Caller wise” tab — one page per caller (“All callers” = every caller on its own page).' },
+    caller: { name: 'Caller wise', cats: CATS.map(c => c.key), orient: 'landscape', cols: 1, perCaller: true, printf: true,
+      hint: 'Same as the sheet’s “printf” tab — one page per caller (“All callers” = every caller on its own page).' },
     un: { name: 'U&N — Unloading & No Program', cats: ['unloading', 'noprog'], orient: 'portrait', cols: 1, withCaller: true,
       hint: 'For the Director: all callers together on one page. “Next Load” shows the programs given on this website (✓ = driver informed); blank rows are for writing.' },
     lr: { name: 'L&R — Loading & Running', cats: ['loading', 'running', 'empty'], orient: 'portrait', cols: 2,
@@ -2208,14 +2208,14 @@
       '</div></div>';
   }
 
-  /** Carlito (the sheet's Calibri) for the sheet-style prints — loaded the first time Print is opened */
+  /** Roboto (the sheet's printf tab) and Carlito (its Calibri) for the sheet-style prints — loaded the first time Print is opened */
   function loadPrintFont() {
     if (S.printFont) return;
     S.printFont = true;
     const l = document.createElement('link');
     l.rel = 'stylesheet';
     l.crossOrigin = 'anonymous'; // lets JPG / PDF downloads copy the font
-    l.href = 'https://fonts.googleapis.com/css2?family=Carlito:wght@400;700&display=swap';
+    l.href = 'https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&family=Carlito:wght@400;700&display=swap';
     document.head.appendChild(l);
   }
 
@@ -2239,7 +2239,7 @@
     if (rep.perCaller) sets = (P.caller ? [P.caller] : names).map(n => ({ caller: n, vs: all.filter(v => v.callerName === n) })).filter(s => s.vs.length);
     else sets = [{ caller: P.caller, vs: P.caller ? all.filter(v => v.callerName === P.caller) : all }];
     if (!sets.length) { area.innerHTML = '<div class="empty"><b>No vehicles</b>Nothing to print for this caller.</div>'; return; }
-    $('#repCols').disabled = !!rep.cw;
+    $('#repCols').disabled = !!rep.printf;
     // for all callers U&N / L&R / R&H are the sheet's own "T,U&N" / "T,L&R" / "R&H" tabs as they are
     // (the website's own report while the tab loads / if it cannot be read)
     tunStatus();
@@ -2264,10 +2264,10 @@
     const withProg = printedPrograms();
     $('#clearProgBtn').hidden = !withProg.length;
     $('#clearProgBtn span').textContent = 'Remove programs (' + withProg.length + ')';
-    if (rep.cw) {
+    if (rep.printf) {
       loadRepairInfo();
       const o = P.orient === 'auto' ? rep.orient : P.orient;
-      area.innerHTML = '<div class="pages">' + sets.map(s => cwPageHtml(s.vs, s.caller, o)).join('') + '</div>';
+      area.innerHTML = '<div class="pages">' + sets.map(s => printfPageHtml(s.vs, s.caller, o)).join('') + '</div>';
       setPageSize(o);
       fitPages();
       return;
@@ -2290,70 +2290,68 @@
     }
   }
 
-  /* ---------------- Caller wise = the sheet's "Caller wise" tab ----------------
-   * One page per caller, laid out as the tab: the date, "👤 Caller:" + name and "Total Vehicle" + count on top; under
-   * them every block side by side (A–Z) — its name (orange / yellow / navy) over its count (light blue; Emergency and
-   * Others pink), its headings in blue over both rows, its vehicles sorted by place. The tab is ~4,000 px wide, so the
-   * columns get the width of what is written in them (the sheet's own widths would leave ~4px text on A4). */
-  const CW_BLOCKS = [
-    { cat: 'loading', name: 'Loading', fill: 'o', heads: ['From Location', ''], row: v => [v.from, ''] },
-    { cat: 'unloading', name: 'Unloading', fill: 'o', heads: ['To Location'], row: v => [v.to + (v.item ? ' (' + v.item + ')' : '')] },
-    { cat: 'running', name: 'Running', fill: 'y', heads: ['Route', 'Current Location'], row: v => [(v.from || '') + ' - ' + (v.to || ''), v.cur] },
-    { cat: 'empty', name: 'Empty Running', fill: 'o', heads: ['Current Location', 'From Location'], row: v => [v.cur, v.from] },
-    { cat: 'noprog', name: 'No Program', fill: 'y', heads: ['Current Location'], row: v => [v.cur] },
-    { cat: 'repair', name: 'Repair', fill: 'y', heads: ['Date', 'Current Location', 'Reason'], row: v => {
-      const r = S.repairInfo[v.vno] || {}, d = String(r.date || '').match(/^(\d{4})-(\d\d)-(\d\d)/);   // date + reason from R&H
-      return [d ? d[3] + '/' + d[2] + '/' + d[1] : r.date || '', r.loc || v.cur, r.reason || v.remarks];
-    } },
-    { cat: 'loadnd', name: 'Load/No Driver', fill: 'o', heads: ['Current Location'], row: v => [v.cur] },
-    { cat: 'halted', name: 'Halted/No Driver', fill: 'o', heads: ['Current Location'], row: v => [v.cur] },
-    { cat: 'emergency', name: 'Emergency', fill: 'n', pink: true, heads: ['Current Location'], row: v => [v.cur] },
-    { cat: 'other', name: 'Others', fill: 'o', pink: true, heads: ['Current Location', 'Status'], row: v => [v.cur, v.status] }
-  ];
-  const CW_CAP = { Route: 100, Reason: 90 };   // longest line (px at 10px) before a column's text goes onto 2 lines (others 70)
-  let cwCtx = null;
-  function cwPageHtml(vs, caller, orient) {
+  /* ---------------- Caller wise = the sheet's "printf" tab ----------------
+   * Left: LOADING, UNLOADING, REPAIR, EMERGENCY, OTHERS · Right: RUNNING (+WT.), EMPTY RUNNING, LOAD NO DRIVER,
+   * HALTED NO DRIVER, NO PROGRAM — one empty row between blocks, empty blocks left out (as the tab's formulas build it).
+   * Block name orange (Loading, Unloading, Others, the No Drivers) / yellow (Repair, Running, Empty Running,
+   * No Program) / navy (Emergency) — the tab's conditional colours. */
+  const PF_FILL = { orange: '#f39c12', yellow: '#fcc202', navy: '#1f395f' };
+  function printfBlocks(vs) {
     const by = {};
     vs.forEach(v => { (by[v.cat] = by[v.cat] || []).push(v); });
-    const blocks = CW_BLOCKS.map(b => Object.assign({}, b, {
-      rows: (by[b.cat] || []).slice().sort((x, y) => (placeKey(x) || '~').localeCompare(placeKey(y) || '~') || x.vno.localeCompare(y.vno))
-        .map(v => [v.vno].concat(b.row(v).map(x => String(x == null ? '' : x).trim())))
+    const list = k => (by[k] || []).slice().sort((a, b) => (placeKey(a) || '~').localeCompare(placeKey(b) || '~') || a.vno.localeCompare(b.vno));
+    const L = [], R = [];
+    const add = (side, label, fill, heads, rows, edit) => { if (rows.length) side.push({ label: label, fill: fill, heads: heads, rows: rows, edit: !!edit }); };
+    add(L, 'LOADING', 'orange', ['FROM LOCATION', 'TO LOCATION'], list('loading').map(v => [v.vno, esc(v.from), '']));   // TO LOCATION: blank in the sheet too
+    add(L, 'UNLOADING', 'orange', ['TO LOCATION (ITEM)', ''], list('unloading').map(v => [v.vno, esc(v.to + (v.item ? ' (' + v.item + ')' : '')), '']), true);
+    add(L, 'REPAIR', 'yellow', ['LOCATION', 'REASON'], list('repair').map(v => {
+      const r = S.repairInfo[v.vno] || {};
+      const d = String(r.date || '').match(/^(\d{4})-(\d\d)-(\d\d)/);
+      return [v.vno, esc(r.loc || v.cur), esc((r.reason || v.remarks) + (d ? ' [' + d[3] + '-' + MON[+d[2] - 1] + ']' : r.date ? ' [' + r.date + ']' : ''))];
     }));
-    // column widths from what they hold, measured in Carlito at 10px (+ the cell's padding)
-    cwCtx = cwCtx || document.createElement('canvas').getContext('2d');
-    const tw = (s, bold, k) => { cwCtx.font = (bold ? 700 : 400) + ' ' + 10 * (k || 1) + 'px Carlito, Calibri, Arial, sans-serif'; return cwCtx.measureText(String(s)).width; };
-    const word = (s, bold, k) => Math.max(0, ...String(s).split(/\s+/).map(x => tw(x, bold, k)));
-    const isDate = x => /^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(x);
-    const w = [];
-    blocks.forEach(b => {
-      w.push(Math.max(...b.name.split(/\s+|(?<=\/)/).map(x => tw(x, true, 1.18)), tw(b.rows.length, true, 1.82), ...b.rows.map(r => tw(r[0]))));
-      b.heads.forEach((h, j) => w.push(h ? Math.max(word(h, true), ...b.rows.map(r => isDate(r[j + 1]) ? tw(r[j + 1]) : Math.max(word(r[j + 1]), Math.min(tw(r[j + 1]), CW_CAP[h] || 70)))) : 25));
+    add(L, 'EMERGENCY', 'navy', ['LOCATION', ''], list('emergency').map(v => [v.vno, esc(v.cur), '']));
+    add(L, 'OTHERS', 'orange', ['LOCATION', 'REMARKS / STATUS'], list('other').map(v => [v.vno, esc(v.cur), esc(v.status)]));
+    add(R, 'RUNNING', 'yellow', ['ROUTE', 'CURRENT LOCATION'], list('running').map(v => [v.vno, esc((v.from || '') + ' - ' + (v.to || '')), esc(v.cur)]));
+    add(R, 'EMPTY RUNNING', 'yellow', ['CURRENT LOCATION', 'FROM LOCATION'], list('empty').map(v => [v.vno, esc(v.cur), esc(v.from)]));
+    add(R, 'LOAD NO DRIVER', 'orange', ['LOCATION', ''], list('loadnd').map(v => [v.vno, esc(v.cur), '']));
+    add(R, 'HALTED NO DRIVER', 'orange', ['LOCATION', ''], list('halted').map(v => [v.vno, esc(v.cur), '']));
+    add(R, 'NO PROGRAM', 'yellow', ['CURRENT LOCATION', ''], list('noprog').map(v => [v.vno, esc(v.cur), '']), true);
+    return { L: L, R: R };
+  }
+  /** one side of the sheet as rows of 3 cells */
+  function printfSide(blocks, none) {
+    if (!blocks.length) return [{ cells: [esc(none), '', ''], none: true }];
+    const rows = [];
+    blocks.forEach((b, i) => {
+      if (i) rows.push({ cells: ['', '', ''] });
+      rows.push({ head: b.fill, cells: [esc(b.label) + '<br>' + b.rows.length, esc(b.heads[0]), esc(b.heads[1])] });
+      b.rows.forEach(r => rows.push({ cells: [esc(r[0]), r[1], r[2]], edit: b.edit ? r[0] : '' }));
     });
-    const name = s => esc(s).replace(/\//g, '/<wbr>');   // "Halted/No Driver" may go onto 2 lines after the "/"
-    const sum = w.reduce((a, x) => a + x + 4, 0), cols = w.length;
-    const cell = (x, j, vno) => (j === 0 && x) || isDate(x)
-      ? '<td class="nw' + (vno ? ' prog" data-edit="' + esc(vno) : '') + '"><span>' + esc(x) + '</span></td>'
-      : '<td>' + esc(x) + '</td>';
-    let body = '';
-    for (let i = 0, n = Math.max(1, ...blocks.map(b => b.rows.length)); i < n; i++) {
-      body += '<tr>' + blocks.map(b => {
-        const r = b.rows[i] || Array(b.heads.length + 1).fill('');
-        return r.map((x, j) => cell(x, j, j === 0 && x && NEEDS_PROGRAM[b.cat] ? x : '')).join('');   // tap Unloading / No Program → its program
-      }).join('') + '</tr>';
-    }
+    return rows;
+  }
+  function printfPageHtml(vs, caller, orient) {
+    const now = new Date(), h = now.getHours();
     const dk = S.dataDate || todayKey();
-    const top = Array(cols).fill('<td></td>');
-    top[0] = '<td class="cw-b cw-date" colspan="2">' + dk.slice(8, 10) + '-' + MON[+dk.slice(5, 7) - 1] + '-' + dk.slice(0, 4) + '</td>';   // A–B: A alone is too narrow here
-    top[1] = '';
-    top[4] = '<td class="cw-b cw-lab">👤 Caller:</td>';
-    top[5] = '<td class="cw-b cw-name">' + esc(caller || 'All') + '</td>';
-    top[7] = '<td class="cw-b cw-lab">Total Vehicle</td>';
-    top[8] = '<td class="cw-b cw-name">' + vs.length + '</td>';
-    return '<div class="page ' + orient + '" data-maxfs="13" data-name="' + esc(caller || 'All') + '"><div class="page-inner"><table class="tun cw"><colgroup>' +
-      w.map(x => '<col style="width:' + ((x + 4) / sum * 100).toFixed(2) + '%">').join('') + '</colgroup>' +
-      '<tr class="cw-top">' + top.join('') + '</tr><tr class="cw-gap"><td colspan="' + cols + '"></td></tr>' +
-      '<tr>' + blocks.map(b => '<td class="cw-cat cw-' + b.fill + '">' + name(b.name) + '</td>' + b.heads.map(h => '<td class="tun-hd" rowspan="2">' + esc(h) + '</td>').join('')).join('') + '</tr>' +
-      '<tr>' + blocks.map(b => '<td class="cw-k' + (b.pink ? ' cw-p' : '') + '">' + b.rows.length + '</td>').join('') + '</tr>' +
+    const time = pad(h % 12 || 12) + ':' + pad(now.getMinutes()) + ' ' + (h < 12 ? 'AM' : 'PM');
+    const b = printfBlocks(vs);
+    const left = printfSide(b.L, '-- No Active Loading/Unloading/Alerts --');
+    const right = printfSide(b.R, '-- No Active Running / Transit --');
+    const cell = (r, j) => {
+      if (!r) return '<td></td>';
+      if (r.edit && j === 0) return '<td class="pf-prog" data-edit="' + esc(r.edit) + '">' + r.cells[0] + '</td>';   // tap → that vehicle's program
+      if (r.head) return j === 0 ? '<td class="pf-cat" style="background:' + PF_FILL[r.head] + (r.head === 'navy' ? ';color:#fff' : '') + '">' + r.cells[0] + '</td>' : '<td class="pf-hd">' + r.cells[j] + '</td>';
+      return '<td' + (r.none && j === 0 ? ' class="pf-none"' : '') + '>' + r.cells[j] + '</td>';
+    };
+    let body = '';
+    for (let i = 0; i < Math.max(left.length, right.length); i++) {
+      const l = left[i], r = right[i];
+      body += '<tr>' + [0, 1, 2].map(j => cell(l, j)).join('') + [0, 1, 2].map(j => cell(r, j)).join('') +
+        (i === 0 ? '<td class="pf-hd">WT.</td>' : '<td></td>') + '</tr>';
+    }
+    return '<div class="page ' + orient + '" data-maxfs="18" data-name="' + esc(caller || 'All') + '"><div class="page-inner"><table class="pf">' +
+      '<colgroup><col style="width:10.5%"><col style="width:17.9%"><col style="width:19.2%"><col style="width:10.9%"><col style="width:20.9%"><col style="width:13.9%"><col style="width:6.7%"></colgroup>' +
+      '<tr class="pf-top"><td>CALLER: ' + esc(String(caller || 'ALL').toUpperCase()) + '</td><td></td><td></td>' +
+      '<td colspan="4">DATE: ' + dk.slice(8, 10) + '/' + dk.slice(5, 7) + '/' + dk.slice(0, 4) + ' | TIME: ' + time + (h < 13 ? ' | MORNING' : h >= 15 ? ' | EVENING' : '') + '</td></tr>' +
       body + '</table></div></div>';
   }
 
@@ -2375,7 +2373,7 @@
       }
       const changed = JSON.stringify(info) !== JSON.stringify(S.repairInfo);
       S.repairInfo = info; S.repairAt = Date.now();
-      if (changed && S.view === 'print' && REPORTS[S.print.rep] && REPORTS[S.print.rep].cw) renderPrint();
+      if (changed && S.view === 'print' && REPORTS[S.print.rep] && REPORTS[S.print.rep].printf) renderPrint();
     } catch (e) {
       S.repairAt = Date.now() - 120000; // try again in a minute; meanwhile Calling Sheet remarks are used
     } finally {
@@ -2615,7 +2613,7 @@
    *  Without them the picture falls back to a wider font and the text runs into each other. */
   const FONT_CSS_URLS = [
     'https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap',
-    'https://fonts.googleapis.com/css2?family=Carlito:wght@400;700&display=swap'
+    'https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&family=Carlito:wght@400;700&display=swap'
   ];
   function toBase64(buf) {
     const bytes = new Uint8Array(buf);
@@ -2768,12 +2766,10 @@
     const blocks = $$('.pblock', pg);
     const nws = $$('td.nw > span', pg);   // text that must stay on one line, inside its cell's padding
     const padX = nws.length ? (cs => parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight))(getComputedStyle(nws[0].parentNode)) : 0;
-    const words = $$('table.cw td', pg).filter(td => td.textContent.trim());   // Caller wise: no word wider than its cell
     const fits = fs => {
       pg.style.setProperty('--fs', fs + 'px');
       if (inner.scrollHeight > inner.clientHeight + 1) return false;
       if (nws.some(s => s.offsetWidth > s.parentNode.clientWidth - padX + 1)) return false;
-      if (words.some(td => td.scrollWidth > td.clientWidth + 1)) return false;
       // a table wider than its column would spill over the next column
       // (a table split over two columns has one client rect per column)
       return blocks.every(b => {

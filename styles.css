@@ -1341,6 +1341,21 @@ button.r-lane-h:hover, .r-lane.on button.r-lane-h { background: #fff; box-shadow
   .pc-opts .out-btns .btn { width: 100%; padding: 10px 8px; }
 }
 
+/* Caller wise = the sheet's "printf" tab: Roboto, centred, black grid, coloured block headings */
+table.pf {
+  width: 100%; table-layout: fixed; border-collapse: collapse;
+  font: 400 var(--fs)/1.18 "Roboto", Arial, sans-serif; color: #000;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+table.pf td {
+  border: .3mm solid #000; padding: .45mm 1mm; text-align: center; vertical-align: middle;
+  overflow-wrap: anywhere; height: calc(var(--fs) * 1.45);
+}
+table.pf .pf-top td { font-size: calc(var(--fs) * 1.05); padding: 1mm; }
+table.pf .pf-cat { font-weight: 700; }
+table.pf .pf-hd { background: #2c77b7; color: #fff; font-weight: 700; }
+table.pf .pf-none { font-style: italic; color: #555; }
+table.pf .pf-prog { cursor: pointer; }
 /* the line over the U&N print: read from the sheet's "T,U&N" tab (how), reading, or why not */
 .tun-status { margin: 10px 0 0; padding: 7px 11px; border-radius: 10px; background: #f1f3f9; color: var(--ink-2); font-size: 12.5px; font-weight: 600; }
 .tun-status.ok { background: #e8f5ec; color: #146c34; }
@@ -1368,21 +1383,6 @@ table.tun .tun-rep { background: #fcc202; font-weight: 700; }
 table.tun .tun-emg { background: #1f395f; color: #fff; font-weight: 700; }
 table.tun .ok { color: #15803d; font-weight: 700; }
 table.tun .prog { cursor: pointer; }
-/* Caller wise = the sheet's "Caller wise" tab (table.tun + these): date, yellow "👤 Caller:" / "Total Vehicle" with the
-   name / count in orange; block names orange / yellow / navy over a light-blue count (Emergency, Others pink) */
-table.cw td { padding: .3mm .5mm; overflow-wrap: normal; }   /* words are never cut (fitOne makes the text smaller) */
-table.cw tr.cw-top td, table.cw tr.cw-gap td { border: 0; }
-table.cw tr.cw-top td.cw-b { border: .3mm solid #000; font-weight: 700; }
-table.cw tr.cw-gap td { height: calc(var(--fs) * .7); padding: 0; }
-table.cw .cw-date { font: 700 calc(var(--fs) * 1.27) Arial, sans-serif; }
-table.cw .cw-lab { background: #ff0; color: #1f3864; font-size: calc(var(--fs) * 1.6); line-height: 1.05; }
-table.cw .cw-name { background: #f39c12; font-size: calc(var(--fs) * 1.18); }
-table.cw .cw-cat { font-weight: 700; font-size: calc(var(--fs) * 1.18); line-height: 1.05; }
-table.cw .cw-o { background: #f39c12; }
-table.cw .cw-y { background: #fdc202; }
-table.cw .cw-n { background: #203960; color: #fff; font-size: var(--fs); }
-table.cw .cw-k { background: #bdd7ee; color: #1f3864; font-weight: 700; font-size: calc(var(--fs) * 1.82); line-height: 1.05; }
-table.cw .cw-k.cw-p { background: #fbebf3; color: #993556; }
 .pfoot { margin-top: auto; font-size: calc(var(--fs) * .85); color: #666; display: flex; justify-content: space-between; border-top: .25mm solid #ccc; padding-top: 1mm; }
 
 /* ---------------- bottom nav (phones) ---------------- */
