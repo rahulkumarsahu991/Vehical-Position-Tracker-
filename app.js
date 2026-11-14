@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v83';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v84';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -2127,7 +2127,8 @@
    *  Print
    * ===================================================================== */
   const REPORTS = {
-    caller: { name: 'Caller wise', cats: CATS.map(c => c.key), orient: 'landscape', cols: 1, perCaller: true, printf: true,
+    // portrait: a caller's long lists fit an A4 at ~12px (landscape ~7–10px); Page → Landscape still gives the sheet's own
+    caller: { name: 'Caller wise', cats: CATS.map(c => c.key), orient: 'portrait', cols: 1, perCaller: true, printf: true,
       hint: 'Same as the sheet’s “printf” tab — one page per caller (“All callers” = every caller on its own page).' },
     un: { name: 'U&N — Unloading & No Program', cats: ['unloading', 'noprog'], orient: 'portrait', cols: 1, withCaller: true,
       hint: 'For the Director: all callers together on one page. “Next Load” shows the programs given on this website (✓ = driver informed); blank rows are for writing.' },
@@ -2338,9 +2339,11 @@
     const right = printfSide(b.R, '-- No Active Running / Transit --');
     const cell = (r, j) => {
       if (!r) return '<td></td>';
-      if (r.edit && j === 0) return '<td class="pf-prog" data-edit="' + esc(r.edit) + '">' + r.cells[0] + '</td>';   // tap → that vehicle's program
       if (r.head) return j === 0 ? '<td class="pf-cat" style="background:' + PF_FILL[r.head] + (r.head === 'navy' ? ';color:#fff' : '') + '">' + r.cells[0] + '</td>' : '<td class="pf-hd">' + r.cells[j] + '</td>';
-      return '<td' + (r.none && j === 0 ? ' class="pf-none"' : '') + '>' + r.cells[j] + '</td>';
+      // a vehicle number stays on one line (fitOne makes the text smaller for that); Unloading / No Program: tap → its program
+      if (j === 0 && r.cells[0] && !r.none) return '<td class="nw' + (r.edit ? ' pf-prog" data-edit="' + esc(r.edit) : '') + '"><span>' + r.cells[0] + '</span></td>';
+      if (r.none) return j === 0 ? '<td class="pf-none" colspan="3">' + r.cells[0] + '</td>' : '';   // "-- No Active … --" across the side
+      return '<td>' + r.cells[j] + '</td>';
     };
     let body = '';
     for (let i = 0; i < Math.max(left.length, right.length); i++) {
@@ -2349,8 +2352,9 @@
         (i === 0 ? '<td class="pf-hd">WT.</td>' : '<td></td>') + '</tr>';
     }
     return '<div class="page ' + orient + '" data-maxfs="18" data-name="' + esc(caller || 'All') + '"><div class="page-inner"><table class="pf">' +
-      '<colgroup><col style="width:10.5%"><col style="width:17.9%"><col style="width:19.2%"><col style="width:10.9%"><col style="width:20.9%"><col style="width:13.9%"><col style="width:6.7%"></colgroup>' +
-      '<tr class="pf-top"><td>CALLER: ' + esc(String(caller || 'ALL').toUpperCase()) + '</td><td></td><td></td>' +
+      // the sheet's widths (10.5 / 17.9 / 19.2 / 10.9 / 20.9 / 13.9 / 6.7 %), vehicle numbers and Current Location a little wider
+      '<colgroup><col style="width:12%"><col style="width:17.4%"><col style="width:16.6%"><col style="width:12%"><col style="width:19.4%"><col style="width:16%"><col style="width:6.6%"></colgroup>' +
+      '<tr class="pf-top"><td colspan="3">CALLER: ' + esc(String(caller || 'ALL').toUpperCase()) + '</td>' +   // A1 alone is too narrow on portrait
       '<td colspan="4">DATE: ' + dk.slice(8, 10) + '/' + dk.slice(5, 7) + '/' + dk.slice(0, 4) + ' | TIME: ' + time + (h < 13 ? ' | MORNING' : h >= 15 ? ' | EVENING' : '') + '</td></tr>' +
       body + '</table></div></div>';
   }
@@ -2766,10 +2770,12 @@
     const blocks = $$('.pblock', pg);
     const nws = $$('td.nw > span', pg);   // text that must stay on one line, inside its cell's padding
     const padX = nws.length ? (cs => parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight))(getComputedStyle(nws[0].parentNode)) : 0;
+    const words = $$('table.pf td', pg).filter(td => td.textContent.trim());   // Caller wise: no word wider than its cell
     const fits = fs => {
       pg.style.setProperty('--fs', fs + 'px');
       if (inner.scrollHeight > inner.clientHeight + 1) return false;
       if (nws.some(s => s.offsetWidth > s.parentNode.clientWidth - padX + 1)) return false;
+      if (words.some(td => td.scrollWidth > td.clientWidth + 1)) return false;
       // a table wider than its column would spill over the next column
       // (a table split over two columns has one client rect per column)
       return blocks.every(b => {
