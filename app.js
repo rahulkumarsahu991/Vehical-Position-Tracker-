@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v84';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v85';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -3683,13 +3683,17 @@
     if (m) setTimeout(() => m.map.invalidateSize(), 60);
   }
   /** a ring in the trucks' status colours with their count in the middle */
-  function ringHtml(vs) {
-    const c = {}, n = vs.length;
+  /** several trucks: a pill with one count per status, each in its status colour (3 Running · 1 Unloading = 🟢3 🟣1) */
+  function pillHtml(vs) {
+    const c = {};
     vs.forEach(v => { c[v.cat] = (c[v.cat] || 0) + 1; });
-    let deg = 0;
-    const ring = CATS.filter(x => c[x.key]).map(x => { const a = deg; deg += c[x.key] / n * 360; return x.color + ' ' + a.toFixed(1) + 'deg ' + deg.toFixed(1) + 'deg'; }).join(',');
-    return '<div class="mk-in mk-ring' + (n > 9 ? ' big' : '') + '" style="background:conic-gradient(' + ring + ')"><b>' + n + '</b></div>';
+    return '<div class="mk-pill">' + CATS.filter(x => c[x.key]).map(x => '<i style="--c:' + x.color + '">' + c[x.key] + '</i>').join('') + '</div>';
   }
+  /** a status in a few letters, for the truck cards on the map */
+  const CAT_SHORT = { loading: 'Loading', unloading: 'Unloading', running: 'Running', empty: 'Empty', noprog: 'No program', repair: 'Repair',
+    halted: 'Halted', loadnd: 'Load·No drv', emergency: 'Emergency', other: 'Other' };
+  const byStatus = vs => vs.slice().sort((a, b) => CAT[a.cat].i - CAT[b.cat].i || a.vno.localeCompare(b.vno));
+  const CARD_Z = 10, CARD_MAX = 6;   // zoomed in this far, every place opens into a card with its trucks (the first 6)
   const MAPS = {};
   /** the map in #id (made once): the clean map underneath, layers for lines, places and trucks */
   async function mapFor(id, plain) {   // plain: no Trucks / Route lines switch (the Route Finder's drawing map)
@@ -3712,11 +3716,14 @@
         return b;
       } });
       new Fs().addTo(map);
-      map.on('zoomend', () => el.classList.toggle('mp-near', map.getZoom() >= 7.5));
+      const near = () => { el.classList.toggle('mp-near', map.getZoom() >= 7.5); el.classList.toggle('mp-close', map.getZoom() >= CARD_Z); };
+      map.on('zoomend', near);
+      near();
       map.on('zoomend moveend', () => MAPS[id] && declutterSoon(MAPS[id]));
+      // places near each other share one pill; zoomed in (cards) they must be further apart to stand alone
       const trucks = L.markerClusterGroup({
-        maxClusterRadius: 38, showCoverageOnHover: false, spiderfyOnMaxZoom: true, zoomToBoundsOnClick: true,
-        iconCreateFunction: cl => L.divIcon({ className: 'mk', iconSize: null, html: ringHtml(cl.getAllChildMarkers().flatMap(x => x.options.vs || [])) })
+        maxClusterRadius: z => (z >= CARD_Z ? 64 : 56), showCoverageOnHover: false, spiderfyOnMaxZoom: true, zoomToBoundsOnClick: true,
+        iconCreateFunction: cl => L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in">' + pillHtml(cl.getAllChildMarkers().flatMap(x => x.options.vs || [])) + '</div>' })
       });
       m = MAPS[id] = { map: map, lines: L.layerGroup().addTo(map), marks: L.layerGroup().addTo(map), trucks: trucks.addTo(map), fit: '', office: officeMark(L, map) };
       if (!plain) L.control.layers(null, { 'Trucks now': m.trucks, 'Route lines': m.lines }, { position: 'topright' }).addTo(map);
@@ -3741,7 +3748,7 @@
   function officeMark(L, map) {
     const ll = PLACES.OFFICE;
     if (!ll) return null;
-    const mk = L.marker(ll, { zIndexOffset: 1800, riseOnHover: true, keyboard: false,
+    const mk = L.marker(ll, { zIndexOffset: -1000, riseOnHover: true, keyboard: false,   // under the trucks' pills / cards, over the route ends
       icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in mk-office" title="Daman Mandeep Roadlines"><i>🏢</i><b>OFFICE</b><span></span></div>' }) });
     mk.bindPopup(() => {
       const vs = officeVs();
@@ -3770,16 +3777,17 @@
     const tip = o.tip + (rd ? ' · ' + rd.km + ' km · ~' + truckTime(rd.min, rd.km) + ' by truck' : '');
     // 'faint': a way of the chosen route with no truck on it now — its colour, but thin, light and still
     const quiet = look === 'dim' || look === 'faint';
-    m.lines.addLayer(L.polyline(pts, { color: o.edge || '#fff', weight: w + 3, opacity: look === 'faint' ? .3 : look === 'dim' ? .5 : .95, interactive: false, className: 'mp-edge' }));
-    const line = L.polyline(pts, { color: look === 'dim' ? '#9aa0a6' : o.color, weight: w, opacity: look === 'faint' ? .55 : look === 'dim' ? .7 : 1, className: 'mp-line' }).bindTooltip(tip, { sticky: true });
+    // 'all' (every route at once): a little see-through, so the trucks on top stand out
+    m.lines.addLayer(L.polyline(pts, { color: o.edge || '#fff', weight: w + 3, opacity: look === 'faint' ? .3 : look === 'dim' ? .5 : look === 'all' ? .4 : .95, interactive: false, className: 'mp-edge' }));
+    const line = L.polyline(pts, { color: look === 'dim' ? '#9aa0a6' : o.color, weight: w, opacity: look === 'faint' ? .55 : look === 'dim' ? .7 : look === 'all' ? .45 : 1, className: 'mp-line' }).bindTooltip(tip, { sticky: true });
     if (o.click) line.on('click', o.click);
     m.lines.addLayer(line);
     if (quiet) return rd;
     // running dashes: on a phone only on the chosen route / hub lines (dozens of moving lines make a phone stutter)
-    if (!(IS_PHONE && look === 'all')) m.lines.addLayer(L.polyline(pts, { color: '#fff', weight: look === 'sel' ? 2.2 : 1.4, opacity: .85, dashArray: look === 'sel' ? '3 13' : '2 10', interactive: false, className: 'mp-flow' }));
+    if (!(IS_PHONE && look === 'all')) m.lines.addLayer(L.polyline(pts, { color: '#fff', weight: look === 'sel' ? 2.2 : 1.4, opacity: look === 'all' ? .5 : .85, dashArray: look === 'sel' ? '3 13' : '2 10', interactive: false, className: 'mp-flow' }));
     const i = Math.max(1, Math.round((pts.length - 1) * 0.62)), p = m.map.project(pts[i - 1], 8), q = m.map.project(pts[i], 8);
     const deg = Math.atan2(q.y - p.y, q.x - p.x) * 180 / Math.PI;
-    m.lines.addLayer(L.marker(pts[i], { interactive: false, keyboard: false,
+    m.lines.addLayer(L.marker(pts[i], { interactive: false, keyboard: false, zIndexOffset: -1500,   // under the trucks
       icon: L.divIcon({ className: 'mk', iconSize: null, html: '<i class="mk-arrow" style="--c:' + (o.edge && look === 'sel' ? o.edge : o.color) + ';transform:translate(-50%,-50%) rotate(' + deg.toFixed(0) + 'deg)"></i>' }) }));
     return rd;
   }
@@ -3822,30 +3830,64 @@
   }
   /** the colour key line for those: one line in the three first way colours */
   const LANE_KEY = ['linear-gradient(90deg, ' + LANES[0][0] + ' 0 33%, ' + LANES[1][0] + ' 0 66%, ' + LANES[2][0] + ' 0)', 'one route, 2–3 ways — each its own colour'];
-  /** trucks at their current location (loading / unloading ones at From / To when the location is empty):
-   *  one truck = a small lorry with its number, more = a ring in their status colours with the count */
+  /** trucks at their current location (loading / unloading ones at From / To when the location is empty), one marker
+   *  per place. Zoomed out: one truck = a small lorry with its number, more = a pill with a count per status. Zoomed in
+   *  (CARD_Z): a card — the place, then each truck's number and status (tap one: its details; tap "+n more": all) */
   function truckMarks(m, vs) {
     const L = window.L, at = {}, lost = {};
+    m.vmk = {};   // vehicle → its marker (the Status box flies to it)
     vs.forEach(v => {
       const name = v.cur || (v.cat === 'loading' ? v.from : v.cat === 'unloading' ? v.to : '');
       const ll = truckAt(v, m);
       if (!ll) { (lost[name || 'No current location'] = lost[name || 'No current location'] || []).push(v); return; }
-      const k = ll.join(',');
-      (at[k] = at[k] || { ll: ll, name: name, vs: [] }).vs.push(v);
+      // one marker per town: trucks there on different roads would stand a few hundred metres apart, one card on another
+      const k = name ? 'n:' + spellKey(name) : ll.join(','), g = at[k] = at[k] || { ll: ll, name: name, vs: [] };
+      if (g.ll.join() !== ll.join()) g.ll = truckTown(v) || g.ll;   // on more than one road: the town itself
+      g.vs.push(v);
     });
-    Object.keys(at).forEach(k => {
-      const g = at[k], n = g.vs.length;
-      const v = g.vs[0], html = n === 1 ? '<div class="mk-in mk-one" style="--c:' + CAT[v.cat].color + '">' + ICO.truck + '<span>' + esc(shortNo(v.vno)) + '</span></div>' : ringHtml(g.vs);
-      const mk = L.marker(g.ll, { icon: L.divIcon({ className: 'mk', iconSize: null, html: html }), zIndexOffset: 1000 + n, riseOnHover: true, vs: g.vs });
-      mk.bindTooltip(esc(g.name) + ' · ' + n + ' truck' + (n > 1 ? 's' : '') + ' now', { direction: 'top', offset: [0, -16] });
+    // places a stone's throw apart (two names for one spot, a village by its town): one marker, never one card on another
+    const groups = [];
+    Object.values(at).sort((a, b) => b.vs.length - a.vs.length).forEach(g => {
+      const near = groups.find(x => kmApart(x.ll, g.ll) < 3);
+      if (!near) { groups.push(g); return; }
+      near.vs.push(...g.vs);
+      if (g.name && !near.name.split(' · ').includes(g.name)) near.name = near.name ? near.name + ' · ' + g.name : g.name;
+    });
+    groups.forEach(g => {
+      const n = g.vs.length, list = byStatus(g.vs), v = list[0];
+      const small = n === 1 ? '<div class="mk-one" style="--c:' + CAT[v.cat].color + '">' + ICO.truck + '<span>' + esc(shortNo(v.vno)) + '</span></div>' : pillHtml(list);
+      const card = '<div class="mk-card"><div class="mk-card-h"><b>' + esc(g.name || '?') + '</b><span>' + n + '</span></div>' +
+        list.slice(0, CARD_MAX).map(x => '<button type="button" class="mk-v" data-v="' + esc(x.vno) + '" style="--c:' + CAT[x.cat].color + '"><b>' + esc(shortNo(x.vno)) + '</b><small>' + esc(CAT_SHORT[x.cat] || CAT[x.cat].label) + '</small></button>').join('') +
+        (n > CARD_MAX ? '<div class="mk-more">+' + (n - CARD_MAX) + ' more · tap</div>' : '') + '</div>';
+      const mk = L.marker(g.ll, { icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in mk-grp"><div class="mk-sum">' + small + '</div>' + card + '</div>' }),
+        zIndexOffset: 2000 + n, riseOnHover: true, vs: g.vs });   // over the OFFICE tag: zoomed in, the card says who is there
+      const c = {};
+      list.forEach(x => { c[x.cat] = (c[x.cat] || 0) + 1; });
+      mk.bindTooltip(esc(g.name) + ' · ' + Object.keys(c).map(x => c[x] + ' ' + esc(CAT[x].label)).join(' · '), { direction: 'top', offset: [0, -16] });
       mk.bindPopup(() => mapPopup(g.name, g.vs, 'Here now'), { maxWidth: 290, className: 'mp-pop' });
+      mk.on('click', e => { if (e.originalEvent && e.originalEvent.target.closest('.mk-v')) mk.closePopup(); });   // a truck in the card: its details only
+      list.forEach(x => { m.vmk[x.vno] = mk; });
       m.trucks.addLayer(mk);
     });
     return lost;
   }
+  /** the map goes to a truck (zoomed in so its place shows as a card) and its line in the card blinks */
+  function flyToTruck(m, vno) {
+    const mk = m.vmk && m.vmk[vno];
+    if (!mk) { openDetail(vno); return; }   // not on the map: its details
+    const hit = () => {
+      const el = mk.getElement && mk.getElement(), b = el && [...el.querySelectorAll('.mk-v')].find(x => x.dataset.v === vno);
+      if (b) { b.classList.remove('mk-hit'); void b.offsetWidth; b.classList.add('mk-hit'); }
+    };
+    const show = () => m.trucks.zoomToShowLayer(mk, () => setTimeout(hit, 200));
+    if (m.map.getZoom() < CARD_Z) { m.map.once('zoomend', () => setTimeout(show, 60)); m.map.setView(mk.getLatLng(), CARD_Z + 0.5); } else show();
+  }
+  /** what the truck colours mean: one dot per status on the map */
+  const truckKey = vs => CATS.filter(c => vs.some(v => v.cat === c.key)).map(c => [c.color, c.label, 'dot'])
+    .concat([['', 'a place: trucks per status', 'pill'], ['', 'zoom in: every truck by number and status', 'tip']]);
   function mapPopup(title, vs, sub) {
     return '<div class="mp-h">' + ICO.pin + '<b>' + esc(title) + '</b><span>' + vs.length + ' truck' + (vs.length > 1 ? 's' : '') + (sub ? ' · ' + esc(sub) : '') + '</span></div>' +
-      '<div class="mp-list">' + vs.map(v => '<button type="button" class="mp-v" data-v="' + esc(v.vno) + '" style="--c:' + CAT[v.cat].color + '">' + ICO.truck +
+      '<div class="mp-list">' + byStatus(vs).map(v => '<button type="button" class="mp-v" data-v="' + esc(v.vno) + '" style="--c:' + CAT[v.cat].color + '">' + ICO.truck +
         '<b>' + esc(shortNo(v.vno)) + '</b><span>' + esc(CAT[v.cat].label) + '</span><small>' + esc((v.from || '?') + ' → ' + (v.to || '?')) +
         (v.cur ? ' · now ' + esc(v.cur) : '') + '</small></button>').join('') + '</div><div class="mp-tip">Tap a truck for its details</div>';
   }
@@ -3861,22 +3903,39 @@
       (auto.length ? '<br><b>Found by itself on OpenStreetMap</b> (check they are right): ' + auto.join(', ') + '.' : '') +
       (nl.length || ps.length || auto.length ? ' Tell us where these are and they will be fixed.' : '');
   }
-  /** what the colours on the map mean, in one line under it: [[colour, words, 'line' | 'ring' | 'tip'], …] */
+  /** what the colours on the map mean, in one line under it: [[colour, words, 'line' | 'dot' | 'pill' | 'tip'], …] */
   function mapKey(items) {
-    const ring = 'conic-gradient(#16a34a 0 50%, #7c3aed 0 75%, #dc2626 0)';
+    const pill = '<span class="mk-pill"><i style="--c:' + CAT.running.color + '">3</i><i style="--c:' + CAT.unloading.color + '">1</i></span>';
     return '<span class="mp-key">' + items.map(([c, t, kind]) =>
-      '<span>' + (kind === 'ring' ? '<i class="ring" style="background:' + ring + '"></i>' : kind === 'tip' ? '👆' : '<i class="ln" style="--c:' + c + '"></i>') + esc(t) + '</span>').join('') + '</span>';
+      '<span>' + (kind === 'pill' ? pill : kind === 'dot' ? '<i class="dot" style="--c:' + c + '"></i>' : kind === 'tip' ? '👆' : '<i class="ln" style="--c:' + c + '"></i>') + esc(t) + '</span>').join('') + '</span>';
   }
   /** no label on top of another: the hub label first, then place tags (busiest first), time boxes, place names.
    *  A tag that would sit on one already shown shrinks to its count (the full tag shows on hover / tap or when
    *  zoomed in); a time box or name that would, hides. Runs again after every zoom / move. */
   function declutter(m) {
     const el = m.map.getContainer();
+    // zoomed in: a truck card on another moves to a free side of its place (the bigger cards stay put)
+    const placed = [], free = q => !placed.some(k => q.left < k.right + 3 && k.left < q.right + 3 && q.top < k.bottom + 3 && k.top < q.bottom + 3);
+    [...el.querySelectorAll('.mk-card')].filter(e => { e.style.transform = ''; return e.offsetParent !== null; })
+      .sort((a, b) => b.childElementCount - a.childElementCount).forEach(e => {
+        let r = e.getBoundingClientRect();
+        if (!free(r)) {
+          const w = r.width + 6, h = r.height + 6;
+          const ok = [[0, h], [0, -h], [w, 0], [-w, 0], [w, h], [-w, h], [w, -h], [-w, -h]].some(([dx, dy]) => {
+            e.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+            r = e.getBoundingClientRect();
+            return free(r);
+          });
+          if (!ok) { e.style.transform = ''; r = e.getBoundingClientRect(); }
+        }
+        placed.push(r);
+      });
     const all = [...el.querySelectorAll('.mk-hub, .mk-tag, .mp-eta-tip, .mk-lbl')];
     all.forEach(e => { e.classList.remove('mk-small', 'mk-off', 'mk-flip'); e.style.marginLeft = e.style.marginTop = ''; });
     const rank = e => e.classList.contains('mk-hub') ? 1e6 : e.classList.contains('mk-tag') ? 1e4 + (+e.dataset.n || 0)
       : e.classList.contains('mp-eta-tip') ? (e.classList.contains('mp-faint') ? 4e3 : 5e3) : e.classList.contains('major') ? 2e3 : 1e3;
-    const kept = [...el.querySelectorAll('.mk-pinw, .mk-office')].map(e => e.getBoundingClientRect()), pad = 2;   // the big A / B pins and the OFFICE tag stay uncovered
+    // the big A / B pins, the OFFICE tag and the trucks (pills, lorries, cards) stay uncovered
+    const kept = [...el.querySelectorAll('.mk-pinw, .mk-office, .mk-card, .mk-pill, .mk-one')].filter(e => e.offsetParent !== null && !e.closest('.mp-key')).map(e => e.getBoundingClientRect()), pad = 2;
     const hits = r => kept.some(k => r.left < k.right + pad && k.left < r.right + pad && r.top < k.bottom + pad && k.top < r.bottom + pad);
     all.filter(e => e.offsetParent !== null).sort((a, b) => rank(b) - rank(a)).forEach(e => {
       let r = e.getBoundingClientRect();
@@ -4022,7 +4081,7 @@
       // the chosen route / point: Google-style pins (A orange, B red); otherwise small round A / B
       const html = big ? '<div class="mk-in mk-pinw' + (focus ? ' focus' : '') + '"><div class="mk-pin ' + kind + '"><i>' + (kind === 'b' ? 'B' : 'A') + '</i></div></div>'
         : '<div class="mk-in mk-end ' + kind + '"><i>' + (kind === 'b' ? 'B' : 'A') + '</i></div>';
-      const mk = L.marker(e.ll, { icon: L.divIcon({ className: 'mk', iconSize: null, html: html }), zIndexOffset: 500 });   // under the trucks: a count at A / B stays readable
+      const mk = L.marker(e.ll, { icon: L.divIcon({ className: 'mk', iconSize: null, html: html }), zIndexOffset: -2000 });   // under the trucks (their shared pills too): a count at A / B stays readable
       mk.bindTooltip(esc(e.name), { permanent: true, direction: 'right', offset: big ? [14, -16] : [12, 0], className: 'mk-lbl' + (some || major.has(k) ? ' major' : '') });
       mk.bindPopup(() => {
         const vs = g.routes.filter(r => spellKey(r.from) === spellKey(e.name) || spellKey(r.to) === spellKey(e.name)).flatMap(r => r.vs)
@@ -4042,14 +4101,65 @@
       if (some) l.rd.pts.forEach(p => pts.push(p));   // all routes: the zoom keeps to where most of it is
       if (focusLL && l.b.join() === focusLL.join() && boxes < (narrow ? 4 : 10)) etaBox(m, l.rd, l.name || '?', boxes++);   // coming to the chosen point
     });
-    const lost = truckMarks(m, vs);
-    m.trucks.eachLayer(l => pts.push([l.getLatLng().lat, l.getLatLng().lng]));
-    mapFit(m, pts, [S.f.caller, S.rq, S.rcat, sel ? rkey(sel) + (selRoad ? '+road' : '') : '', focus ? '@' + fk : ''].join('|'), !some);
-    const lk = multi ? [LANE_KEY] : [];
-    mapNote(note, lost, missing, vs, focus ? [['#1a73e8', 'coming in'], ['#188038', 'going out']].concat(lk, [['#9aa0a6', 'other routes'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a number for its trucks', 'tip']])
-      : sel ? (selRoad && selRoad.length > 1 ? selRoad.map((l, i) => [l.col, 'route ' + (i + 1) + (l.name ? ' (via ' + l.name + ')' : '') + (l.stops.length ? '' : ' · no truck now')]) : [['#1a73e8', 'this route']]).concat([['#9aa0a6', 'other routes'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a truck for details', 'tip']])
-      : [['#4285f4', 'route (from A to B)']].concat(lk, [['#5b8def', 'a truck’s own way'], ['', 'trucks (colour = status)', 'ring'], ['', 'tap a pin: every route there · tap a line: that route', 'tip']]));
+    const lost = truckMarks(m, vs), tp = [];
+    m.trucks.eachLayer(l => tp.push([l.getLatLng().lat, l.getLatLng().lng]));
+    // all routes: zoom to where the trucks are (the far route ends stay a zoom-out away); a route / point: all of it
+    mapFit(m, !some && tp.length >= 3 ? tp : pts.concat(tp), [S.f.caller, S.rq, S.rcat, sel ? rkey(sel) + (selRoad ? '+road' : '') : '', focus ? '@' + fk : ''].join('|'), !some);
+    // the Status box counts every truck shown whatever status is picked
+    const keep = S.rcat;
+    S.rcat = '';
+    const g0 = routeGroups(), sel0 = sel && g0.routes.find(r => rkey(r) === rkey(sel)), seen0 = new Set();
+    S.rcat = keep;
+    routeStat(m, (sel0 ? sel0.vs : g0.routes.filter(r => !focus || role(r)).flatMap(r => r.vs).concat(coming)).filter(v => !seen0.has(v.vno) && seen0.add(v.vno)), vs);
+    const lk = multi ? [LANE_KEY] : [], tk = truckKey(vs);
+    mapNote(note, lost, missing, vs, focus ? [['#1a73e8', 'coming in'], ['#188038', 'going out']].concat(lk, [['#9aa0a6', 'other routes']], tk, [['', 'tap a place for its trucks', 'tip']])
+      : sel ? (selRoad && selRoad.length > 1 ? selRoad.map((l, i) => [l.col, 'route ' + (i + 1) + (l.name ? ' (via ' + l.name + ')' : '') + (l.stops.length ? '' : ' · no truck now')]) : [['#1a73e8', 'this route']]).concat([['#9aa0a6', 'other routes']], tk, [['', 'tap a truck for details', 'tip']])
+      : [['#4285f4', 'route (from A to B)']].concat(lk, [['#5b8def', 'a truck’s own way']], tk, [['', 'tap a pin: every route there · tap a line: that route', 'tip']]));
     declutterSoon(m);
+  }
+  /** Route map: its trucks by status in a box (top right) — tap a status: only its trucks (as the status chips over the
+   *  map), listed under it with where each is now; tap a truck: the map goes to it. all: the trucks shown with no status
+   *  picked; vs: the ones on the map now */
+  function routeStat(m, all, vs) {
+    const L = window.L;
+    if (!m.rstat) {
+      const Box = L.Control.extend({ options: { position: 'topright' }, onAdd: () => {
+        const el = L.DomUtil.create('div', 'mp-stat');
+        L.DomEvent.disableClickPropagation(el);
+        L.DomEvent.disableScrollPropagation(el);   // the wheel scrolls the truck list, not the map
+        el.addEventListener('click', e => {
+          const v = e.target.closest('[data-fly]'), t = e.target.closest('[data-rs]');
+          if (v) {
+            if (m.map.getContainer().clientWidth < 600) { S.rstatShut = true; routeStat(m, m.rsAll, m.rsVs); }   // a phone: the box out of the way of the truck
+            flyToTruck(m, v.dataset.fly);
+            return;
+          }
+          if (!t) return;
+          if (t.dataset.rs === '~') { S.rstatShut = !S.rstatShut; store.set('vpt_rstat_shut', S.rstatShut); routeStat(m, m.rsAll, m.rsVs); return; }
+          S.rcat = S.rcat === t.dataset.rs ? '' : t.dataset.rs;
+          if (S.rcat) S.rstatShut = false;
+          renderRoutes();
+        });
+        return el;
+      } });
+      m.rstat = new Box().addTo(m.map);
+      if (S.rstatShut === undefined) S.rstatShut = store.get('vpt_rstat_shut', IS_PHONE);   // a phone starts with it closed
+    }
+    m.rsAll = all; m.rsVs = vs;
+    const by = {};
+    all.forEach(v => (by[v.cat] = by[v.cat] || []).push(v));
+    const cats = CATS.filter(c => by[c.key] || S.rcat === c.key), shut = S.rstatShut, pick = S.rcat && CAT[S.rcat];
+    const where = v => v.cur ? 'now ' + v.cur : (v.from || '?') + ' → ' + (v.to || '?');
+    // closed with a status picked: the head says which (RUNNING 42)
+    m.rstat.getContainer().innerHTML = '<button type="button" class="hs-head" data-rs="~"' + (shut && pick ? ' style="background:' + pick.color + '"' : '') + ' title="' + (shut ? 'Show' : 'Hide') + ' the status list">' +
+      (shut && pick ? esc(pick.label) + '<b>' + (by[S.rcat] || []).length + '</b>' : 'Status<b>' + all.length + '</b>') + '<i>' + (shut ? '▸' : '▾') + '</i></button>' +
+      (shut ? '' : '<div class="hs-rows">' + cats.map(c => {
+        const on = S.rcat === c.key, list = (by[c.key] || []).slice().sort((a, b) => (a.cur || '').localeCompare(b.cur || '') || a.vno.localeCompare(b.vno));
+        return '<button type="button" class="hs-row' + (on ? ' on' : '') + '" data-rs="' + c.key + '" style="--c:' + c.color + '" title="' + (on ? 'Show every truck again' : 'Only the ' + esc(c.label) + ' trucks') + '">' +
+          '<i></i><span>' + esc(c.label) + '</span><b>' + list.length + '</b>' + (on ? '<em>✕</em>' : '') + '</button>' +
+          (on ? '<div class="hs-list" style="--c:' + c.color + '">' + list.map(v => '<button type="button" class="hs-v" data-fly="' + esc(v.vno) + '" title="Show it on the map"><b>' + esc(shortNo(v.vno)) + '</b>' +
+            '<small>' + esc(where(v)) + '</small></button>').join('') + '</div>' : '');
+      }).join('') + '</div><div class="hs-tip">Tap a status: only its trucks</div>');
   }
 
   /** trucks by status in a small box on the map (Loading 13 · Unloading 4 · Repair 2 …) — the whole fleet ("All trucks")
@@ -4164,7 +4274,7 @@
     m.hs = { key: S.hmode + '|' + S.hub, d: d, vs: vs, hub: hub };
     hubStat(m, !!S.hstat);
     mapNote(note, lost, missing, vs, [[col.in, load ? 'empty trucks coming to load' : 'loaded trucks coming to unload'], [col.out, load ? 'loaded, going out' : 'leaving after unloading']]
-      .concat(multi ? [LANE_KEY] : [], [['', 'trucks now (colour = status)', 'ring'], ['', 'thicker line = more trucks · tap a place for its trucks', 'tip']]));
+      .concat(multi ? [LANE_KEY] : [], truckKey(vs), [['', 'thicker line = more trucks · tap a place for its trucks', 'tip']]));
     declutterSoon(m);
   }
   /** road ⇄ map on the Route tab (quiet: only set the buttons, the view draws itself when shown) */

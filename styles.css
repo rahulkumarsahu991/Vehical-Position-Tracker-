@@ -1539,7 +1539,7 @@ table.tun .prog { cursor: pointer; }
 #view-hub.is-map .hflow2, #view-hub.is-map .hf-key { display: none; }
 .map-wrap { margin-bottom: 10px; }
 .mp-map {  /* its own stacking context: the map's layers never cover the header or the windows */
-  position: relative; z-index: 0; isolation: isolate; height: clamp(380px, 68vh, 640px); border-radius: 16px; overflow: hidden;
+  position: relative; z-index: 0; isolation: isolate; height: clamp(420px, 78vh, 860px); border-radius: 16px; overflow: hidden;
   border: 1px solid var(--line); box-shadow: var(--shadow); background: #e9eef5; font: inherit;
 }
 .mp-map.leaflet-container { font: inherit; }
@@ -1559,23 +1559,47 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 .mp-note { margin: 8px 2px 0; line-height: 1.45; }
 .mp-map .mk { background: none; border: 0; }
 .mk-in { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); white-space: nowrap; cursor: pointer; }
-/* one truck: a small lorry with its number; more: a ring in their status colours with the count */
+/* one truck: a small lorry with its number; more: a pill with one count per status, in the status colours */
 .mk-one {
   display: flex; align-items: center; gap: 3px; padding: 2px 7px 2px 4px; border-radius: 999px; background: #fff;
   box-shadow: 0 0 0 2px var(--c), 0 3px 8px rgba(22, 26, 51, .3);
 }
 .mk-one .truck { width: 24px; height: 14px; }
 .mk-one span { font: 700 10.5px/14px var(--font); color: var(--ink); }
-.mk-ring { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; box-shadow: 0 3px 8px rgba(22, 26, 51, .35); }
-.mk-ring.big { width: 40px; height: 40px; }
-.mk-ring.big b { width: 28px; height: 28px; font-size: 13px; }
-.mk-ring b { width: 23px; height: 23px; border-radius: 50%; background: #fff; display: grid; place-items: center; font: 700 12px var(--font); color: var(--ink); }
+.mk-pill { display: inline-flex; gap: 2px; padding: 2px; border-radius: 999px; background: #fff; box-shadow: 0 2px 7px rgba(22, 26, 51, .38); }
+.mk-pill i {
+  min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--c); color: #fff;
+  font: 700 11.5px/20px var(--font); font-style: normal; text-align: center;
+}
+/* zoomed in: a place opens into a card — its name, then each truck's number and status (a coloured edge) */
+.mk-card { display: none; width: 136px; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 3px 12px rgba(22, 26, 51, .38); white-space: normal; }
+.mp-map.mp-close .mk-grp .mk-sum { display: none; }
+.mp-map.mp-close .mk-grp .mk-card { display: block; }
+.mk-card-h { display: flex; align-items: center; gap: 6px; padding: 3px 7px; background: var(--navy); color: #fff; font: 700 11px var(--cond); letter-spacing: .3px; }
+.mk-card-h b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.mk-card-h span { flex: none; background: rgba(255, 255, 255, .22); border-radius: 999px; padding: 0 6px; font: 700 10.5px var(--font); }
+.mk-v {
+  display: flex; align-items: center; gap: 6px; width: 100%; border: 0; border-left: 4px solid var(--c); background: #fff;
+  padding: 2px 6px; font: inherit; text-align: left; cursor: pointer;
+}
+.mk-v + .mk-v { border-top: 1px solid #eef0f5; }
+.mk-v:hover { background: #f4f6fb; }
+.mk-v b { font: 700 11.5px var(--font); color: var(--ink); }
+.mk-v small { margin-left: auto; font: 700 9.5px var(--font); color: var(--c); text-transform: uppercase; letter-spacing: .2px; white-space: nowrap; }
+.mk-v.mk-hit { animation: mk-hit .45s ease-in-out 6 alternate; }
+@keyframes mk-hit { to { background: var(--c); } }
+.mk-v.mk-hit b, .mk-v.mk-hit small { animation: mk-hit-t .45s ease-in-out 6 alternate; }
+@keyframes mk-hit-t { to { color: #fff; } }
+.mk-more { padding: 2px 6px 3px; background: #f6f7fb; font: 600 10px var(--font); color: var(--muted); text-align: center; }
 /* route ends: A orange, B navy, both = half and half */
 .mk-end { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; border: 2px solid #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .35); }
 .mk-end i { font: 700 11px/1 var(--cond); font-style: normal; color: #fff; }
 .mk-end.a { background: var(--orange); }
 .mk-end.b { background: var(--navy-3); }
 .mk-end.ab { background: linear-gradient(135deg, var(--orange) 50%, var(--navy-3) 50%); }
+/* zoomed out: just small dots, so the trucks' pills stand out */
+.mp-map:not(.mp-near) .mk-end { width: 11px; height: 11px; border-width: 1.5px; opacity: .85; }
+.mp-map:not(.mp-near) .mk-end i { display: none; }
 .mp-map .leaflet-tooltip.mk-lbl {
   background: rgba(255, 255, 255, .93); border: 0; border-radius: 6px; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); padding: 1px 6px;
   font: 700 11px var(--cond); letter-spacing: .3px; color: var(--navy);
@@ -1599,7 +1623,9 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 .mp-key { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 6px; color: var(--ink-2); font-size: 12px; }
 .mp-key span { display: inline-flex; align-items: center; gap: 5px; }
 .mp-key i.ln { width: 20px; height: 5px; border-radius: 3px; background: var(--c); box-shadow: 0 0 0 1px rgba(0, 0, 0, .12); }
-.mp-key i.ring { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 4px rgba(255, 255, 255, 0); -webkit-mask: radial-gradient(circle, transparent 3px, #000 3.5px); mask: radial-gradient(circle, transparent 3px, #000 3.5px); }
+.mp-key i.dot { width: 11px; height: 11px; border-radius: 50%; background: var(--c); }
+.mp-key .mk-pill { box-shadow: 0 0 0 1px rgba(0, 0, 0, .12); }
+.mp-key .mk-pill i { min-width: 16px; height: 16px; font-size: 10px; line-height: 16px; padding: 0 4px; }
 .mk-hub b { font: 700 14px/1 var(--cond); letter-spacing: .4px; color: var(--navy); }
 .mk-hub span { font: 700 10.5px var(--font); color: #fff; background: var(--navy-3); border-radius: 999px; padding: 1px 7px; }
 /* a place tag: name + km · time, count; shrunk to just the count when another label is in the way */
@@ -1840,7 +1866,9 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 @media (max-width: 760px) {
   .route-head .map-seg { width: 100%; }
   .route-head .map-seg button { flex: 1; }
-  .mp-map { height: 68vh; min-height: 380px; border-radius: 14px; }
+  .mp-map { height: 78vh; height: 78svh; min-height: 400px; border-radius: 14px; }   /* most of the phone's screen */
+  .mk-card { width: 122px; }
+  .mk-v { padding: 2px 5px; }
   .mp-pick { width: 100%; }
   .mp-pick select { max-width: none; flex: 1; min-width: 0; }
   .mp-sum { font-size: 12px; }
@@ -1891,7 +1919,9 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 .hs-v:hover { background: #eceef8; }
 .hs-v b { font: 700 12px var(--font); }
 .hs-v small { font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hs-tip { padding: 0 8px 6px; font-size: 10px; color: var(--muted); }
 @media (max-width: 760px) {
+  .hs-tip { display: none; }
   .mp-stat { width: 138px; font-size: 11px; }
   .hs-head { padding: 5px 8px; font-size: 10.5px; }
   .hs-seg button { font-size: 9.5px; padding: 3px 1px; }
