@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v86';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v87';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -3647,8 +3647,41 @@
    *  On phones it draws at most 2× sharp (3× phones would do 2.25× the work for no visible gain).
    *  Only a phone without WebGL gets OpenStreetMap's plain tiles instead. */
   const OSM_DATA = 'Data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
-  // style: 'positron' (light grey, quiet — the trucks and routes stand out) or 'liberty' (full colour, every road)
-  const cleanMap = (L, style) => L.maplibreGL({ style: 'https://tiles.openfreemap.org/styles/' + (style || 'liberty'), pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+  /** the fleet maps in colour, as Google Maps / Tata FleetEdge show India: cream land, green forests and national parks,
+   *  blue water, yellow-orange highways, white roads. OpenFreeMap's "liberty" with these colours (fetched once and
+   *  coloured before it is drawn — no flash of other colours), without 3-D buildings and shop icons (lighter, smoother) */
+  const FLEET_COLOURS = {
+    background: { 'background-color': '#f3f1e9' },
+    natural_earth: { 'raster-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.7, 5, 0.55, 7, 0.3] },
+    park: { 'fill-color': '#a9d8a0', 'fill-opacity': 0.75, 'fill-outline-color': '#7cc275' },
+    landcover_wood: { 'fill-color': '#bfe2b1', 'fill-opacity': 0.85 },
+    landcover_grass: { 'fill-color': '#d3ebc4', 'fill-opacity': 0.6 },
+    landcover_wetland: { 'fill-color': '#c4e3d8' },
+    landuse_residential: { 'fill-color': ['interpolate', ['linear'], ['zoom'], 9, '#e6e2d8', 12, '#eeebe4'] },
+    water: { 'fill-color': '#aadaff' },
+    waterway_river: { 'line-color': '#9fd2fb' },
+    waterway_other: { 'line-color': '#a9d6fb' },
+    road_motorway: { 'line-color': '#f8c45a' },
+    road_motorway_casing: { 'line-color': '#dd9a2f' },
+    road_motorway_link: { 'line-color': '#f8c45a' },
+    road_trunk_primary: { 'line-color': '#fddc8c' },
+    road_trunk_primary_casing: { 'line-color': '#e3ac55' },
+    road_secondary_tertiary: { 'line-color': '#ffffff' },
+    road_secondary_tertiary_casing: { 'line-color': '#d8d2c2' },
+    bridge_motorway: { 'line-color': '#f8c45a' },
+    bridge_trunk_primary: { 'line-color': '#fddc8c' },
+    boundary_3: { 'line-color': '#a8a0c2' },
+    label_state: { 'text-color': '#8b7fae' }
+  };
+  const FLEET_DROP = /^(building-3d|poi_r\d+|poi_transit|road_one_way_arrow)/;
+  let fleetStyle = null;
+  const colourStyle = () => fleetStyle || (fleetStyle = fetch('https://tiles.openfreemap.org/styles/liberty').then(r => r.json()).then(st => {
+    st.layers = st.layers.filter(l => !FLEET_DROP.test(l.id));
+    st.layers.forEach(l => { if (FLEET_COLOURS[l.id]) l.paint = Object.assign(l.paint || {}, FLEET_COLOURS[l.id]); });
+    return st;
+  }).catch(() => 'liberty'));
+  // style: 'liberty' (full colour, every road — drawing roads), or a style made above (an object)
+  const cleanMap = (L, style) => L.maplibreGL({ style: typeof style === 'object' ? style : 'https://tiles.openfreemap.org/styles/' + (style || 'liberty'), pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
     padding: IS_PHONE ? 0.08 : 0.15, fadeDuration: IS_PHONE ? 0 : 300,
     attribution: '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> &copy; <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a> ' + OSM_DATA });
   const plainMap = L => L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin',
@@ -3657,8 +3690,8 @@
   function addBaseMap(L, map, style) {
     const el = map.getContainer(), done = () => el.classList.remove('mp-busy');
     el.classList.add('mp-busy');
-    loadGL().then(ok => {
-      const base = (ok ? cleanMap(L, style) : plainMap(L)).addTo(map);
+    Promise.all([loadGL(), style === 'colour' ? colourStyle() : style]).then(([ok, st]) => {
+      const base = (ok ? cleanMap(L, st) : plainMap(L)).addTo(map);
       const gm = ok && base.getMaplibreMap && base.getMaplibreMap();
       if (!gm) return done();
       gm.once('idle', done);
@@ -3707,7 +3740,10 @@
       // the mouse wheel zooms in / out around the cursor, half a level per notch
       const map = L.map(el, { scrollWheelZoom: true, wheelPxPerZoomLevel: 120, wheelDebounceTime: 30, zoomSnap: 0.5, minZoom: 4, maxZoom: 17, tapTolerance: 20 }).setView([21.5, 82], 6);
       map.attributionControl.setPrefix(false);
-      addBaseMap(L, map, plain ? 'liberty' : 'positron');   // drawing roads wants every road; the fleet maps a quiet map under the trucks
+      addBaseMap(L, map, plain ? 'liberty' : 'colour');   // drawing roads: every road; the fleet maps: Google-like colours
+      // while the map moves the running dashes stand still (smoother panning / zooming, above all on phones)
+      map.on('movestart zoomstart', () => el.classList.add('mp-moving'));
+      map.on('moveend zoomend', () => el.classList.remove('mp-moving'));
       // ⛶ full screen, under the zoom buttons
       const Fs = L.Control.extend({ options: { position: 'topleft' }, onAdd: () => {
         const b = L.DomUtil.create('button', 'mp-fs');
@@ -3784,8 +3820,9 @@
     if (o.click) line.on('click', o.click);
     m.lines.addLayer(line);
     if (quiet) return rd;
-    // running dashes: on a phone only on the chosen route / hub lines (dozens of moving lines make a phone stutter)
-    if (!(IS_PHONE && look === 'all')) m.lines.addLayer(L.polyline(pts, { color: '#fff', weight: look === 'sel' ? 2.2 : 1.4, opacity: look === 'all' ? .5 : .85, dashArray: look === 'sel' ? '3 13' : '2 10', interactive: false, className: 'mp-flow' }));
+    // running dashes: only on the chosen route / hub lines (dozens of moving lines make panning stutter; a phone: not on
+    // the trucks' own ways either)
+    if (look !== 'all' && !(IS_PHONE && look === 'leg')) m.lines.addLayer(L.polyline(pts, { color: '#fff', weight: look === 'sel' ? 2.2 : 1.4, opacity: look === 'all' ? .5 : .85, dashArray: look === 'sel' ? '3 13' : '2 10', interactive: false, className: 'mp-flow' }));
     const i = Math.max(1, Math.round((pts.length - 1) * 0.62)), p = m.map.project(pts[i - 1], 8), q = m.map.project(pts[i], 8);
     const deg = Math.atan2(q.y - p.y, q.x - p.x) * 180 / Math.PI;
     m.lines.addLayer(L.marker(pts[i], { interactive: false, keyboard: false, zIndexOffset: -1500,   // under the trucks
