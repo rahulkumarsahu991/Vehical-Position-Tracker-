@@ -1561,36 +1561,74 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 .mk-in { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); white-space: nowrap; cursor: pointer; }
 /* one truck: a small lorry with its number; more: a pill with one count per status, in the status colours */
 .mk-one {
-  display: flex; align-items: center; gap: 3px; padding: 2px 7px 2px 4px; border-radius: 999px; background: #fff;
-  box-shadow: 0 0 0 2px var(--c), 0 3px 8px rgba(22, 26, 51, .3);
+  display: flex; align-items: center; gap: 4px; padding: 3px 9px 3px 5px; border-radius: 999px; background: #fff; color: var(--c);
+  border: 1px solid rgba(16, 24, 40, .08); box-shadow: inset 3px 0 0 var(--c), 0 4px 12px rgba(16, 24, 40, .2); transition: transform .15s;
 }
 .mk-one .truck { width: 24px; height: 14px; }
-.mk-one span { font: 700 10.5px/14px var(--font); color: var(--ink); }
-.mk-pill { display: inline-flex; gap: 2px; padding: 2px; border-radius: 999px; background: #fff; box-shadow: 0 2px 7px rgba(22, 26, 51, .38); }
-.mk-pill i {
-  min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: var(--c); color: #fff;
-  font: 700 11.5px/20px var(--font); font-style: normal; text-align: center;
+.mk-one span { font: 700 11px/14px var(--font); color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: .2px; }
+.mk-pill {
+  display: inline-flex; gap: 3px; padding: 3px; border-radius: 999px; background: #fff;
+  border: 1px solid rgba(16, 24, 40, .08); box-shadow: 0 4px 12px rgba(16, 24, 40, .22); transition: transform .15s;
 }
-/* zoomed in: a place opens into a card — its name, then each truck's number and status (a coloured edge) */
-.mk-card { display: none; width: 136px; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 3px 12px rgba(22, 26, 51, .38); white-space: normal; }
+.mk-pill i {
+  min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: var(--c); color: #fff;
+  font: 700 12px/22px var(--font); font-style: normal; text-align: center; font-variant-numeric: tabular-nums;
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .14), inset 0 1px 0 rgba(255, 255, 255, .25);
+}
+.leaflet-marker-icon:hover .mk-pill, .leaflet-marker-icon:hover .mk-one { transform: translateY(-2px) scale(1.04); }
+/* zoomed in: a place opens into a card over it (a pointer to the spot) — its name, then each truck's number and
+   status in a soft badge of the status colour */
+.mk-card {
+  display: none; position: relative; width: 150px; background: #fff; border-radius: 12px; white-space: normal;
+  border: 1px solid rgba(16, 24, 40, .08); box-shadow: 0 10px 24px rgba(16, 24, 40, .22), 0 2px 6px rgba(16, 24, 40, .1);
+}
+.mk-card::after {
+  content: ""; position: absolute; left: 50%; bottom: -7px; width: 12px; height: 12px; margin-left: -6px; background: #fff;
+  transform: rotate(45deg); border-right: 1px solid rgba(16, 24, 40, .08); border-bottom: 1px solid rgba(16, 24, 40, .08); border-radius: 0 0 3px 0;
+}
+.mk-card.moved::after { display: none; }   /* moved aside to clear another card: no longer over its place */
+.mp-map.mp-close .mk-grp { transform: translate(-50%, calc(-100% - 10px)); }
 .mp-map.mp-close .mk-grp .mk-sum { display: none; }
 .mp-map.mp-close .mk-grp .mk-card { display: block; }
-.mk-card-h { display: flex; align-items: center; gap: 6px; padding: 3px 7px; background: var(--navy); color: #fff; font: 700 11px var(--cond); letter-spacing: .3px; }
-.mk-card-h b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
-.mk-card-h span { flex: none; background: rgba(255, 255, 255, .22); border-radius: 999px; padding: 0 6px; font: 700 10.5px var(--font); }
-.mk-v {
-  display: flex; align-items: center; gap: 6px; width: 100%; border: 0; border-left: 4px solid var(--c); background: #fff;
-  padding: 2px 6px; font: inherit; text-align: left; cursor: pointer;
+.mk-card-h {
+  display: flex; align-items: center; gap: 5px; padding: 6px 8px 5px; border-bottom: 1px solid #eef0f5;
+  font: 700 12px var(--cond); letter-spacing: .4px; color: var(--navy); text-transform: uppercase;
 }
-.mk-v + .mk-v { border-top: 1px solid #eef0f5; }
-.mk-v:hover { background: #f4f6fb; }
-.mk-v b { font: 700 11.5px var(--font); color: var(--ink); }
-.mk-v small { margin-left: auto; font: 700 9.5px var(--font); color: var(--c); text-transform: uppercase; letter-spacing: .2px; white-space: nowrap; }
+.mk-card-h .pin { flex: none; width: 13px; height: 13px; color: var(--orange-d); }
+.mk-card-h b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.mk-card-h span { flex: none; background: var(--navy); color: #fff; border-radius: 999px; padding: 0 7px; font: 700 10.5px/17px var(--font); letter-spacing: 0; }
+.mk-v {
+  display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; padding: 3px 8px;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.mk-v:hover { background: #f5f7fb; }
+.mk-v i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--c); }
+.mk-v b { font: 700 12px var(--font); color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: .2px; }
+.mk-v small {
+  margin-left: auto; padding: 1px 6px; border-radius: 999px; white-space: nowrap; color: var(--c);
+  background: color-mix(in srgb, var(--c) 13%, #fff); font: 700 9px/1.5 var(--font); text-transform: uppercase; letter-spacing: .3px;
+}
+.mk-card > :last-child { border-radius: 0 0 12px 12px; }
+.mk-card > .mk-v:last-child { padding-bottom: 5px; }
 .mk-v.mk-hit { animation: mk-hit .45s ease-in-out 6 alternate; }
 @keyframes mk-hit { to { background: var(--c); } }
 .mk-v.mk-hit b, .mk-v.mk-hit small { animation: mk-hit-t .45s ease-in-out 6 alternate; }
 @keyframes mk-hit-t { to { color: #fff; } }
-.mk-more { padding: 2px 6px 3px; background: #f6f7fb; font: 600 10px var(--font); color: var(--muted); text-align: center; }
+.mk-more { padding: 4px 8px 6px; border-top: 1px solid #eef0f5; font: 700 10px var(--font); color: var(--orange-d); text-align: center; }
+/* map buttons: white, rounded, a soft shadow */
+.mp-map .leaflet-bar, .mp-map .leaflet-control-layers { border: 0; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(16, 24, 40, .18); }
+.mp-map .leaflet-bar a { width: 34px; height: 34px; line-height: 34px; color: var(--navy); border-bottom-color: #eef0f5; }
+.mp-map .leaflet-bar a:hover { background: #f5f7fb; }
+.mp-map .mp-fs { border: 0; border-radius: 10px; box-shadow: 0 2px 10px rgba(16, 24, 40, .18); color: var(--navy); }
+/* bottom left: ● LIVE · 196 trucks · 72 routes */
+.mp-live {
+  display: flex; align-items: center; gap: 6px; padding: 5px 11px 5px 9px; border-radius: 999px; background: rgba(27, 30, 79, .92);
+  color: #fff; font: 600 11.5px var(--font); box-shadow: 0 4px 12px rgba(16, 24, 40, .25); backdrop-filter: blur(4px);
+}
+.mp-live i { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 0 rgba(34, 197, 94, .6); animation: mp-live 1.8s infinite; }
+@keyframes mp-live { 70% { box-shadow: 0 0 0 7px rgba(34, 197, 94, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); } }
+.mp-live b { font: 700 11px var(--cond); letter-spacing: .8px; color: #86efac; }
+.mp-live span { opacity: .92; }
 /* route ends: A orange, B navy, both = half and half */
 .mk-end { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; border: 2px solid #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .35); }
 .mk-end i { font: 700 11px/1 var(--cond); font-style: normal; color: #fff; }
@@ -1620,8 +1658,13 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 }
 .mk-hub .mk-hub-k { border-radius: 999px; padding: 2px 6px; background: var(--navy); color: #ffd450; font: 700 9.5px/1.2 var(--font); font-style: normal; letter-spacing: .3px; text-transform: uppercase; }
 /* what the colours mean, under the map */
-.mp-key { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 6px; color: var(--ink-2); font-size: 12px; }
-.mp-key span { display: inline-flex; align-items: center; gap: 5px; }
+/* the key: a light panel of small chips */
+.mp-key {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; padding: 8px; border-radius: 12px; background: #fff;
+  border: 1px solid var(--line); color: var(--ink-2); font-size: 12px;
+}
+.mp-key > span { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; background: #f5f7fb; font-weight: 600; }
+.mp-key > span .mk-pill { padding: 1px; border: 0; }
 .mp-key i.ln { width: 20px; height: 5px; border-radius: 3px; background: var(--c); box-shadow: 0 0 0 1px rgba(0, 0, 0, .12); }
 .mp-key i.dot { width: 11px; height: 11px; border-radius: 50%; background: var(--c); }
 .mp-key .mk-pill { box-shadow: 0 0 0 1px rgba(0, 0, 0, .12); }
@@ -1867,8 +1910,11 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
   .route-head .map-seg { width: 100%; }
   .route-head .map-seg button { flex: 1; }
   .mp-map { height: 78vh; height: 78svh; min-height: 400px; border-radius: 14px; }   /* most of the phone's screen */
-  .mk-card { width: 122px; }
-  .mk-v { padding: 2px 5px; }
+  .mk-card { width: 132px; }
+  .mk-v { padding: 2px 6px; }
+  .mp-live { font-size: 10.5px; padding: 4px 9px 4px 8px; }
+  .mp-map .leaflet-bottom.leaflet-left { bottom: 30px; }   /* over the map credits, which take the whole width here */
+  .mp-map .leaflet-control-attribution { font-size: 9.5px; }
   .mp-pick { width: 100%; }
   .mp-pick select { max-width: none; flex: 1; min-width: 0; }
   .mp-sum { font-size: 12px; }
@@ -1881,13 +1927,17 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 /* Hub map: the hub's trucks by status in a small box (top right, under the layers button);
    a picked status lists its trucks under it and only they stay on the map */
 .mp-stat {
-  width: 172px; background: rgba(255, 255, 255, .97); border: 1px solid rgba(0, 0, 0, .1); border-radius: 10px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, .18); font: 12px/1.25 var(--font); color: var(--ink); overflow: hidden;
+  width: 184px; background: rgba(255, 255, 255, .97); border: 1px solid rgba(16, 24, 40, .08); border-radius: 12px;
+  box-shadow: 0 10px 24px rgba(16, 24, 40, .18), 0 2px 6px rgba(16, 24, 40, .08); font: 12px/1.25 var(--font); color: var(--ink); overflow: hidden;
+  backdrop-filter: blur(6px);
 }
 .hs-head {
-  display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: var(--navy); color: #fff; padding: 6px 9px;
-  font: 700 11.5px var(--font); letter-spacing: .4px; text-transform: uppercase; text-align: left; cursor: pointer;
+  display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: linear-gradient(135deg, var(--navy), var(--navy-3)); color: #fff; padding: 8px 10px;
+  font: 700 11.5px var(--font); letter-spacing: .5px; text-transform: uppercase; text-align: left; cursor: pointer;
 }
+/* the fleet in one bar: each status its share */
+.hs-bar { display: flex; gap: 2px; height: 7px; margin: 8px 8px 2px; border-radius: 999px; overflow: hidden; background: #eef0f5; }
+.hs-bar i { background: var(--c); min-width: 3px; }
 .hs-head b { margin-left: auto; background: rgba(255, 255, 255, .2); border-radius: 999px; padding: 0 7px; font-size: 11.5px; letter-spacing: 0; }
 .hs-head i { font-style: normal; font-size: 10px; opacity: .85; }
 /* All trucks | This hub */
@@ -1906,7 +1956,11 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 .hs-row:hover { background: #f1f3f9; }
 .hs-row i { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
 .hs-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hs-row b { min-width: 18px; text-align: right; font: 700 12px var(--font); color: var(--c); }
+.hs-row b {
+  min-width: 24px; padding: 0 6px; border-radius: 999px; text-align: center; font: 700 11.5px/18px var(--font); color: var(--c);
+  background: color-mix(in srgb, var(--c) 12%, #fff); font-variant-numeric: tabular-nums;
+}
+.hs-row.on b { background: rgba(255, 255, 255, .22); }
 .hs-row em { font-style: normal; font-size: 10px; opacity: .85; }
 .hs-row.on, .hs-row.on:hover { background: var(--c); color: #fff; }
 .hs-row.on i { background: #fff; }
@@ -1920,8 +1974,10 @@ body.map-full .view { animation: none; transform: none; }   /* a transformed par
 .hs-v b { font: 700 12px var(--font); }
 .hs-v small { font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hs-tip { padding: 0 8px 6px; font-size: 10px; color: var(--muted); }
+.hs-fl { white-space: pre; }
 @media (max-width: 760px) {
-  .hs-tip { display: none; }
+  .hs-tip, .hs-fl { display: none; }
+  .hs-bar { margin: 6px 6px 1px; height: 6px; }
   .mp-stat { width: 138px; font-size: 11px; }
   .hs-head { padding: 5px 8px; font-size: 10.5px; }
   .hs-seg button { font-size: 9.5px; padding: 3px 1px; }

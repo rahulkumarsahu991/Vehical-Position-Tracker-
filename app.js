@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v85';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v86';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -3647,17 +3647,18 @@
    *  On phones it draws at most 2× sharp (3× phones would do 2.25× the work for no visible gain).
    *  Only a phone without WebGL gets OpenStreetMap's plain tiles instead. */
   const OSM_DATA = 'Data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
-  const cleanMap = L => L.maplibreGL({ style: 'https://tiles.openfreemap.org/styles/liberty', pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+  // style: 'positron' (light grey, quiet — the trucks and routes stand out) or 'liberty' (full colour, every road)
+  const cleanMap = (L, style) => L.maplibreGL({ style: 'https://tiles.openfreemap.org/styles/' + (style || 'liberty'), pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
     padding: IS_PHONE ? 0.08 : 0.15, fadeDuration: IS_PHONE ? 0 : 300,
     attribution: '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> &copy; <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a> ' + OSM_DATA });
   const plainMap = L => L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin',
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' });
   /** put the clean map under the map in #el; says "Loading the map…" until it has drawn (a few seconds the first time) */
-  function addBaseMap(L, map) {
+  function addBaseMap(L, map, style) {
     const el = map.getContainer(), done = () => el.classList.remove('mp-busy');
     el.classList.add('mp-busy');
     loadGL().then(ok => {
-      const base = (ok ? cleanMap(L) : plainMap(L)).addTo(map);
+      const base = (ok ? cleanMap(L, style) : plainMap(L)).addTo(map);
       const gm = ok && base.getMaplibreMap && base.getMaplibreMap();
       if (!gm) return done();
       gm.once('idle', done);
@@ -3706,7 +3707,7 @@
       // the mouse wheel zooms in / out around the cursor, half a level per notch
       const map = L.map(el, { scrollWheelZoom: true, wheelPxPerZoomLevel: 120, wheelDebounceTime: 30, zoomSnap: 0.5, minZoom: 4, maxZoom: 17, tapTolerance: 20 }).setView([21.5, 82], 6);
       map.attributionControl.setPrefix(false);
-      addBaseMap(L, map);
+      addBaseMap(L, map, plain ? 'liberty' : 'positron');   // drawing roads wants every road; the fleet maps a quiet map under the trucks
       // ⛶ full screen, under the zoom buttons
       const Fs = L.Control.extend({ options: { position: 'topleft' }, onAdd: () => {
         const b = L.DomUtil.create('button', 'mp-fs');
@@ -3856,9 +3857,9 @@
     groups.forEach(g => {
       const n = g.vs.length, list = byStatus(g.vs), v = list[0];
       const small = n === 1 ? '<div class="mk-one" style="--c:' + CAT[v.cat].color + '">' + ICO.truck + '<span>' + esc(shortNo(v.vno)) + '</span></div>' : pillHtml(list);
-      const card = '<div class="mk-card"><div class="mk-card-h"><b>' + esc(g.name || '?') + '</b><span>' + n + '</span></div>' +
-        list.slice(0, CARD_MAX).map(x => '<button type="button" class="mk-v" data-v="' + esc(x.vno) + '" style="--c:' + CAT[x.cat].color + '"><b>' + esc(shortNo(x.vno)) + '</b><small>' + esc(CAT_SHORT[x.cat] || CAT[x.cat].label) + '</small></button>').join('') +
-        (n > CARD_MAX ? '<div class="mk-more">+' + (n - CARD_MAX) + ' more · tap</div>' : '') + '</div>';
+      const card = '<div class="mk-card"><div class="mk-card-h">' + ICO.pin + '<b>' + esc(g.name || '?') + '</b><span>' + n + '</span></div>' +
+        list.slice(0, CARD_MAX).map(x => '<button type="button" class="mk-v" data-v="' + esc(x.vno) + '" style="--c:' + CAT[x.cat].color + '"><i></i><b>' + esc(shortNo(x.vno)) + '</b><small>' + esc(CAT_SHORT[x.cat] || CAT[x.cat].label) + '</small></button>').join('') +
+        (n > CARD_MAX ? '<div class="mk-more">+' + (n - CARD_MAX) + ' more · tap to see all</div>' : '') + '</div>';
       const mk = L.marker(g.ll, { icon: L.divIcon({ className: 'mk', iconSize: null, html: '<div class="mk-in mk-grp"><div class="mk-sum">' + small + '</div>' + card + '</div>' }),
         zIndexOffset: 2000 + n, riseOnHover: true, vs: g.vs });   // over the OFFICE tag: zoomed in, the card says who is there
       const c = {};
@@ -3916,7 +3917,7 @@
     const el = m.map.getContainer();
     // zoomed in: a truck card on another moves to a free side of its place (the bigger cards stay put)
     const placed = [], free = q => !placed.some(k => q.left < k.right + 3 && k.left < q.right + 3 && q.top < k.bottom + 3 && k.top < q.bottom + 3);
-    [...el.querySelectorAll('.mk-card')].filter(e => { e.style.transform = ''; return e.offsetParent !== null; })
+    [...el.querySelectorAll('.mk-card')].filter(e => { e.style.transform = ''; e.classList.remove('moved'); return e.offsetParent !== null; })
       .sort((a, b) => b.childElementCount - a.childElementCount).forEach(e => {
         let r = e.getBoundingClientRect();
         if (!free(r)) {
@@ -3926,7 +3927,7 @@
             r = e.getBoundingClientRect();
             return free(r);
           });
-          if (!ok) { e.style.transform = ''; r = e.getBoundingClientRect(); }
+          if (!ok) { e.style.transform = ''; r = e.getBoundingClientRect(); } else e.classList.add('moved');   // moved: its pointer no longer points at the place
         }
         placed.push(r);
       });
@@ -4152,14 +4153,24 @@
     const where = v => v.cur ? 'now ' + v.cur : (v.from || '?') + ' → ' + (v.to || '?');
     // closed with a status picked: the head says which (RUNNING 42)
     m.rstat.getContainer().innerHTML = '<button type="button" class="hs-head" data-rs="~"' + (shut && pick ? ' style="background:' + pick.color + '"' : '') + ' title="' + (shut ? 'Show' : 'Hide') + ' the status list">' +
-      (shut && pick ? esc(pick.label) + '<b>' + (by[S.rcat] || []).length + '</b>' : 'Status<b>' + all.length + '</b>') + '<i>' + (shut ? '▸' : '▾') + '</i></button>' +
-      (shut ? '' : '<div class="hs-rows">' + cats.map(c => {
+      (shut && pick ? esc(pick.label) + '<b>' + (by[S.rcat] || []).length + '</b>' : '<span class="hs-fl">Fleet </span>status<b>' + all.length + '</b>') + '<i>' + (shut ? '▸' : '▾') + '</i></button>' +
+      // one bar, each status its share of the trucks
+      (shut ? '' : '<div class="hs-bar">' + cats.filter(c => by[c.key]).map(c => '<i style="--c:' + c.color + ';flex:' + by[c.key].length + '" title="' + esc(c.label) + ' ' + by[c.key].length + '"></i>').join('') + '</div>' +
+        '<div class="hs-rows">' + cats.map(c => {
         const on = S.rcat === c.key, list = (by[c.key] || []).slice().sort((a, b) => (a.cur || '').localeCompare(b.cur || '') || a.vno.localeCompare(b.vno));
         return '<button type="button" class="hs-row' + (on ? ' on' : '') + '" data-rs="' + c.key + '" style="--c:' + c.color + '" title="' + (on ? 'Show every truck again' : 'Only the ' + esc(c.label) + ' trucks') + '">' +
           '<i></i><span>' + esc(c.label) + '</span><b>' + list.length + '</b>' + (on ? '<em>✕</em>' : '') + '</button>' +
           (on ? '<div class="hs-list" style="--c:' + c.color + '">' + list.map(v => '<button type="button" class="hs-v" data-fly="' + esc(v.vno) + '" title="Show it on the map"><b>' + esc(shortNo(v.vno)) + '</b>' +
             '<small>' + esc(where(v)) + '</small></button>').join('') + '</div>' : '');
       }).join('') + '</div><div class="hs-tip">Tap a status: only its trucks</div>');
+    // bottom left: ● LIVE · 196 trucks on 72 routes (or the picked status)
+    if (!m.rinfo) {
+      const Info = L.Control.extend({ options: { position: 'bottomleft' }, onAdd: () => L.DomUtil.create('div', 'mp-live') });
+      m.rinfo = new Info().addTo(m.map);
+    }
+    const nr = new Set(vs.map(v => v.from + '→' + v.to)).size;
+    m.rinfo.getContainer().innerHTML = '<i></i><b>LIVE</b><span>' + vs.length + (pick ? ' ' + esc(pick.label) : '') + ' truck' + (vs.length === 1 ? '' : 's') +
+      ' · ' + nr + ' route' + (nr === 1 ? '' : 's') + '</span>';
   }
 
   /** trucks by status in a small box on the map (Loading 13 · Unloading 4 · Repair 2 …) — the whole fleet ("All trucks")
