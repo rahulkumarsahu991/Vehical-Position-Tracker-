@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v87';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v88';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -1445,9 +1445,10 @@
     const v = S.byVno[S.detail];
     if (!v) { closeDetail(); return; }
     const c = CAT[v.cat], p = S.active[v.vno], d = doing(v);
+    if (v.cat === 'loading') loadSince(v.vno);
     const kv = [
       ['Caller', v.callerName], ['Call time', shortTime(v.callTime)], ['Follow-up', shortTime(v.followUp)],
-      ['Status', v.status + (v.onTime ? ' · ' + v.onTime : '')], ['From', v.from], ['To', v.to],
+      ['Status', v.status + (v.onTime ? ' · ' + v.onTime : '')], ['Loading date', v.cat === 'loading' ? LS_MARK : ''], ['From', v.from], ['To', v.to],
       ['Current location', v.cur], ['Item', v.item], ['Driver', v.driver], ['Driver ID', v.driverId], ['Phone', v.phone],
       ['Diesel', v.diesel], ['Route check', v.routeCheck], ['Remarks', v.remarks], ['Next program (sheet)', v.nextProgram],
       ['Sheet date', v.dateKey ? prettyDate(v.dateKey) : v.date]
@@ -1462,7 +1463,8 @@
       (v.phoneDigits ? '<div class="quick"><a href="tel:+91' + v.phoneDigits + '" class="btn call-btn">' + ICO.phone + 'Call ' + esc((v.driver || 'driver').split(' ')[0]) + '</a>' +
         '<a href="' + esc(waLink(v)) + '" target="_blank" rel="noopener" class="btn wa-btn">' + ICO.wa + 'WhatsApp' + (p && p.program ? ' program' : '') + '</a></div>' : '') +
       '<div class="card"><h4>Program</h4>' + progEditor(v, true) + '</div>' + detailMsgsHtml(v) +
-      '<div class="card"><h4>Calling Sheet</h4><dl class="kv">' + kv.map(x => '<dt>' + esc(x[0]) + '</dt><dd>' + esc(x[1]) + '</dd>').join('') + '</dl></div>' +
+      '<div class="card"><h4>Calling Sheet</h4><dl class="kv">' + kv.map(x => '<dt>' + esc(x[0]) + '</dt>' +
+        (x[1] === LS_MARK ? '<dd data-lsince="' + esc(v.vno) + '">' + loadSinceHtml(v.vno) + '</dd>' : '<dd>' + esc(x[1]) + '</dd>')).join('') + '</dl></div>' +
       (hist.length ? '<div class="card"><h4>Program history</h4><div class="hist">' + hist.map(x =>
         '<div class="hist-item">' + (x.program ? '<b>' + esc(x.program) + '</b>' : '<i>No program</i>') + (x.broker ? ' (' + esc(x.broker) + ')' : '') +
         (x.note ? ' · Remark: ' + esc(x.note) : '') +
@@ -1472,6 +1474,42 @@
       '</div>';
   }
 
+  /* ---- since when a Loading vehicle is loading: from the "store" tab of the calling history sheet (every call ever
+   * recorded: Date, Call Time, Status …). Read for one vehicle when its details open (gviz, its last 90 days, ~5 KB,
+   * again after 10 minutes): its calls by date and call time; the loading date = the first call of the run of
+   * "Loading" calls it is in now (16 Nov Loading at NARASAPETMA, then ADDANKI, 17 Nov Loading → since 16 Nov) ---- */
+  const LS_MARK = '\u0000loading-since';
+  S.lsince = {};   // vno → { at, busy, date: 'YYYY-MM-DD' | '', err }
+  async function loadSince(vno) {
+    const st = CFG.STORE, c = S.lsince[vno] = S.lsince[vno] || { at: 0 };
+    if (!st || !st.SHEET_ID || c.busy || Date.now() - c.at < 600000) return;
+    c.busy = true;
+    try {
+      const q = "select B, E, I where upper(C) = '" + vno.replace(/[^A-Z0-9]/gi, '').toUpperCase() + "' and B >= date '" + addDays(todayKey(), -90) + "'";
+      const url = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(st.SHEET_ID) + '/gviz/tq?tqx=out:csv&gid=' + encodeURIComponent(st.GID || '0') + '&tq=' + encodeURIComponent(q);
+      const r = await fetchWithTimeout(url, { cache: 'no-store' }, 15000), text = await r.text();
+      if (!r.ok || /^\s*</.test(text)) throw new Error('the store tab could not be read');
+      const day = s => { const m = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/) || String(s).match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+        return !m ? '' : m[1].length === 4 ? m[1] + '-' + pad(+m[2]) + '-' + pad(+m[3]) : m[3] + '-' + pad(+m[1]) + '-' + pad(+m[2]); };
+      const mins = s => { const m = String(s).match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*([AP]M)?/i); return !m ? 0 : (+m[1] % 12 + (/p/i.test(m[3] || '') ? 12 : 0)) * 60 + +m[2]; };
+      const calls = parseCsv(text).slice(1).map(x => ({ d: day(x[0]), t: mins(x[1]), s: up(x[2]) })).filter(x => x.d)
+        .sort((a, b) => a.d.localeCompare(b.d) || a.t - b.t);
+      let i = calls.length;
+      while (i > 0 && calls[i - 1].s === 'LOADING') i--;
+      c.date = i < calls.length ? calls[i].d : '';   // the latest call not Loading (the store a call behind): no date
+      c.err = '';
+    } catch (e) { c.err = String((e && e.message) || e); }
+    c.busy = false; c.at = Date.now();
+    const el = $('#sheet [data-lsince="' + vno + '"]');
+    if (el) el.innerHTML = loadSinceHtml(vno);   // just this line: a program being typed in the details stays as it is
+  }
+  function loadSinceHtml(vno) {
+    const c = S.lsince[vno];
+    if (!c || (c.busy && !c.date)) return '<span class="muted">checking the store…</span>';
+    if (!c.date) return '<span class="muted">' + (c.err ? 'store tab could not be read' : 'not in the store yet') + '</span>';
+    const n = Math.round((new Date(todayKey() + 'T12:00:00') - new Date(c.date + 'T12:00:00')) / 864e5);
+    return '<b>' + esc(prettyDate(c.date) + ' ' + c.date.slice(0, 4)) + '</b> <span class="muted">· ' + (n <= 0 ? 'today' : n === 1 ? '1 day ago' : n + ' days ago') + '</span>';
+  }
   /** who was told what about this vehicle (Director → Manager → caller), newest first */
   function detailMsgsHtml(v) {
     const vm = S.flow ? S.msgs.filter(m => m.vno === v.vno && (isBoss(S.user) || forMe(m) || fromMe(m))).sort(byNewest) : [];

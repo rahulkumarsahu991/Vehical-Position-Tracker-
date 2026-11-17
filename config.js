@@ -29,6 +29,10 @@ window.VPT_CONFIG = {
   CALLS_GID: "1316490922",
   CALLS_REFRESH_SECONDS: 60,
 
+  // "store" tab of the calling history sheet (every call ever recorded): a Loading vehicle's details show since when
+  // it is loading (the first call of the "Loading" calls it is in now)
+  STORE: { SHEET_ID: "1l49Y4mPk9f7snYs2o7eK9ta1UMlBR5_6yXOQpkXi8QY", GID: "0" },
+
   APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbwnifG3RsawGDBd7jYMywoNM75vWDlP6SgTRK_ceLdHr1tbhwX476fTyPoUeTJ1y53d/exec",
 
   REFRESH_SECONDS: 15,  // check the Google Sheet for changes every N seconds (live sync)
