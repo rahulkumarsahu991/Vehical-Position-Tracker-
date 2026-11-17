@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v88';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v89';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -1487,8 +1487,18 @@
     try {
       const q = "select B, E, I where upper(C) = '" + vno.replace(/[^A-Z0-9]/gi, '').toUpperCase() + "' and B >= date '" + addDays(todayKey(), -90) + "'";
       const url = 'https://docs.google.com/spreadsheets/d/' + encodeURIComponent(st.SHEET_ID) + '/gviz/tq?tqx=out:csv&gid=' + encodeURIComponent(st.GID || '0') + '&tq=' + encodeURIComponent(q);
-      const r = await fetchWithTimeout(url, { cache: 'no-store' }, 15000), text = await r.text();
-      if (!r.ok || /^\s*</.test(text)) throw new Error('the store tab could not be read');
+      // the browser asks Google itself; a computer whose network stops that (some office laptops) asks the Apps Script,
+      // which asks Google the same question (Code.gs "store-4")
+      let text;
+      try {
+        const r = await fetchWithTimeout(url, { cache: 'no-store' }, 15000);
+        text = await r.text();
+        if (!r.ok || /^\s*</.test(text)) throw new Error('not the store tab');
+      } catch (e) {
+        if (LOCAL) throw e;
+        text = (await api('storeCalls', { vno: vno })).csv || '';
+        if (!text) throw e;
+      }
       const day = s => { const m = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/) || String(s).match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
         return !m ? '' : m[1].length === 4 ? m[1] + '-' + pad(+m[2]) + '-' + pad(+m[3]) : m[3] + '-' + pad(+m[1]) + '-' + pad(+m[2]); };
       const mins = s => { const m = String(s).match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*([AP]M)?/i); return !m ? 0 : (+m[1] % 12 + (/p/i.test(m[3] || '') ? 12 : 0)) * 60 + +m[2]; };
