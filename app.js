@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v89';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v90';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -2619,7 +2619,8 @@
     return pages.length;
   }
   function tunOnePage(grid, orient, name) {
-    const W = [178, 233, 111, 307, 120, 120, 105];   // the tab's column widths (px)
+    // the tab's column widths (px); the 3rd a little wider than the sheet's 111 — it is Next Load in No Program
+    const W = [178, 233, 140, 278, 120, 120, 105];
     const cols =Math.min(Math.max(...grid.map(r => { let k = r.length; while (k && !String(r[k - 1] || '').trim()) k--; return k; })), 10) || W.length;
     const widths = Array.from({ length: cols }, (_, i) => W[i] || 110), sum = widths.reduce((a, b) => a + b, 0);
     let heads = [], blocks = 0, blank = true;
@@ -2635,13 +2636,20 @@
           '<tr>' + heads.map((h, i) => '<td class="' + (i ? (h ? 'tun-hd' : '') : 'tun-cat') + '">' + esc(h) + '</td>').join('') + '</tr>';
       }
       const m = c(0).match(/^\d+\.\s*([A-Z0-9]+)/i), vno = m ? m[1].toUpperCase() : '', p = vno && S.active[vno];
-      return '<tr>' + Array.from({ length: cols }, (_, i) => {
-        const h = heads[i] || '', next = /^next\s*load$/i.test(h), broker = /^broker$/i.test(h);
+      const isNext = i => /^next\s*load$/i.test(heads[i] || ''), isBroker = i => /^broker$/i.test(heads[i] || '');
+      let tds = '';
+      for (let i = 0; i < cols; i++) {
+        const next = isNext(i), broker = isBroker(i);
         let x = esc(c(i));
         if (vno && !c(i) && next) x = progCell(S.byVno[vno] || { vno: vno });   // the website's program where the sheet has none
         if (vno && !c(i) && broker && p) x = twoLines(p.broker || '');
-        return '<td' + (vno && (next || broker) ? ' class="prog" data-edit="' + esc(vno) + '"' : '') + '>' + x + '</td>';
-      }).join('') + '</tr>';
+        // No Program: Next Load is the narrow 3rd column — with no broker it also takes the Broker column beside it,
+        // so "BHATAPARA" / "VISHAKHAPATNAM" stay whole
+        const wide = vno && next && isBroker(i + 1) && !c(i + 1) && !(p && p.broker);
+        tds += '<td' + (wide ? ' colspan="2"' : '') + (vno && (next || broker) ? ' class="prog" data-edit="' + esc(vno) + '"' : '') + '>' + x + '</td>';
+        if (wide) i++;
+      }
+      return '<tr>' + tds + '</tr>';
     }).join('');
     return '<div class="page ' + orient + '" data-maxfs="15" data-name="' + esc(name) + '"><div class="page-inner"><table class="tun"><colgroup>' +   // 15: a vehicle number stays on one line
       widths.map(w => '<col style="width:' + (w / sum * 100).toFixed(2) + '%">').join('') + '</colgroup>' + rows + '</table></div></div>';
