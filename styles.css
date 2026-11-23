@@ -1374,6 +1374,8 @@ table.tun td {
   overflow-wrap: anywhere; height: calc(var(--fs) * 1.5);
 }
 table.tun td.nw, table.pf td.nw { white-space: nowrap; overflow-wrap: normal; }   /* vehicle number / date: one line */
+table.tun.un td { overflow-wrap: normal; }   /* U&N: words are never cut (tunPaginate makes the text smaller instead) */
+table.tun.un td.prog { font-size: .9em; line-height: 1.15; }   /* the website's programs (From → To ₹rate, 1) 2)) in the narrow Next Load */
 table.tun .tun-top td, table.tun .tun-cat, table.tun .tun-hd { font-weight: 700; }
 table.tun .tun-top td { padding: 1mm; }
 table.tun .tun-cat { background: #f39c12; }

@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v90';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v91';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -2303,7 +2303,7 @@
           (sp === 'un' ? ' A Next Load / Broker the sheet leaves blank shows the program given on this website (✓ = driver informed) — tap it to give one.' : '');
         area.innerHTML = '<div class="pages">' + (sp === 'un' ? tunPageHtml(t.grid, o) : sheetPagesHtml(sp, t.grid, o)) + '</div>';
         const pe = $('.pages', area);
-        pe._tun = sp === 'un' && pe.children.length > 1 ? pe.innerHTML : null;   // U&N over 2 pages: laid out again by tunPaginate
+        pe._tun = sp === 'un' ? pe.innerHTML : null;   // U&N: laid out by tunPaginate (11px or more, more pages if need be)
         setPageSize(o);
         fitPages();
         return;
@@ -2533,11 +2533,17 @@
         pg.w.map(w => '<col style="width:' + (w / sum * 100).toFixed(2) + '%">').join('') + '</colgroup>' + rows.join('') + '</table></div></div>';
     }).join('');
   }
-  /** the sheet puts what does not fit — vehicle 56 on, and the blocks after it — in a second column set (G–L);
+  /** the sheet puts what does not fit — vehicle 56 on, and the blocks after it — in a second column set (H–N);
    *  the print goes on below instead, one list: the right set's rows follow the left set's, its repeated block name
-   *  ("Unloading (56)" again) left out, so the numbers simply run on 55, 56, … */
+   *  ("Unloading (56)" again) left out, so the numbers simply run on 55, 56, … A set's width is found in the sheet
+   *  (the first column after the 4th with a vehicle or a block name in it): it was 6 columns, now 7 with Remark */
   function tunFlow(grid) {
-    const W = 6, filled = r => r.some(Boolean);
+    const isVeh = x => /^\d+\.\s*[A-Z]{2}\d/i.test(x), isName = x => /\(\d+\+?\)\s*$/.test(x) && !/^\d+\./.test(x);
+    const most = Math.max(0, ...grid.map(r => r.length));
+    let W = 0;
+    for (let i = 4; i < most && !W; i++) if (grid.slice(1).some(r => { const x = String(r[i] == null ? '' : r[i]).trim(); return isVeh(x) || isName(x); })) W = i;
+    if (!W) return grid;   // no second set
+    const filled = r => r.some(Boolean);
     const cut = (r, a) => Array.from({ length: W }, (_, i) => String(r[a + i] == null ? '' : r[a + i]).trim());
     const left = grid.slice(1).map(r => cut(r, 0)), right = grid.slice(1).map(r => cut(r, W));
     if (!right.some(filled)) return grid;
@@ -2563,24 +2569,28 @@
     }
     return tunOnePage(grid, orient, 'U&N All callers');
   }
-  /** U&N over two pages: both pages in ONE text size — the biggest (up to 15px) at which it all still fits on the two
-   *  pages: page 1 keeps as many Unloading as fit, the rest move to page 2 over its "Unloading" headings (only when
-   *  even the smallest size does not fit does it go on to a 3rd page, then at full size) */
+  /** U&N for all callers in a readable size: never under 11px — what does not fit goes on to the next page (the date
+   *  line and the block's headings again) — and every page in ONE size, the biggest (up to 15px) for that many pages
+   *  with no word cut (a place name wider than its column makes the text smaller, not BHATAPAR-A) */
+  const TUN_LOW = 11;
   function tunPaginate(pagesEl) {
     if (!pagesEl._tun) return;
     pagesEl.innerHTML = pagesEl._tun;   // start again from the pages as built (fonts may have loaded since)
-    const n = $$('.page', pagesEl).length, top = Number($('.page', pagesEl).dataset.maxfs) || 15;
+    const top = Number($('.page', pagesEl).dataset.maxfs) || 15, c = S.tunFs;
     // the same pages as last time (a refresh with nothing changed): the size found then, one layout instead of ~9
-    if (S.tunFs && S.tunFs.html === pagesEl._tun && tunLay(pagesEl, S.tunFs.fs) <= n) return;
+    if (c && c.html === pagesEl._tun && tunLay(pagesEl, c.fs) <= c.n) return;
+    const n = Math.max($$('.page', pagesEl).length, tunLay(pagesEl, TUN_LOW) % 100);   // the fewest pages at 11px
     let fs = top;
     if (tunLay(pagesEl, top) > n) {
-      let lo = 26, hi = top * 4;   // in quarter px: 6.5px … 15px
+      let lo = TUN_LOW * 4, hi = top * 4;   // in quarter px
       while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (tunLay(pagesEl, mid / 4) <= n) lo = mid; else hi = mid; }
-      fs = tunLay(pagesEl, lo / 4) <= n ? lo / 4 : (tunLay(pagesEl, top), top);
+      fs = lo / 4;
+      tunLay(pagesEl, fs);
     }
-    S.tunFs = { html: pagesEl._tun, fs: fs };
+    S.tunFs = { html: pagesEl._tun, fs: fs, n: n };
   }
-  /** lays the U&N pages out again at text size fs: each page filled, what does not fit moved on; returns the pages used */
+  /** lays the U&N pages out again at text size fs: each page filled, what does not fit moved on; returns the pages used
+   *  (+100 when a word is wider than its cell at this size) */
   function tunLay(pagesEl, fs) {
     pagesEl.innerHTML = pagesEl._tun;
     const isHead = tr => !!tr.querySelector('td.tun-cat');
@@ -2616,13 +2626,14 @@
       }
     }
     pages.forEach(p => { p.dataset.maxfs = fs; });   // fitOne then keeps every page at this size
-    return pages.length;
+    const cut = $$('table.tun td', pagesEl).some(td => td.scrollWidth > td.clientWidth + 1);   // (words are never broken here)
+    return pages.length + (cut ? 100 : 0);
   }
   function tunOnePage(grid, orient, name) {
-    // the tab's column widths (px); the 3rd a little wider than the sheet's 111 — it is Next Load in No Program
-    const W = [178, 233, 140, 278, 120, 120, 105];
+    // the tab's column widths (A–G: Unloading · To Location · Item · Next Load · Aproved · Remark · Duration)
+    const W = [21.38, 27.63, 17.63, 17.63, 13.88, 28.63, 16.38];
     const cols =Math.min(Math.max(...grid.map(r => { let k = r.length; while (k && !String(r[k - 1] || '').trim()) k--; return k; })), 10) || W.length;
-    const widths = Array.from({ length: cols }, (_, i) => W[i] || 110), sum = widths.reduce((a, b) => a + b, 0);
+    const widths = Array.from({ length: cols }, (_, i) => W[i] || 16), sum = widths.reduce((a, b) => a + b, 0);
     let heads = [], blocks = 0, blank = true;
     const empty = '<tr>' + '<td></td>'.repeat(cols) + '</tr>';
     const rows = grid.map(r => {
@@ -2633,7 +2644,7 @@
       if (/\(\d+\)\s*$/.test(c(0)) && !/^\d+\./.test(c(0))) {   // a block: "Unloading (39)" + its headings
         heads = Array.from({ length: cols }, (_, i) => c(i));
         return (blocks++ && !was ? empty : '') +   // one empty row between blocks, as in the sheet (gviz leaves it out)
-          '<tr>' + heads.map((h, i) => '<td class="' + (i ? (h ? 'tun-hd' : '') : 'tun-cat') + '">' + esc(h) + '</td>').join('') + '</tr>';
+          '<tr>' + heads.map((h, i) => '<td class="' + (i ? 'tun-hd' : 'tun-cat') + '">' + esc(h) + '</td>').join('') + '</tr>';   // blank headings blue too, as in the sheet
       }
       const m = c(0).match(/^\d+\.\s*([A-Z0-9]+)/i), vno = m ? m[1].toUpperCase() : '', p = vno && S.active[vno];
       const isNext = i => /^next\s*load$/i.test(heads[i] || ''), isBroker = i => /^broker$/i.test(heads[i] || '');
@@ -2643,15 +2654,11 @@
         let x = esc(c(i));
         if (vno && !c(i) && next) x = progCell(S.byVno[vno] || { vno: vno });   // the website's program where the sheet has none
         if (vno && !c(i) && broker && p) x = twoLines(p.broker || '');
-        // No Program: Next Load is the narrow 3rd column — with no broker it also takes the Broker column beside it,
-        // so "BHATAPARA" / "VISHAKHAPATNAM" stay whole
-        const wide = vno && next && isBroker(i + 1) && !c(i + 1) && !(p && p.broker);
-        tds += '<td' + (wide ? ' colspan="2"' : '') + (vno && (next || broker) ? ' class="prog" data-edit="' + esc(vno) + '"' : '') + '>' + x + '</td>';
-        if (wide) i++;
+        tds += '<td' + (vno && (next || broker) ? ' class="prog" data-edit="' + esc(vno) + '"' : '') + '>' + x + '</td>';
       }
       return '<tr>' + tds + '</tr>';
     }).join('');
-    return '<div class="page ' + orient + '" data-maxfs="15" data-name="' + esc(name) + '"><div class="page-inner"><table class="tun"><colgroup>' +   // 15: a vehicle number stays on one line
+    return '<div class="page ' + orient + '" data-maxfs="15" data-name="' + esc(name) + '"><div class="page-inner"><table class="tun un"><colgroup>' +   // 15: a vehicle number stays on one line
       widths.map(w => '<col style="width:' + (w / sum * 100).toFixed(2) + '%">').join('') + '</colgroup>' + rows + '</table></div></div>';
   }
 
