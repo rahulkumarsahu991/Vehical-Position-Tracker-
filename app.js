@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v91';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v92';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -2202,8 +2202,9 @@
     let s = '';
     if (p.program) {
       s += progLines(p.program) +   // two programs: 1) From → To ₹rate and 2) … on their own lines
-        (/^director$/i.test(String(p.givenBy || '').trim()) ? ' <b class="by-d" title="Given by the Director">(D)</b>' : '') +
-        (p.informed === 'Yes' ? ' <span class="ok">✓</span>' : '');
+        // (D) / ✓ kept with the last word (never alone on a line of their own)
+        (/^director$/i.test(String(p.givenBy || '').trim()) ? '&nbsp;<b class="by-d" title="Given by the Director">(D)</b>' : '') +
+        (p.informed === 'Yes' ? '&nbsp;<span class="ok">✓</span>' : '');
     }
     return s;
   }
@@ -2630,8 +2631,10 @@
     return pages.length + (cut ? 100 : 0);
   }
   function tunOnePage(grid, orient, name) {
-    // the tab's column widths (A–G: Unloading · To Location · Item · Next Load · Aproved · Remark · Duration)
-    const W = [21.38, 27.63, 17.63, 17.63, 13.88, 28.63, 16.38];
+    // column widths (A–G: Unloading · To Location · Item · Next Load · Aproved · Remark · Duration) — the sheet's
+    // 21.38 / 27.63 / 17.63 / 17.63 / 13.88 / 28.63 / 16.38 with Next Load wider (the website's programs go there; in
+    // No Program it is the 3rd column, so both C and D), taken from To Location, Aproved, Remark and Duration
+    const W = [21.38, 23, 27, 27, 10.5, 21, 13.5];
     const cols =Math.min(Math.max(...grid.map(r => { let k = r.length; while (k && !String(r[k - 1] || '').trim()) k--; return k; })), 10) || W.length;
     const widths = Array.from({ length: cols }, (_, i) => W[i] || 16), sum = widths.reduce((a, b) => a + b, 0);
     let heads = [], blocks = 0, blank = true;
