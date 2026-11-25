@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v93';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v94';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -2271,7 +2271,7 @@
 
   function renderPrint() {
     loadPrintFont();
-    const P = S.print;
+    const P = S.print, PO = P.orient === 'fit' ? 'auto' : P.orient;   // "Fit to screen": the paper as Auto, only the preview fitted
     const rep = REPORTS[P.rep] || REPORTS.caller;
     $$('#repSeg button').forEach(b => b.classList.toggle('on', b.dataset.rep === P.rep));
     const names = S.callers.concat(S.vehicles.some(v => !v.caller && v.cat !== 'sold') ? ['Unassigned'] : []);
@@ -2298,7 +2298,7 @@
       loadTun(sp);
       const t = tabOf(sp);
       if (t.grid) {
-        const o = P.orient === 'auto' ? 'portrait' : P.orient;
+        const o = PO === 'auto' ? 'portrait' : PO;
         $('#repCols').disabled = true;
         $('#repHint').textContent = 'Same as the sheet’s “' + SHEET_PRINTS[sp].tab + '” tab (read live from the sheet).' +
           (sp === 'un' ? ' A Next Load / Broker the sheet leaves blank shows the program given on this website (✓ = driver informed) — tap it to give one.' : '');
@@ -2316,14 +2316,14 @@
     $('#clearProgBtn span').textContent = 'Remove programs (' + withProg.length + ')';
     if (rep.printf) {
       loadRepairInfo();
-      const o = P.orient === 'auto' ? rep.orient : P.orient;
+      const o = PO === 'auto' ? rep.orient : PO;
       area.innerHTML = '<div class="pages">' + sets.map(s => printfPageHtml(s.vs, s.caller, o)).join('') + '</div>';
       setPageSize(o);
       fitPages();
       return;
     }
     if (rep.pages) { // e.g. L&R: page 1 Loading, page 2 Running + Empty Running
-      const o = P.orient === 'auto' ? rep.orient : P.orient; // one paper orientation for the whole print
+      const o = PO === 'auto' ? rep.orient : PO; // one paper orientation for the whole print
       const parts = rep.pages.map(pg => Object.assign({}, sets[0], { part: pg }));
       const lays = parts.map(s => chooseLayout(rep, [s], o));
       area.innerHTML = '<div class="pages">' + parts.map((s, i) => pageHtml(rep, s.vs, s.caller, o, lays[i].c, i + 1, parts.length, s.part)).join('') + '</div>';
@@ -2335,7 +2335,7 @@
     area.innerHTML = '<div class="pages">' + sets.map((s, i) => pageHtml(rep, s.vs, s.caller, lay.o, lay.c, i + 1, sets.length)).join('') + '</div>';
     setPageSize(lay.o);
     fitPages();
-    if (P.orient === 'auto' || P.cols === 'auto') {
+    if (PO === 'auto' || P.cols === 'auto') {
       $('#repHint').textContent = rep.hint + ' Auto layout: ' + lay.o + ', ' + lay.c + ' column' + (lay.c > 1 ? 's' : '') + '.';
     }
   }
@@ -2716,8 +2716,7 @@
     const pagesEl = $('#printArea .pages');
     const pages = pagesEl ? $$('.page', pagesEl) : [];
     if (!pages.length) throw new Error('Nothing to download');
-    const zoom = pagesEl.style.zoom;
-    pagesEl.style.zoom = '';
+    unscalePreview(pagesEl);   // each page at its paper size while it is photographed
     try {
       const out = [];
       for (let i = 0; i < pages.length; i++) {
@@ -2727,7 +2726,7 @@
         out.push({ url: url, name: String(pg.dataset.name || 'Page ' + (i + 1)).split(' — ').pop(), landscape: pg.classList.contains('landscape'), w: pg.offsetWidth, h: pg.offsetHeight });
       }
       return out;
-    } finally { pagesEl.style.zoom = zoom; }
+    } finally { scalePreview(); }
   }
   const safeName = s => String(s).replace(/[^\w\- ]+/g, ' ').trim().replace(/\s+/g, '-');
   function saveFile(href, name) { const a = document.createElement('a'); a.href = href; a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
@@ -2791,16 +2790,16 @@
    *  (the report's usual layout wins unless another is clearly more readable). */
   const layoutCache = {};
   function chooseLayout(rep, sets, fixedOrient) {
-    const P = S.print;
-    const orients = fixedOrient ? [fixedOrient] : P.orient === 'auto' ? ['portrait', 'landscape'] : [P.orient];
+    const P = S.print, PO = P.orient === 'fit' ? 'auto' : P.orient;   // Fit to screen = Auto on paper
+    const orients = fixedOrient ? [fixedOrient] : PO === 'auto' ? ['portrait', 'landscape'] : [PO];
     const colsList = P.cols === 'auto' ? [1, 2, 3] : [+P.cols];
     if (orients.length * colsList.length === 1) return { o: orients[0], c: colsList[0] };
     const big = sets.reduce((a, s) => (s.vs.length > a.vs.length ? s : a), sets[0]);
-    const key = [P.rep, P.orient, P.cols, fixedOrient, big.part ? big.part.cats.join() : '', big.caller,
+    const key = [P.rep, PO, P.cols, fixedOrient, big.part ? big.part.cats.join() : '', big.caller,
       big.vs.length, big.vs.map(v => v.cat + v.vno).join('').length].join('|');
     if (layoutCache[key]) return layoutCache[key];
     const area = $('#printArea');
-    const isUsual = (o, c) => (P.orient === 'auto' ? o === rep.orient : true) && (P.cols === 'auto' ? c === rep.cols : true);
+    const isUsual = (o, c) => (PO === 'auto' ? o === rep.orient : true) && (P.cols === 'auto' ? c === rep.cols : true);
     const combos = [];
     orients.forEach(o => colsList.forEach(c => combos.push({ o: o, c: c })));
     combos.sort((a, b) => isUsual(b.o, b.c) - isUsual(a.o, a.c)); // the usual layout first
@@ -2825,7 +2824,7 @@
   function fitPages() {
     const pagesEl = $('#printArea .pages');
     if (!pagesEl) return;
-    pagesEl.style.zoom = '';
+    unscalePreview(pagesEl);
     tunPaginate(pagesEl);
     $$('.page', pagesEl).forEach(fitOne);
     scalePreview();
@@ -2858,13 +2857,33 @@
     fits(fs);
     return fs;
   }
+  /** the print preview no wider than the screen — and with Page "Fit to screen" no taller either (the whole page in
+   *  view). Scaled with a transform, not CSS zoom (an iPhone's Safari does not always honour zoom, and the page then
+   *  ran off the screen); the pages keep their paper size inside, so the layout is the print's. */
+  function unscalePreview(pagesEl) {
+    pagesEl.removeAttribute('style');
+    pagesEl.parentNode.classList.remove('scaled');
+  }
   function scalePreview() {
-    const pagesEl = $('#printArea .pages');
+    const area = $('#printArea'), pagesEl = $('.pages', area);
     if (!pagesEl || !pagesEl.firstElementChild) return;
-    pagesEl.style.zoom = '';
-    const avail = $('#printArea').clientWidth - 4;
-    const pw = pagesEl.firstElementChild.offsetWidth;
-    if (pw > avail && avail > 0) pagesEl.style.zoom = String(Math.max(0.3, avail / pw));
+    unscalePreview(pagesEl);
+    const first = pagesEl.firstElementChild, pw = first.offsetWidth, ph = first.offsetHeight, avail = area.clientWidth - 4;
+    if (!pw || avail <= 0) return;
+    let s = Math.min(1, avail / pw);
+    if (S.print.orient === 'fit') {
+      const nav = $('.bottom-nav'), below = nav && nav.offsetParent !== null ? nav.offsetHeight : 0;
+      const head = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sticky-top'), 10) || $('.top').offsetHeight || 96;
+      s = Math.min(s, (window.innerHeight - head - below - 24) / ph);
+    }
+    s = Math.max(0.15, s);
+    if (s > 0.995) return;
+    const st = pagesEl.style;
+    st.width = pw + 'px';
+    st.transform = 'scale(' + s.toFixed(4) + ')';
+    st.marginLeft = Math.max(0, (avail - pw * s) / 2) + 'px';
+    st.marginBottom = -(pagesEl.offsetHeight * (1 - s)) + 'px';   // the room the pages no longer take
+    area.classList.add('scaled');
   }
 
   /* =====================================================================

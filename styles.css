@@ -634,6 +634,7 @@ table.vt td.rem { min-width: 180px; color: var(--ink-2); }
 .pc-opts .btn { margin-left: auto; padding: 10px 22px; font-size: 15px; }
 .print-controls .hint { margin: 0; }
 .print-area { overflow-x: auto; padding-bottom: 10px; }
+.print-area.scaled { overflow: hidden; }   /* pages scaled down to the screen (their paper-size boxes stay inside) */
 .pages { transform-origin: top left; }
 
 .page {
@@ -1529,8 +1530,8 @@ table.tun .prog { cursor: pointer; }
   #view-board, #view-programs { display: none !important; }
   main { padding: 0; max-width: none; }
   #view-print { display: block !important; animation: none; }
-  .print-area { overflow: visible; padding: 0; }
-  .pages { zoom: 1 !important; transform: none !important; }
+  .print-area, .print-area.scaled { overflow: visible; padding: 0; }
+  .pages { zoom: 1 !important; transform: none !important; width: auto !important; margin: 0 !important; }
   .page { margin: 0; box-shadow: none; break-after: page; }
   .page:last-child { break-after: auto; }
 }
