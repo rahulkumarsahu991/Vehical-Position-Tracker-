@@ -35,7 +35,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full / blocked */ } }
   };
-  const APP_VER = 'v94';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
+  const APP_VER = 'v95';   // same number as sw.js CACHE — shown on the print, to see which version a computer runs
   const K = {
     user: 'vpt_user', caller: 'vpt_caller', group: 'vpt_group', closed: 'vpt_closed',
     progs: 'vpt_programs_local', cache: 'vpt_cache_v1', progCache: 'vpt_prog_cache_v1', outbox: 'vpt_outbox_v1', print: 'vpt_print', banner: 'vpt_banner_hidden',
@@ -2354,7 +2354,7 @@
     const add = (side, label, fill, heads, rows, edit) => { if (rows.length) side.push({ label: label, fill: fill, heads: heads, rows: rows, edit: !!edit }); };
     // the 3rd column of Loading / Unloading: the vehicle's Remarks from the Calling Sheet (its column Y), as the tab does
     add(L, 'LOADING', 'orange', ['FROM LOCATION', 'Remark'], list('loading').map(v => [v.vno, esc(v.from), esc(v.remarks)]));
-    add(L, 'UNLOADING', 'orange', ['TO LOCATION (ITEM)', ''], list('unloading').map(v => [v.vno, esc(v.to + (v.item ? ' (' + v.item + ')' : '')), esc(v.remarks)]), true);
+    add(L, 'UNLOADING', 'orange', ['TO LOCATION (ITEM)', 'Remark'], list('unloading').map(v => [v.vno, esc(v.to + (v.item ? ' (' + v.item + ')' : '')), esc(v.remarks)]), true);
     add(L, 'REPAIR', 'yellow', ['LOCATION', 'REASON'], list('repair').map(v => {
       const r = S.repairInfo[v.vno] || {};
       const d = String(r.date || '').match(/^(\d{4})-(\d\d)-(\d\d)/);
